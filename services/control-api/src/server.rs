@@ -9,6 +9,7 @@ use rb_email::{SmtpConfig, from_transport};
 use rb_github::{GhApp, Secret};
 use rb_kafka::{ConsumerCfg, Producer, ProducerCfg};
 use rb_sse::{EventBus, SseConfig};
+use rb_storage_neo4j::TenantGraph;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -67,32 +68,31 @@ pub async fn run(config: Config) -> Result<()> {
 
     let sse_bus = Arc::new(EventBus::new(SseConfig::default()));
 
-    // Build the Kafka ingestion producer.  Failure is non-fatal — the route
-    // returns 503 when the producer is absent (graceful degradation).
+    // Build the Kafka producers.  Failure is non-fatal — routes degrade to 503.
     let producer_cfg = ProducerCfg {
         bootstrap_servers: config.kafka_bootstrap_servers.clone(),
         ..ProducerCfg::default()
     };
-    let ingest_producer = match Producer::new(&producer_cfg) {
-        Ok(p) => {
-            tracing::info!("ingest_producer connected to Kafka");
-            Some(Arc::new(p))
-        }
-        Err(e) => {
-            tracing::warn!("ingest_producer failed to connect (Kafka unavailable?): {e}");
-            None
-        }
-    };
+    let ingest_producer = build_producer(Producer::new(&producer_cfg), "ingest_producer");
+    let tombstone_producer = build_producer(Producer::new(&producer_cfg), "tombstone_producer");
 
-    let tombstone_producer = match Producer::new(&producer_cfg) {
-        Ok(p) => {
-            tracing::info!("tombstone_producer connected to Kafka");
-            Some(Arc::new(p))
+    // Connect to Neo4j.  Failure is non-fatal — graph endpoints degrade to 503.
+    let graph = if let (Some(uri), Some(password)) =
+        (config.neo4j_uri.as_deref(), config.neo4j_password.as_deref())
+    {
+        match TenantGraph::connect(uri, &config.neo4j_user, password).await {
+            Ok(g) => {
+                tracing::info!("neo4j connected at {uri}");
+                Some(Arc::new(g))
+            }
+            Err(e) => {
+                tracing::warn!("neo4j connection failed (graph endpoints disabled): {e}");
+                None
+            }
         }
-        Err(e) => {
-            tracing::warn!("tombstone_producer failed to connect (Kafka unavailable?): {e}");
-            None
-        }
+    } else {
+        tracing::info!("RB_NEO4J_URI / RB_NEO4J_PASSWORD not set — graph endpoints disabled");
+        None
     };
 
     let state = AppState {
@@ -106,6 +106,7 @@ pub async fn run(config: Config) -> Result<()> {
         ingest_producer,
         tombstone_producer,
         module_tree_cache: rb_query::new_module_tree_cache(),
+        graph,
     };
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do
@@ -137,6 +138,22 @@ pub async fn run(config: Config) -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+fn build_producer<P, Err: std::fmt::Display>(
+    result: Result<P, Err>,
+    name: &str,
+) -> Option<Arc<P>> {
+    match result {
+        Ok(p) => {
+            tracing::info!("{name} connected to Kafka");
+            Some(Arc::new(p))
+        }
+        Err(e) => {
+            tracing::warn!("{name} failed to connect (Kafka unavailable?): {e}");
+            None
+        }
+    }
 }
 
 /// Constructs a [`GhApp`] from config, or returns `None` when the GitHub App

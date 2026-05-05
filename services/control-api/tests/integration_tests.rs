@@ -41,6 +41,7 @@ fn test_state() -> AppState {
         ingest_producer: None,
         tombstone_producer: None,
         module_tree_cache: rb_query::new_module_tree_cache(),
+        graph: None,
     }
 }
 
@@ -319,6 +320,9 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         gh_app_id: None,
         gh_app_private_key_b64: None,
         gh_app_webhook_secret: None,
+        neo4j_uri: None,
+        neo4j_user: "neo4j".to_owned(),
+        neo4j_password: None,
         kafka_bootstrap_servers: "localhost:9092".to_owned(),
         dev_test_routes: false,
         migrations_root: None,
@@ -334,6 +338,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         ingest_producer: None,
         tombstone_producer: None,
         module_tree_cache: rb_query::new_module_tree_cache(),
+        graph: None,
     };
     Some((state, pool))
 }

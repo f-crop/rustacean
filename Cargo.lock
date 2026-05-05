@@ -1076,6 +1076,7 @@ dependencies = [
  "rb-schemas",
  "rb-secrets",
  "rb-sse",
+ "rb-storage-neo4j",
  "rb-storage-pg",
  "rb-tenant",
  "rb-tracing",
@@ -3819,6 +3820,9 @@ name = "rb-query"
 version = "0.1.0"
 dependencies = [
  "moka",
+ "neo4rs",
+ "rb-schemas",
+ "rb-storage-neo4j",
  "rb-tenant",
  "serde",
  "sqlx",

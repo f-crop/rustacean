@@ -113,6 +113,37 @@ impl TenantGraph {
         self.run(tenant_id, "MATCH (n) DETACH DELETE n", &[]).await
     }
 
+    /// Execute a read Cypher query with string parameters, injecting the tenant label.
+    ///
+    /// Returns all matching rows collected in memory.  Use this for all read
+    /// queries so that tenant-label isolation (ADR-007 §3.4) is enforced on the
+    /// read path too — callers must not hold a raw `neo4rs::Graph` reference.
+    ///
+    /// # Errors
+    ///
+    /// - [`CypherError::MultiStatement`] — semicolon found outside a string/comment.
+    /// - [`CypherError::UnclosedNodePattern`] — unbalanced `(` in a path clause.
+    /// - [`CypherError::Neo4j`] — driver or network failure.
+    pub async fn execute_read(
+        &self,
+        tenant_id: &TenantId,
+        cypher: &str,
+        params: &[(&str, &str)],
+    ) -> Result<Vec<neo4rs::Row>, CypherError> {
+        let label = tenant_label(tenant_id);
+        let injected = inject_tenant_label(cypher, &label)?;
+        let mut q = neo4rs::query(&injected);
+        for (k, v) in params {
+            q = q.param(k, *v);
+        }
+        let mut stream = self.inner.execute(q).await?;
+        let mut rows = Vec::new();
+        while let Some(row) = stream.next().await? {
+            rows.push(row);
+        }
+        Ok(rows)
+    }
+
     /// Count `TypeInstance` nodes scoped to `tenant_id`.
     ///
     /// Used by projector-neo4j to enforce the `RB_MONOMORPH_NODE_CAP` per ADR-007 §13.7.
