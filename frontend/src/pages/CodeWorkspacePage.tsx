@@ -174,17 +174,21 @@ function CodeWorkspaceInner({ repoId, tenantId }: CodeWorkspaceInnerProps): JSX.
             id="side-panel-search"
             role="tabpanel"
             aria-label="Search"
-            className={cn("flex-1 overflow-auto", sideTab !== "search" && "hidden")}
+            className={cn("flex-1 overflow-hidden", sideTab !== "search" && "hidden")}
           >
-            <SearchPanel />
+            <SearchPanel onSelect={handleSelect} />
           </div>
           <div
             id="side-panel-relations"
             role="tabpanel"
             aria-label="Relations"
-            className={cn("flex-1 overflow-auto", sideTab !== "relations" && "hidden")}
+            className={cn("flex-1 overflow-hidden", sideTab !== "relations" && "hidden")}
           >
-            <RelationsPanel />
+            <RelationsPanel
+              repoId={repoId}
+              fqnB64={fqnB64 ?? null}
+              onSelect={handleSelect}
+            />
           </div>
         </aside>
       </div>
