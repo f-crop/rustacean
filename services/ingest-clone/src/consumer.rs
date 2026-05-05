@@ -199,13 +199,9 @@ async fn resolve_clone_url(
 
     let pat = std::env::var("GITHUB_PAT").unwrap_or_default();
     if pat.is_empty() {
-        Ok(format!("https://github.com/{}.git", full_name))
+        Ok(format!("https://github.com/{full_name}.git"))
     } else {
-        Ok(format!(
-            "https://x-access-token:{}@github.com/{}.git",
-            pat,
-            full_name
-        ))
+        Ok(format!("https://x-access-token:{pat}@github.com/{full_name}.git"))
     }
 }
 
