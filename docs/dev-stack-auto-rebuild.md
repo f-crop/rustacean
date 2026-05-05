@@ -33,6 +33,16 @@ After restart the script waits 15 s then probes:
 
 Results are written to the rebuild log and optionally posted as a GitHub commit status.
 
+## Image strategy on mars (local-build-only)
+
+All custom service images (`ghcr.io/jarnura/rustacean/*:dev`, `rustbrain/frontend:dev`) are built
+from source on mars. GHCR pull is never used — `compose/dev.yml` sets `pull_policy: never` on
+every custom service so Docker will not attempt a registry pull. Third-party images
+(postgres, neo4j, kafka, …) are still pulled from their public registries as normal.
+
+**Why**: mars has no GHCR credentials. The `image:` tags in the compose file serve only to
+name the locally-built artifact consistently; they are not treated as pull targets.
+
 ## Setup on mars
 
 ### 1. Clone or pull the repo
@@ -48,7 +58,20 @@ git pull
 chmod +x scripts/dev-stack-watch.sh scripts/dev-stack-auto-rebuild.sh
 ```
 
-### 3. Create the systemd service
+### 3. Build all custom images (first time only)
+
+Because `pull_policy: never` is set, Docker will not pull custom images from a registry.
+You must build them locally before the first `docker compose up`:
+
+```bash
+export COMPOSE_CMD="docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/tailscale.yml"
+$COMPOSE_CMD build
+```
+
+This tags all 11 custom images locally. Subsequent rebuilds are handled automatically by
+`dev-stack-watch.sh` (control-api and frontend only) or manually for other services.
+
+### 4. Create the systemd service
 
 ```bash
 sudo tee /etc/systemd/system/rustbrain-dev-watch.service <<'EOF'
@@ -85,7 +108,7 @@ EOF
 
 Adjust `User=` and `WorkingDirectory=` / `ExecStart=` paths to match your actual mars layout.
 
-### 4. Enable and start
+### 5. Enable and start
 
 ```bash
 sudo systemctl daemon-reload
@@ -93,7 +116,7 @@ sudo systemctl enable --now rustbrain-dev-watch
 sudo systemctl status rustbrain-dev-watch
 ```
 
-### 5. Verify
+### 6. Verify
 
 Tail the service log:
 ```bash

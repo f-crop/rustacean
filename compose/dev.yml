@@ -238,6 +238,7 @@ services:
       context: ..
       dockerfile: docker/control-api/Dockerfile
     image: ghcr.io/jarnura/rustacean/control-api:dev
+    pull_policy: never
     environment:
       RB_DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
       RB_LISTEN_ADDR: "0.0.0.0:8080"
@@ -283,6 +284,7 @@ services:
       context: ..
       dockerfile: docker/projector-pg/Dockerfile
     image: ghcr.io/jarnura/rustacean/projector-pg:dev
+    pull_policy: never
     environment:
       DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
@@ -306,6 +308,7 @@ services:
       context: ..
       dockerfile: docker/tombstoner/Dockerfile
     image: ghcr.io/jarnura/rustacean/tombstoner:dev
+    pull_policy: never
     environment:
       DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
       NEO4J_URI: "bolt://neo4j:7687"
@@ -335,6 +338,7 @@ services:
       context: ..
       dockerfile: docker/ingest-clone/Dockerfile
     image: ghcr.io/jarnura/rustacean/ingest-clone:dev
+    pull_policy: never
     environment:
       DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
@@ -364,6 +368,7 @@ services:
       context: ..
       dockerfile: docker/expand-worker/Dockerfile
     image: ghcr.io/jarnura/rustacean/expand-worker:dev
+    pull_policy: never
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       RB_BLOB_BASE_PATH: /data/blobs
@@ -385,6 +390,7 @@ services:
       context: ..
       dockerfile: docker/parse-worker/Dockerfile
     image: ghcr.io/jarnura/rustacean/parse-worker:dev
+    pull_policy: never
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       RB_BLOB_BASE_PATH: /data/blobs
@@ -406,6 +412,7 @@ services:
       context: ..
       dockerfile: docker/typecheck-worker/Dockerfile
     image: ghcr.io/jarnura/rustacean/typecheck-worker:dev
+    pull_policy: never
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       RB_BLOB_BASE_PATH: /data/blobs
@@ -427,6 +434,7 @@ services:
       context: ..
       dockerfile: docker/ingest-graph/Dockerfile
     image: ghcr.io/jarnura/rustacean/ingest-graph:dev
+    pull_policy: never
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       RB_BLOB_BASE_PATH: /data/blobs
@@ -448,6 +456,7 @@ services:
       context: ..
       dockerfile: docker/projector-neo4j/Dockerfile
     image: ghcr.io/jarnura/rustacean/projector-neo4j:dev
+    pull_policy: never
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       NEO4J_URI: "bolt://neo4j:7687"
@@ -471,6 +480,7 @@ services:
       context: ..
       dockerfile: docker/embed-worker/Dockerfile
     image: ghcr.io/jarnura/rustacean/embed-worker:dev
+    pull_policy: never
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       RB_BLOB_BASE_PATH: /data/blobs
@@ -540,6 +550,7 @@ services:
       context: ..
       dockerfile: docker/frontend/Dockerfile
     image: rustbrain/frontend:dev
+    pull_policy: never
     ports:
       - "${FRONTEND_HOST_PORT:-15173}:80"
     networks:
