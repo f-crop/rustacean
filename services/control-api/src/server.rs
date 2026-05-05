@@ -73,8 +73,8 @@ pub async fn run(config: Config) -> Result<()> {
         bootstrap_servers: config.kafka_bootstrap_servers.clone(),
         ..ProducerCfg::default()
     };
-    let ingest_producer = build_producer(&producer_cfg, "ingest_producer");
-    let tombstone_producer = build_producer(&producer_cfg, "tombstone_producer");
+    let ingest_producer = build_producer(Producer::new(&producer_cfg), "ingest_producer");
+    let tombstone_producer = build_producer(Producer::new(&producer_cfg), "tombstone_producer");
 
     // Connect to Neo4j.  Failure is non-fatal — graph endpoints degrade to 503.
     let graph = if let (Some(uri), Some(password)) =
@@ -140,8 +140,11 @@ pub async fn run(config: Config) -> Result<()> {
     Ok(())
 }
 
-fn build_producer(cfg: &ProducerCfg, name: &str) -> Option<Arc<Producer>> {
-    match Producer::new(cfg) {
+fn build_producer<P, Err: std::fmt::Display>(
+    result: Result<P, Err>,
+    name: &str,
+) -> Option<Arc<P>> {
+    match result {
         Ok(p) => {
             tracing::info!("{name} connected to Kafka");
             Some(Arc::new(p))
