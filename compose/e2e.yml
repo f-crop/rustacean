@@ -1,0 +1,346 @@
+name: rustbrain-e2e
+
+# Lightweight stack for the pipeline E2E smoke test (RUSAA-645).
+# Differences from dev.yml:
+#   - No observability stack (loki/tempo/prometheus/grafana/otel-collector)
+#   - Neo4j uses a tiny heap/pagecache to fit within CI runner memory (~7 GB)
+#   - ollama-stub replaces the real Ollama so embed-worker can run without GPU
+#   - Kafka uses 1 partition per topic (no need for multi-partition parallelism)
+#   - Memory limits on each service so the runner doesn't OOM
+#
+# Required env vars (set in the smoke-test workflow via GitHub Secrets):
+#   SMOKE_GH_APP_ID           — GitHub App numeric ID
+#   GITHUB_APP_PRIVATE_KEY_PEM — raw RSA PEM private key for ingest-clone
+#   SMOKE_INSTALLATION_ID     — numeric GitHub installation ID for the test repo
+#   SMOKE_GITHUB_REPO_ID      — numeric GitHub repo ID
+#   SMOKE_GITHUB_REPO_FULL_NAME — e.g. "jarnura/rb-smoke-fixture"
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: rustbrain
+      POSTGRES_PASSWORD: rustbrain
+      POSTGRES_DB: rustbrain
+    networks: [rb-e2e-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rustbrain"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  neo4j:
+    image: neo4j:5-community
+    environment:
+      NEO4J_AUTH: neo4j/rustbrain123
+      # Tiny heap so the runner doesn't OOM.  Adequate for a 5-file fixture.
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 128m
+      NEO4J_server_jvm_additional: "-XX:+ExitOnOutOfMemoryError"
+    networks: [rb-e2e-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.0
+    networks: [rb-e2e-net]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/localhost/6333' 2>/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.9
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: VGVzdENsdXN0ZXJJZEtleQ
+    networks: [rb-e2e-net]
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  kafka-init:
+    image: apache/kafka:3.9
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    networks: [rb-e2e-net]
+    # 1 partition per topic is sufficient for a single-run smoke test.
+    command: >
+      bash -c "
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.ingest.clone.commands     --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.ingest.expand.commands    --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.ingest.parse.commands     --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.parsed-items.v1           --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.ingest.typecheck.commands --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.typechecked-items.v1      --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.ingest.graph.commands     --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.ingest.embed.commands     --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.source-files.v1           --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.projector.events          --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.audit.events              --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.tombstones.v1             --partitions 1 --replication-factor 1 &&
+        echo 'kafka-init: all topics created'
+      "
+
+  # Fake Ollama: serves /api/embeddings with a zero-vector.
+  # Lets embed-worker complete without a GPU.
+  ollama-stub:
+    image: python:3.12-slim
+    command: python3 /app/ollama-stub.py
+    volumes:
+      - ./scripts/ollama-stub.py:/app/ollama-stub.py:ro
+    networks: [rb-e2e-net]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:11434/api/tags')\" 2>/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Database migrations ─────────────────────────────────────────────────────
+
+  rb-migrations:
+    image: pgvector/pgvector:pg16
+    environment:
+      DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
+    volumes:
+      - ../migrations:/migrations:ro
+      - ./scripts/migrate-control.sh:/usr/local/bin/migrate-control.sh:ro
+      - ./scripts/migrate-tenant.sh:/usr/local/bin/migrate-tenant.sh:ro
+    command: ["sh", "-c", "sh /usr/local/bin/migrate-control.sh && sh /usr/local/bin/migrate-tenant.sh"]
+    restart: "no"
+    networks: [rb-e2e-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Pipeline services ───────────────────────────────────────────────────────
+
+  control-api:
+    build:
+      context: ..
+      dockerfile: docker/control-api/Dockerfile
+    image: ghcr.io/jarnura/rustacean/control-api:e2e
+    environment:
+      RB_DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
+      RB_LISTEN_ADDR: "0.0.0.0:8080"
+      RB_CORS_ORIGINS: "http://localhost:8080"
+      RB_BASE_URL: "http://control-api:8080"
+      RB_EMAIL_TRANSPORT: console
+      RB_SECURE_COOKIES: "false"
+      RB_MIGRATIONS_ROOT: /migrations
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RB_NEO4J_URI: "bolt://neo4j:7687"
+      RB_NEO4J_PASSWORD: rustbrain123
+      RUST_LOG: "info,control_api=debug"
+    volumes:
+      - ../migrations:/migrations:ro
+    ports:
+      - "18080:8080"
+    networks: [rb-e2e-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rb-migrations:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      neo4j:
+        condition: service_healthy
+
+  ingest-clone:
+    build:
+      context: ..
+      dockerfile: docker/ingest-clone/Dockerfile
+    image: ghcr.io/jarnura/rustacean/ingest-clone:e2e
+    environment:
+      DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RB_BLOB_BASE_PATH: /data/blobs
+      GITHUB_APP_ID: "${SMOKE_GH_APP_ID}"
+      GITHUB_APP_PRIVATE_KEY_PEM: "${GITHUB_APP_PRIVATE_KEY_PEM}"
+      GITHUB_WEBHOOK_SECRET: "e2e-smoke-test-secret"
+      RUST_LOG: "info,ingest_clone=debug"
+    volumes:
+      - blob-data:/data/blobs
+    networks: [rb-e2e-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rb-migrations:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  expand-worker:
+    build:
+      context: ..
+      dockerfile: docker/expand-worker/Dockerfile
+    image: ghcr.io/jarnura/rustacean/expand-worker:e2e
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RB_BLOB_BASE_PATH: /data/blobs
+      RUST_LOG: "info,expand_worker=debug"
+    volumes:
+      - blob-data:/data/blobs
+    networks: [rb-e2e-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  parse-worker:
+    build:
+      context: ..
+      dockerfile: docker/parse-worker/Dockerfile
+    image: ghcr.io/jarnura/rustacean/parse-worker:e2e
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RB_BLOB_BASE_PATH: /data/blobs
+      RUST_LOG: "info,parse_worker=debug"
+    volumes:
+      - blob-data:/data/blobs
+    networks: [rb-e2e-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  typecheck-worker:
+    build:
+      context: ..
+      dockerfile: docker/typecheck-worker/Dockerfile
+    image: ghcr.io/jarnura/rustacean/typecheck-worker:e2e
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RB_BLOB_BASE_PATH: /data/blobs
+      RUST_LOG: "info,typecheck_worker=debug"
+    volumes:
+      - blob-data:/data/blobs
+    networks: [rb-e2e-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  ingest-graph:
+    build:
+      context: ..
+      dockerfile: docker/ingest-graph/Dockerfile
+    image: ghcr.io/jarnura/rustacean/ingest-graph:e2e
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RB_BLOB_BASE_PATH: /data/blobs
+      RUST_LOG: "info,ingest_graph=debug"
+    volumes:
+      - blob-data:/data/blobs
+    networks: [rb-e2e-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  embed-worker:
+    build:
+      context: ..
+      dockerfile: docker/embed-worker/Dockerfile
+    image: ghcr.io/jarnura/rustacean/embed-worker:e2e
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RB_BLOB_BASE_PATH: /data/blobs
+      RB_OLLAMA_URL: "http://ollama-stub:11434"
+      RB_EMBEDDING_MODEL: "nomic-embed-text"
+      RB_EMBEDDING_DIMENSIONS: "768"
+      QDRANT_URL: "http://qdrant:6333"
+      RUST_LOG: "info,embed_worker=debug"
+    volumes:
+      - blob-data:/data/blobs
+    networks: [rb-e2e-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_healthy
+      ollama-stub:
+        condition: service_healthy
+
+  projector-pg:
+    build:
+      context: ..
+      dockerfile: docker/projector-pg/Dockerfile
+    image: ghcr.io/jarnura/rustacean/projector-pg:e2e
+    environment:
+      DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RUST_LOG: "info,projector_pg=debug"
+    networks: [rb-e2e-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rb-migrations:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  projector-neo4j:
+    build:
+      context: ..
+      dockerfile: docker/projector-neo4j/Dockerfile
+    image: ghcr.io/jarnura/rustacean/projector-neo4j:e2e
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      NEO4J_URI: "bolt://neo4j:7687"
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: rustbrain123
+      RUST_LOG: "info,projector_neo4j=debug"
+    networks: [rb-e2e-net]
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+networks:
+  rb-e2e-net:
+    driver: bridge
+
+volumes:
+  blob-data:

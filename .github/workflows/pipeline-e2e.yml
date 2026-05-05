@@ -1,0 +1,76 @@
+name: Pipeline E2E Smoke Test
+
+# Full 9-stage pipeline integration test (RUSAA-645).
+# Requires real GitHub App credentials stored as repository secrets.
+# Skipped automatically on fork PRs (secrets are unavailable there).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline-e2e:
+    name: pipeline e2e smoke
+    runs-on: ubuntu-latest
+
+    # Skip the job on fork PRs: they cannot access repository secrets, so
+    # SMOKE_GH_APP_ID will be empty and the test cannot clone the fixture repo.
+    # The condition evaluates to true for all pushes to main and for PRs opened
+    # from the same repository (i.e. branches pushed by collaborators).
+    if: >
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify required secrets are present
+        env:
+          SMOKE_GH_APP_ID: ${{ secrets.SMOKE_GH_APP_ID }}
+        run: |
+          if [ -z "$SMOKE_GH_APP_ID" ]; then
+            echo "::error::Secret SMOKE_GH_APP_ID is not configured."
+            echo "::error::Set SMOKE_GH_APP_ID, SMOKE_GH_PRIVATE_KEY_PEM_B64,"
+            echo "::error::SMOKE_INSTALLATION_ID, SMOKE_GITHUB_REPO_ID, and"
+            echo "::error::SMOKE_GITHUB_REPO_FULL_NAME as repository secrets."
+            exit 1
+          fi
+          echo "Secrets present — proceeding with E2E test."
+
+      - name: Decode GitHub App private key
+        env:
+          SMOKE_GH_PRIVATE_KEY_PEM_B64: ${{ secrets.SMOKE_GH_PRIVATE_KEY_PEM_B64 }}
+        run: |
+          # The PEM is stored base64-encoded to survive GitHub's secret masking.
+          echo "$SMOKE_GH_PRIVATE_KEY_PEM_B64" | base64 -d > /tmp/smoke-gh-key.pem
+          echo "GITHUB_APP_PRIVATE_KEY_PEM<<EOF" >> "$GITHUB_ENV"
+          cat /tmp/smoke-gh-key.pem >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+          rm -f /tmp/smoke-gh-key.pem
+
+      - name: Run E2E pipeline smoke test
+        env:
+          SMOKE_GH_APP_ID: ${{ secrets.SMOKE_GH_APP_ID }}
+          SMOKE_INSTALLATION_ID: ${{ secrets.SMOKE_INSTALLATION_ID }}
+          SMOKE_GITHUB_REPO_ID: ${{ secrets.SMOKE_GITHUB_REPO_ID }}
+          SMOKE_GITHUB_REPO_FULL_NAME: ${{ secrets.SMOKE_GITHUB_REPO_FULL_NAME }}
+          SMOKE_TIMEOUT_SECS: "600"
+        run: bash scripts/e2e-smoke-test.sh
+
+      - name: Upload compose logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-compose-logs-${{ github.run_id }}
+          path: /tmp/smoke-compose-logs/
+          retention-days: 7
