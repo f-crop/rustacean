@@ -5,9 +5,12 @@ name: Pipeline E2E Smoke Test
 # Skipped automatically on fork PRs (secrets are unavailable there).
 
 on:
+  # Runs after merge to main (secrets available) and on manual triggers.
+  # Intentionally NOT on pull_request: the test requires GitHub App secrets
+  # that are unavailable on PRs, takes up to 10 minutes, and is not a merge
+  # gate (regular CI — cargo test, clippy, etc. — gates PRs instead).
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -18,15 +21,6 @@ jobs:
   pipeline-e2e:
     name: pipeline e2e smoke
     runs-on: ubuntu-latest
-
-    # Skip the job on fork PRs: they cannot access repository secrets, so
-    # SMOKE_GH_APP_ID will be empty and the test cannot clone the fixture repo.
-    # The condition evaluates to true for all pushes to main and for PRs opened
-    # from the same repository (i.e. branches pushed by collaborators).
-    if: >
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - uses: actions/checkout@v4
