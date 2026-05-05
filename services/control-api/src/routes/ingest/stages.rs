@@ -85,6 +85,7 @@ pub async fn get_stage_timeline(
     auth: AuthContext,
     axum::extract::Path(run_id): axum::extract::Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
+    type StageRow = (String, String, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>);
     let tenant_id = require_read(auth)?;
 
     // Verify ownership and fetch trace_id in a single query.
@@ -98,7 +99,6 @@ pub async fn get_stage_timeline(
     .await?;
     let (_, trace_id) = run.ok_or(AppError::NotFound)?;
 
-    type StageRow = (String, String, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>);
     let rows: Vec<StageRow> = sqlx::query_as(
         "SELECT psr.stage, psr.status, psr.started_at, psr.finished_at, psr.error \
          FROM control.pipeline_stage_runs psr \
