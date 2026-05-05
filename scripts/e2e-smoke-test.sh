@@ -55,7 +55,10 @@ dump_logs() {
 }
 
 cleanup() {
-  [ "$SMOKE_FAILED" = "1" ] && dump_logs
+  # Dump logs on any non-zero exit, not just explicit fail() calls.
+  # set -e can abort without setting SMOKE_FAILED (unbound variable, broken pipe, etc.).
+  local exit_code=$?
+  [ "$exit_code" -eq 0 ] && [ "$SMOKE_FAILED" = "0" ] || dump_logs
   rm -f "$COOKIE_JAR"
   log "Tearing down compose stack..."
   ${DC} down -v --remove-orphans 2>/dev/null || true
@@ -68,9 +71,10 @@ psql_q() {
 }
 
 # Run a Cypher statement and return the scalar result on the last output line.
+# Redirect stderr to suppress advisory startup lines that would corrupt tail -1.
 neo4j_q() {
   ${DC} exec -T neo4j cypher-shell \
-    -u neo4j -p rustbrain123 --format plain "$1" \
+    -u neo4j -p rustbrain123 --format plain "$1" 2>/dev/null \
     | tail -1 | tr -d '[:space:]'
 }
 
@@ -116,12 +120,13 @@ log "Signup complete."
 log "Marking email as verified in DB..."
 psql_q "UPDATE control.users SET email_verified_at = now() WHERE email = '${SMOKE_EMAIL}';"
 
-user_id=$(psql_q "SELECT id FROM control.users WHERE email = '${SMOKE_EMAIL}';")
+user_id=$(psql_q "SELECT id FROM control.users WHERE email = '${SMOKE_EMAIL}';" | tr -d '[:space:]')
 [ -n "${user_id}" ] || fail "could not fetch user_id for ${SMOKE_EMAIL}"
 log "user_id=${user_id}"
 
 tenant_id=$(psql_q \
-  "SELECT tenant_id FROM control.tenant_members WHERE user_id = '${user_id}' LIMIT 1;")
+  "SELECT tenant_id FROM control.tenant_members WHERE user_id = '${user_id}' LIMIT 1;" \
+  | tr -d '[:space:]')
 [ -n "${tenant_id}" ] || fail "could not fetch tenant_id for user ${user_id}"
 log "tenant_id=${tenant_id}"
 
@@ -224,15 +229,17 @@ log "Pipeline status=succeeded."
 
 log "Asserting code_symbols in Postgres..."
 tenant_schema=$(psql_q \
-  "SELECT schema_name FROM control.tenants WHERE id = '${tenant_id}';")
+  "SELECT schema_name FROM control.tenants WHERE id = '${tenant_id}';" | tr -d '[:space:]')
 [ -n "${tenant_schema}" ] \
   || fail "could not resolve schema_name for tenant ${tenant_id}"
 log "  tenant_schema=${tenant_schema}"
 
 symbol_count=$(psql_q \
-  "SELECT COUNT(*) FROM \"${tenant_schema}\".code_symbols WHERE repo_id = '${REPO_UUID}';")
-symbol_count="${symbol_count//[[:space:]]/}"
+  "SELECT COUNT(*) FROM \"${tenant_schema}\".code_symbols WHERE repo_id = '${REPO_UUID}';" \
+  | tr -d '[:space:]')
 log "  code_symbols count=${symbol_count}"
+[[ "${symbol_count}" =~ ^[0-9]+$ ]] \
+  || fail "non-numeric symbol_count from Postgres: '${symbol_count}' — query may have failed"
 (( symbol_count > 0 )) \
   || fail "expected code_symbols > 0 in ${tenant_schema}, got ${symbol_count}"
 log "Postgres assertion PASSED (${symbol_count} symbols)."
@@ -243,6 +250,8 @@ log "Asserting nodes in Neo4j..."
 neo4j_count=$(neo4j_q \
   "MATCH (n {repo_id: '${REPO_UUID}'}) RETURN count(n) AS cnt;")
 log "  neo4j node count=${neo4j_count}"
+[[ "${neo4j_count}" =~ ^[0-9]+$ ]] \
+  || fail "non-numeric neo4j_count from cypher-shell: '${neo4j_count}' — query may have failed"
 (( neo4j_count > 0 )) \
   || fail "expected Neo4j nodes > 0 for repo_id=${REPO_UUID}, got ${neo4j_count}"
 log "Neo4j assertion PASSED (${neo4j_count} nodes)."

@@ -37,15 +37,20 @@ jobs:
       - name: Verify required secrets are present
         env:
           SMOKE_GH_APP_ID: ${{ secrets.SMOKE_GH_APP_ID }}
+          SMOKE_GH_PRIVATE_KEY_PEM_B64: ${{ secrets.SMOKE_GH_PRIVATE_KEY_PEM_B64 }}
         run: |
-          if [ -z "$SMOKE_GH_APP_ID" ]; then
-            echo "::error::Secret SMOKE_GH_APP_ID is not configured."
-            echo "::error::Set SMOKE_GH_APP_ID, SMOKE_GH_PRIVATE_KEY_PEM_B64,"
-            echo "::error::SMOKE_INSTALLATION_ID, SMOKE_GITHUB_REPO_ID, and"
-            echo "::error::SMOKE_GITHUB_REPO_FULL_NAME as repository secrets."
+          missing=()
+          [ -n "$SMOKE_GH_APP_ID" ]             || missing+=("SMOKE_GH_APP_ID")
+          [ -n "$SMOKE_GH_PRIVATE_KEY_PEM_B64" ] || missing+=("SMOKE_GH_PRIVATE_KEY_PEM_B64")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            for s in "${missing[@]}"; do
+              echo "::error::Required secret $s is not configured."
+            done
+            echo "::error::Also ensure SMOKE_INSTALLATION_ID, SMOKE_GITHUB_REPO_ID,"
+            echo "::error::and SMOKE_GITHUB_REPO_FULL_NAME are set as repository secrets."
             exit 1
           fi
-          echo "Secrets present — proceeding with E2E test."
+          echo "All required secrets present — proceeding with E2E test."
 
       - name: Decode GitHub App private key
         env:
@@ -53,9 +58,13 @@ jobs:
         run: |
           # The PEM is stored base64-encoded to survive GitHub's secret masking.
           echo "$SMOKE_GH_PRIVATE_KEY_PEM_B64" | base64 -d > /tmp/smoke-gh-key.pem
-          echo "GITHUB_APP_PRIVATE_KEY_PEM<<EOF" >> "$GITHUB_ENV"
+          [ -s /tmp/smoke-gh-key.pem ] \
+            || { echo "::error::Decoded PEM is empty — SMOKE_GH_PRIVATE_KEY_PEM_B64 may be corrupt"; exit 1; }
+          # Use a unique sentinel to prevent accidental heredoc truncation if the PEM
+          # body somehow contains a bare "EOF" line (e.g. a manually-pasted corrupt key).
+          echo "GITHUB_APP_PRIVATE_KEY_PEM<<SMOKE_PEM_HEREDOC_END" >> "$GITHUB_ENV"
           cat /tmp/smoke-gh-key.pem >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
+          echo "SMOKE_PEM_HEREDOC_END" >> "$GITHUB_ENV"
           rm -f /tmp/smoke-gh-key.pem
 
       - name: Run E2E pipeline smoke test

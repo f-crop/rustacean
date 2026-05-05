@@ -10,14 +10,16 @@ Runs on port 11434 (Ollama default).
 """
 
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DIMENSIONS = 768
 
 
 class OllamaStubHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
-        pass  # silence access logs in compose output
+        # Log to stderr so embed-worker request activity is visible in compose logs.
+        print(f"ollama-stub: {self.address_string()} {fmt % args}", file=sys.stderr, flush=True)
 
     def _send_json(self, status: int, body: dict) -> None:
         payload = json.dumps(body).encode()
@@ -43,6 +45,6 @@ class OllamaStubHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("0.0.0.0", 11434), OllamaStubHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", 11434), OllamaStubHandler)
     print("ollama-stub: listening on :11434", flush=True)
     server.serve_forever()
