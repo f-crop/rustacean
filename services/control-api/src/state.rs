@@ -5,7 +5,7 @@ use rb_email::EmailSender;
 use rb_github::GhApp;
 use rb_kafka::Producer;
 use rb_query::ModuleTreeCache;
-use rb_schemas::IngestRequest;
+use rb_schemas::{IngestRequest, Tombstone};
 use rb_sse::EventBus;
 use sqlx::PgPool;
 
@@ -27,6 +27,9 @@ pub struct AppState {
     /// Kafka producer for `rb.ingest.clone.commands`. `None` when Kafka is not
     /// reachable; `POST /v1/repos/{id}/ingestions` returns 503 in that case.
     pub ingest_producer: Option<Arc<Producer<IngestRequest>>>,
+    /// Kafka producer for `rb.tombstones.v1`. `None` when Kafka is not reachable;
+    /// `DELETE /v1/tenants/{id}` returns 503 in that case (REQ-TN-04).
+    pub tombstone_producer: Option<Arc<Producer<Tombstone>>>,
     /// 60-second in-process cache for `GET /v1/repos/{id}/modules` (ADR-008 §3.6 / AC3).
     /// Keyed by `(repo_id, last_succeeded_ingest_run_id)`.
     pub module_tree_cache: ModuleTreeCache,
