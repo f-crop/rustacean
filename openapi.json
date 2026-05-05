@@ -1074,6 +1074,188 @@
         }
       }
     },
+    "/v1/repos/{repo_id}/items/{fqn_b64}/callees": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "summary": "List all functions transitively called by the target item (callees BFS).",
+        "description": "Traverses `CALLS` and `CALL_INSTANTIATES` edges forward from the root.\nSee the callers endpoint for provenance semantics and pagination.",
+        "operationId": "get_callees",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fqn_b64",
+            "in": "path",
+            "description": "URL-safe base64 (no padding) encoded item FQN",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "depth",
+            "in": "query",
+            "description": "BFS traversal depth (1–10, default 3).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum edges to return per page (1–200, default 50).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque continuation cursor from a prior response.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Callee graph",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraversalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed fqn_b64, depth > 10, or invalid cursor"
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Email not verified or insufficient scope"
+          },
+          "404": {
+            "description": "Repository not found or belongs to another tenant"
+          },
+          "503": {
+            "description": "Neo4j graph not configured on this instance"
+          }
+        }
+      }
+    },
+    "/v1/repos/{repo_id}/items/{fqn_b64}/callers": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "summary": "List all functions that transitively call the target item (callers BFS).",
+        "description": "Traverses `CALLS` and `CALL_INSTANTIATES` edges backward from the root.\nCycle detection prevents infinite loops; per-edge provenance distinguishes\nstatic (`direct`), monomorphized (`monomorph`), and dynamic (`dyn_candidate`) calls.\nUse `next_cursor` for pagination.",
+        "operationId": "get_callers",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fqn_b64",
+            "in": "path",
+            "description": "URL-safe base64 (no padding) encoded item FQN",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "depth",
+            "in": "query",
+            "description": "BFS traversal depth (1–10, default 3).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum edges to return per page (1–200, default 50).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque continuation cursor from a prior response.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Caller graph",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraversalResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed fqn_b64, depth > 10, or invalid cursor"
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Email not verified or insufficient scope"
+          },
+          "404": {
+            "description": "Repository not found or belongs to another tenant"
+          },
+          "503": {
+            "description": "Neo4j graph not configured on this instance"
+          }
+        }
+      }
+    },
     "/v1/repos/{repo_id}/items/{fqn_b64}/impls": {
       "get": {
         "tags": [
@@ -1916,6 +2098,15 @@
             "description": "Tenant ID queued for deletion."
           }
         }
+      },
+      "EdgeProvenanceSchema": {
+        "type": "string",
+        "description": "Per-edge dispatch provenance.",
+        "enum": [
+          "direct",
+          "monomorph",
+          "dyn_candidate"
+        ]
       },
       "ForgotPasswordRequest": {
         "type": "object",
@@ -2877,6 +3068,105 @@
             "type": "string",
             "format": "uuid",
             "description": "User ID of the existing member to promote to owner."
+          }
+        }
+      },
+      "TraversalEdgeSchema": {
+        "type": "object",
+        "description": "A directed edge in the call graph.",
+        "required": [
+          "from_fqn",
+          "to_fqn",
+          "depth",
+          "provenance"
+        ],
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "from_fqn": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/EdgeProvenanceSchema"
+          },
+          "to_fqn": {
+            "type": "string"
+          }
+        }
+      },
+      "TraversalNodeSchema": {
+        "type": "object",
+        "description": "A node discovered during BFS traversal.",
+        "required": [
+          "fqn"
+        ],
+        "properties": {
+          "file_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fqn": {
+            "type": "string"
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "line": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TraversalResponse": {
+        "type": "object",
+        "description": "Response for caller/callee traversal endpoints.",
+        "required": [
+          "root",
+          "nodes",
+          "edges",
+          "cycles_detected"
+        ],
+        "properties": {
+          "cycles_detected": {
+            "type": "boolean"
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TraversalEdgeSchema"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TraversalNodeSchema"
+            }
+          },
+          "root": {
+            "$ref": "#/components/schemas/TraversalNodeSchema"
           }
         }
       },

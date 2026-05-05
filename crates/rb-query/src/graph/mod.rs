@@ -2,3 +2,4 @@
 
 pub(crate) mod impls;
 pub(crate) mod usages;
+pub mod traversal;

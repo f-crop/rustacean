@@ -47,6 +47,8 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         query::impls::get_trait_impls,
         query::usages::get_type_usages,
         query::search::search,
+        query::traversal::get_callers,
+        query::traversal::get_callees,
     ),
     components(
         schemas(
@@ -111,6 +113,10 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             query::search::SearchRequest,
             query::search::SearchResult,
             query::search::SearchResponse,
+            query::traversal::EdgeProvenanceSchema,
+            query::traversal::TraversalNodeSchema,
+            query::traversal::TraversalEdgeSchema,
+            query::traversal::TraversalResponse,
         )
     ),
     info(
