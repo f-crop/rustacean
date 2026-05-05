@@ -44,6 +44,8 @@ pub struct ModuleNodeItem {
     /// Source location — absent for virtual/synthetic module nodes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<NodeSource>,
+    /// Nested child nodes.
+    #[schema(no_recursion)]
     pub children: Vec<ModuleNodeItem>,
 }
 

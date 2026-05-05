@@ -69,7 +69,7 @@ pub enum AppError {
     #[error("internal server error")]
     Internal(#[from] anyhow::Error),
     #[error("query error: {0}")]
-    Query(#[from] rb_query::error::QueryError),
+    Query(#[from] rb_query::QueryError),
 }
 
 impl IntoResponse for AppError {
