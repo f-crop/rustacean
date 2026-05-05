@@ -57,7 +57,7 @@ pub async fn semantic_search(
     vector: &[f32],
     opts: SearchOptions,
 ) -> Result<Vec<SemanticHit>, QueryError> {
-    let limit = opts.limit.min(MAX_SEARCH_LIMIT).max(1);
+    let limit = opts.limit.clamp(1, MAX_SEARCH_LIMIT);
     let hits = store.search(tenant_id, vector, limit, opts.repo_id).await?;
     Ok(hits.into_iter().map(SemanticHit::from).collect())
 }
