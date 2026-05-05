@@ -26,6 +26,13 @@ The control-api service reads all configuration from environment variables. None
 | `RB_SECURE_COOKIES` | `true` | no | Set the `Secure` flag on `rb_session` cookies. Set to `false` when running behind an HTTP proxy in development. |
 | `OTEL_SERVICE_NAME` | `control-api` | no | Service name in traces |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | no | OTLP gRPC endpoint (e.g. `http://otel-collector:4317`) |
+| `RB_NEO4J_URI` | — | no | Bolt URI for Neo4j (e.g. `bolt://neo4j:7687`). Graph endpoints return 503 when absent. |
+| `RB_NEO4J_USER` | `neo4j` | no | Neo4j username |
+| `RB_NEO4J_PASSWORD` | — | no | Neo4j password |
+| `KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | no | Kafka broker list for the ingest consumer |
+| `RB_QDRANT_URL` | — | no | Qdrant REST base URL (e.g. `http://qdrant:6333`). Search endpoint returns 503 when absent. |
+| `RB_OLLAMA_URL` | — | no | Ollama HTTP base URL (e.g. `http://ollama:11434`). Search endpoint returns 503 when absent. |
+| `RB_EMBEDDING_MODEL` | `nomic-embed-text` | no | Ollama model for query embedding. Must match the model used by `embed-worker`. |
 | `RUST_LOG` | — | no | Log filter (e.g. `info,control_api=debug`) |
 
 ---
@@ -61,6 +68,11 @@ Common error codes:
 | `cannot_remove_owner` | 400 | Attempt to demote or remove the tenant owner |
 | `rate_limited` | 429 | Login rate limit exceeded (5 failures / 10 min) |
 | `insufficient_scope` | 403 | API key presented but lacks the required scope (e.g. `read`) |
+| `insufficient_role` | 403 | Session user lacks the required tenant role (e.g. `admin` or `owner`) |
+| `cypher_write_denied` | 400 | Cypher query contains write operators in read-only mode |
+| `graph_not_configured` | 503 | Neo4j graph store not configured on this instance (`RB_NEO4J_URI` absent) |
+| `confirmation_mismatch` | 400 | `X-Confirm` header value does not match tenant slug |
+| `kafka_unavailable` | 503 | Kafka broker unreachable; request is safely retryable |
 
 ---
 
@@ -68,12 +80,28 @@ Common error codes:
 
 ### GET /health
 
-Liveness probe. Always returns 200 while the process is running.
+Liveness probe with per-store connectivity status. Always returns 200 (even when stores are degraded) so load balancers do not kill the process — inspect `status` for fine-grained health. Public / unauthenticated.
 
 **Response 200**
 ```json
-{ "status": "ok" }
+{
+  "status": "ok",
+  "stores": {
+    "postgres": "ok",
+    "neo4j": "ok",
+    "qdrant": "ok",
+    "kafka": "ok"
+  }
+}
 ```
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `status` | `ok`, `degraded` | `ok` when all stores are reachable; `degraded` otherwise |
+| `stores.postgres` | `ok`, `error` | PostgreSQL `SELECT 1` probe |
+| `stores.neo4j` | `ok`, `error`, `unknown` | TCP connect to Neo4j bolt port; `unknown` when `RB_NEO4J_URI` not set |
+| `stores.qdrant` | `ok`, `error`, `unknown` | Qdrant `/healthz` probe; `unknown` when `RB_QDRANT_URL` not set |
+| `stores.kafka` | `ok`, `error`, `unknown` | Last Kafka event age; `unknown` when no event has ever been received |
 
 ### GET /ready
 
@@ -643,4 +671,390 @@ curl -s \
 ```bash
 curl -s -b cookies.txt \
   "http://localhost:8080/v1/repos/${REPO_ID}/items/${FQN_B64}" | jq .
+```
+
+---
+
+## Search endpoints
+
+### POST /v1/search
+
+Semantic code search across embedded code symbols within the caller's tenant. Embeds the query via Ollama, performs approximate nearest-neighbour search in the Qdrant `rb_embeddings` collection filtered by `tenant_id`, and returns ranked results.
+
+Requires `RB_QDRANT_URL` and `RB_OLLAMA_URL` to be configured; returns 503 otherwise.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Request**
+```json
+{
+  "q": "function that handles authentication",
+  "limit": 10,
+  "filters": {
+    "repo_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+  }
+}
+```
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `q` | string | Natural-language query to embed and search. Must not be empty. |
+| `limit` | int? | Maximum results to return (default 10, max 50) |
+| `filters.repo_id` | UUID? | Restrict results to a single repository. Must belong to the caller's tenant. |
+
+**Response 200**
+```json
+{
+  "results": [
+    {
+      "fqn": "my_crate::auth::verify_token",
+      "crate_name": "my_crate",
+      "repo_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "score": 0.92
+    },
+    {
+      "fqn": "my_crate::middleware::extract_session",
+      "crate_name": "my_crate",
+      "repo_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "score": 0.81
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `results[].fqn` | string | Fully-qualified name (e.g. `my_crate::module::my_fn`) |
+| `results[].crate_name` | string | Top-level crate name extracted from the FQN |
+| `results[].repo_id` | string | Repository UUID this symbol belongs to |
+| `results[].score` | float | Cosine similarity score in `[0, 1]` |
+
+**Response 400** — `invalid_input` (empty query or limit out of range)
+**Response 401** — `unauthorized` or `session_expired`
+**Response 403** — `email_not_verified` or `insufficient_scope`
+**Response 404** — `repo_id` filter specified but repository not found or belongs to another tenant
+**Response 503** — Qdrant or Ollama not configured on this instance
+
+**Example**
+
+```bash
+curl -s -b cookies.txt -X POST http://localhost:8080/v1/search \
+  -H 'Content-Type: application/json' \
+  -d '{"q":"function that handles authentication","limit":5}' | jq .
+```
+
+---
+
+## Code graph traversal endpoints
+
+These endpoints traverse the Neo4j code knowledge graph to discover call relationships, trait implementations, and type usages. All require `RB_NEO4J_URI` to be configured; they return 503 otherwise.
+
+All traversal endpoints use URL-safe base64 encoding (no padding, RFC 4648 §5) for the `fqn_b64` path parameter — the same encoding used by [GET /v1/repos/{repo_id}/items/{fqn_b64}](#get-v1reposrepo_iditemsfqn_b64).
+
+### GET /v1/repos/{repo_id}/items/{fqn_b64}/callers
+
+List all functions that transitively call the target item. BFS traversal of `CALLS` and `CALL_INSTANTIATES` edges backward from the root. Cycle detection prevents infinite loops; per-edge provenance distinguishes static, monomorphized, and dynamic calls.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Path parameters**:
+- `repo_id` — UUID of the repository (must belong to the caller's tenant)
+- `fqn_b64` — URL-safe base64 (no padding) encoded FQN of the target item
+
+**Query parameters**:
+
+| Parameter | Type | Default | Range | Description |
+|-----------|------|---------|-------|-------------|
+| `depth` | int | 3 | 1–10 | BFS traversal depth |
+| `limit` | int | 50 | 1–200 | Maximum edges to return per page |
+| `cursor` | string? | — | — | Opaque continuation cursor from a prior response |
+
+**Response 200**
+```json
+{
+  "root": {
+    "fqn": "my_crate::module::my_fn",
+    "name": "my_fn",
+    "kind": "FN",
+    "file_path": "src/module.rs",
+    "line": 42
+  },
+  "nodes": [
+    {
+      "fqn": "my_crate::caller_a",
+      "name": "caller_a",
+      "kind": "FN",
+      "file_path": "src/lib.rs",
+      "line": 10
+    }
+  ],
+  "edges": [
+    {
+      "from_fqn": "my_crate::caller_a",
+      "to_fqn": "my_crate::module::my_fn",
+      "depth": 1,
+      "provenance": "direct"
+    }
+  ],
+  "cycles_detected": false,
+  "next_cursor": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `root` | object | The target item (BFS starting point) |
+| `nodes[]` | array | Discovered nodes during BFS (excluding root) |
+| `edges[]` | array | Directed edges in the call graph |
+| `edges[].provenance` | string | `"direct"` — static call, `"monomorph"` — monomorphized generic, `"dyn_candidate"` — dynamic dispatch candidate |
+| `cycles_detected` | bool | `true` when BFS encountered a cycle |
+| `next_cursor` | string? | Pass to the next request for pagination; `null` when no more results |
+
+Node fields (`root` and `nodes[]`): `fqn` (string), `name` (string?), `kind` (string?), `file_path` (string?), `line` (int?). Optional fields are omitted from the response when absent.
+
+**Response 400** — `invalid_input` (malformed base64, depth > 10, or invalid cursor)
+**Response 401** — `unauthorized` or `session_expired`
+**Response 403** — `email_not_verified` or `insufficient_scope`
+**Response 404** — repository not found or belongs to another tenant
+**Response 503** — Neo4j graph not configured on this instance
+
+**Example**
+
+```bash
+FQN="my_crate::module::my_fn"
+FQN_B64=$(printf '%s' "$FQN" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+REPO_ID="6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
+curl -s -b cookies.txt \
+  "http://localhost:8080/v1/repos/${REPO_ID}/items/${FQN_B64}/callers?depth=3&limit=50" | jq .
+```
+
+---
+
+### GET /v1/repos/{repo_id}/items/{fqn_b64}/callees
+
+List all functions transitively called by the target item. Forward BFS traversal of `CALLS` and `CALL_INSTANTIATES` edges from the root. Same response schema, pagination, and provenance semantics as the [callers endpoint](#get-v1reposrepo_iditemsfqn_b64callers).
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Path parameters**: same as callers
+**Query parameters**: same as callers
+**Response 200**: same schema as callers (edges point forward instead of backward)
+**Error responses**: same as callers
+
+**Example**
+
+```bash
+curl -s -b cookies.txt \
+  "http://localhost:8080/v1/repos/${REPO_ID}/items/${FQN_B64}/callees?depth=3&limit=50" | jq .
+```
+
+---
+
+### GET /v1/repos/{repo_id}/items/{fqn_b64}/impls
+
+List all impl blocks for a trait identified by `fqn_b64` within a repository. Returns both direct impls (`impl Trait for Type`) and blanket impls (`impl<T: Bound> Trait for T`) found in the graph.
+
+**Auth required**: verified session **or** API key (any scope)
+
+**Path parameters**:
+- `repo_id` — UUID of the repository (must belong to the caller's tenant)
+- `fqn_b64` — URL-safe base64 (no padding) encoded trait FQN
+
+**Response 200**
+```json
+{
+  "repo_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+  "trait_fqn": "my_crate::MyTrait",
+  "impls": [
+    {
+      "fqn": "my_crate::Foo",
+      "impl_kind": "direct"
+    },
+    {
+      "fqn": "my_crate::GenericFoo",
+      "impl_kind": "blanket"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `repo_id` | UUID | Repository UUID |
+| `trait_fqn` | string | FQN of the queried trait |
+| `impls[].fqn` | string | FQN of the impl block |
+| `impls[].impl_kind` | string | `"direct"` for concrete impls; `"blanket"` for blanket impls |
+
+**Response 400** — `invalid_input` (malformed base64)
+**Response 401** — `unauthorized` or `session_expired`
+**Response 403** — `email_not_verified` or `insufficient_scope`
+**Response 404** — repository not found or belongs to another tenant
+**Response 503** — Neo4j graph not configured on this instance
+
+**Example**
+
+```bash
+TRAIT_FQN="my_crate::MyTrait"
+TRAIT_B64=$(printf '%s' "$TRAIT_FQN" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+
+curl -s -b cookies.txt \
+  "http://localhost:8080/v1/repos/${REPO_ID}/items/${TRAIT_B64}/impls" | jq .
+```
+
+---
+
+### GET /v1/repos/{repo_id}/items/{fqn_b64}/usages
+
+List all usages of a type identified by `fqn_b64` within a repository. Returns two categories of usage combined in a flat list:
+
+- **Textual** (`usage_kind = "textual"`) — items that reference the type by name (`USES_TYPE` edge)
+- **Monomorphized** (`usage_kind = "monomorphized"`) — `TypeInstance` nodes derived from this type via a `MONOMORPHIZED_FROM` edge
+
+**Auth required**: verified session **or** API key (any scope)
+
+**Path parameters**:
+- `repo_id` — UUID of the repository (must belong to the caller's tenant)
+- `fqn_b64` — URL-safe base64 (no padding) encoded type FQN
+
+**Response 200**
+```json
+{
+  "repo_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+  "type_fqn": "my_crate::MyType",
+  "usages": [
+    {
+      "fqn": "my_crate::uses_it",
+      "usage_kind": "textual"
+    },
+    {
+      "fqn": "my_crate::MyType<i32>",
+      "usage_kind": "monomorphized"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `repo_id` | UUID | Repository UUID |
+| `type_fqn` | string | FQN of the queried type |
+| `usages[].fqn` | string | FQN of the using item or type instance |
+| `usages[].usage_kind` | string | `"textual"` or `"monomorphized"` |
+
+**Response 400** — `invalid_input` (malformed base64)
+**Response 401** — `unauthorized` or `session_expired`
+**Response 403** — `email_not_verified` or `insufficient_scope`
+**Response 404** — repository not found or belongs to another tenant
+**Response 503** — Neo4j graph not configured on this instance
+
+**Example**
+
+```bash
+TYPE_FQN="my_crate::MyType"
+TYPE_B64=$(printf '%s' "$TYPE_FQN" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+
+curl -s -b cookies.txt \
+  "http://localhost:8080/v1/repos/${REPO_ID}/items/${TYPE_B64}/usages" | jq .
+```
+
+---
+
+## Graph query endpoint
+
+### POST /v1/graph/query
+
+Execute an arbitrary Cypher query against the tenant's Neo4j graph store. The tenant label is automatically injected into every node pattern so queries are isolated to the calling tenant's data.
+
+**Security**: this endpoint exposes raw Cypher execution. It is restricted to admin-level access.
+
+**Auth required**: API key with `admin` scope **or** session with `owner`/`admin` tenant role
+
+**Request**
+```json
+{
+  "cypher": "MATCH (n:Item) WHERE n.kind = $kind RETURN n.fqn LIMIT 10",
+  "params": { "kind": "FN" },
+  "read_only": true
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `cypher` | string | — | Raw Cypher statement. Tenant label injected automatically. Multi-statement queries (semicolons outside strings) are rejected. |
+| `params` | object | `{}` | Named parameters bound into the query (`$key` → value) |
+| `read_only` | bool | `true` | When `true`, pre-flight check blocks write operators (`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH`, `REMOVE`) |
+
+**Response 200**
+```json
+{
+  "rows": [
+    { "n.fqn": "my_crate::auth::verify_token" },
+    { "n.fqn": "my_crate::auth::extract_session" }
+  ],
+  "row_count": 2
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rows` | array | Each element is a JSON object mapping column names to their values |
+| `row_count` | int | Number of rows returned |
+
+**Response 400** — `invalid_input` (multi-statement query) or `cypher_write_denied` (write operators detected in read-only mode)
+**Response 401** — `unauthorized` or `session_expired`
+**Response 403** — `insufficient_role` or `insufficient_scope`
+**Response 503** — `graph_not_configured` (Neo4j not configured on this instance)
+
+**Example — read-only query with API key**
+
+```bash
+curl -s -X POST http://localhost:8080/v1/graph/query \
+  -H "Authorization: Bearer $ADMIN_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "cypher": "MATCH (n:Item)-[:CALLS]->(m:Item) RETURN n.fqn, m.fqn LIMIT 5",
+    "read_only": true
+  }' | jq .
+```
+
+---
+
+## Consistency health endpoint
+
+### GET /v1/health/consistency
+
+Kafka consistency metrics. Reports consumer lag and time since last event for each data-plane store. Admin-only because these metrics expose internal pipeline internals.
+
+**Auth required**: API key with `admin` scope **or** session with `owner`/`admin` tenant role
+
+**Response 200**
+```json
+{
+  "checked_at": "2026-05-06T12:30:00Z",
+  "stores": {
+    "kafka": {
+      "lag_messages": 42,
+      "last_event_at": "2026-05-06T12:29:55Z",
+      "status": "healthy"
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `checked_at` | ISO 8601 | Timestamp of this check |
+| `stores.kafka.lag_messages` | int | Number of unconsumed Kafka messages |
+| `stores.kafka.last_event_at` | ISO 8601? | Timestamp of the most recent Kafka event; `null` if no event has ever been received |
+| `stores.kafka.status` | string | `"healthy"` (< 30 s since last event), `"degraded"` (30–300 s), `"stale"` (> 300 s or never) |
+
+**Response 401** — `unauthorized` or `session_expired`
+**Response 403** — `insufficient_role` or `insufficient_scope`
+
+**Example**
+
+```bash
+curl -s -H "Authorization: Bearer $ADMIN_KEY" \
+  http://localhost:8080/v1/health/consistency | jq .
 ```
