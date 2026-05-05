@@ -3,7 +3,8 @@
 //! Provides SQL helpers that operate against per-tenant schemas via
 //! fully-qualified table names (`TenantCtx::qualify`). Never mutates data.
 
-pub mod error;
-pub mod pg;
+mod error;
+mod pg;
 
 pub use error::QueryError;
+pub use pg::items;

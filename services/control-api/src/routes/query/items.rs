@@ -5,7 +5,7 @@
 
 use axum::{Json, extract::State, response::IntoResponse};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use rb_query::pg::items;
+use rb_query::items;
 use rb_schemas::TenantId;
 use rb_tenant::TenantCtx;
 use serde::Serialize;
