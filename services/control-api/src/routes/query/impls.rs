@@ -5,7 +5,7 @@
 
 use axum::{Json, extract::State, response::IntoResponse};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use rb_query::graph::impls::fetch_trait_impls;
+use rb_query::fetch_trait_impls;
 use rb_schemas::TenantId;
 use serde::Serialize;
 use utoipa::ToSchema;

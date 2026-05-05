@@ -993,6 +993,122 @@
         }
       }
     },
+    "/v1/repos/{repo_id}/items/{fqn_b64}/impls": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "summary": "List all impl blocks for the trait identified by `fqn_b64` within a repository.",
+        "description": "Returns both direct impls (`impl Trait for Type`) and blanket impls\n(`impl<T: Bound> Trait for T`) found in the graph.\n\n`fqn_b64` must be URL-safe base64 (no padding) of the trait's FQN.\nRequires the graph to be configured (`RB_NEO4J_URI`); returns 503 otherwise.",
+        "operationId": "get_trait_impls",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fqn_b64",
+            "in": "path",
+            "description": "URL-safe base64 (no padding) encoded trait FQN",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Impl list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImplsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed fqn_b64"
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Email not verified or insufficient scope"
+          },
+          "404": {
+            "description": "Repository not found or belongs to another tenant"
+          },
+          "503": {
+            "description": "Neo4j graph not configured on this instance"
+          }
+        }
+      }
+    },
+    "/v1/repos/{repo_id}/items/{fqn_b64}/usages": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "summary": "List all usages of the type identified by `fqn_b64` within a repository.",
+        "description": "Returns two categories of usage combined in a flat list:\n- **Textual** (`usage_kind = \"textual\"`)  — items that reference the type\n  by name (`USES_TYPE` edge).\n- **Monomorphized** (`usage_kind = \"monomorphized\"`) — `TypeInstance` nodes\n  derived from this type via a `MONOMORPHIZED_FROM` edge.\n\n`fqn_b64` must be URL-safe base64 (no padding) of the type's FQN.\nRequires the graph to be configured (`RB_NEO4J_URI`); returns 503 otherwise.",
+        "operationId": "get_type_usages",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fqn_b64",
+            "in": "path",
+            "description": "URL-safe base64 (no padding) encoded type FQN",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsagesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed fqn_b64"
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Email not verified or insufficient scope"
+          },
+          "404": {
+            "description": "Repository not found or belongs to another tenant"
+          },
+          "503": {
+            "description": "Neo4j graph not configured on this instance"
+          }
+        }
+      }
+    },
     "/v1/repos/{repo_id}/modules": {
       "get": {
         "tags": [
@@ -1678,6 +1794,51 @@
           },
           "slug": {
             "type": "string"
+          }
+        }
+      },
+      "ImplEntry": {
+        "type": "object",
+        "description": "One impl block that implements the queried trait.",
+        "required": [
+          "fqn",
+          "impl_kind"
+        ],
+        "properties": {
+          "fqn": {
+            "type": "string",
+            "description": "Fully-qualified name of the impl block."
+          },
+          "impl_kind": {
+            "type": "string",
+            "description": "`\"direct\"` for concrete impls; `\"blanket\"` for blanket impls."
+          }
+        }
+      },
+      "ImplsResponse": {
+        "type": "object",
+        "description": "Response for `GET /v1/repos/{repo_id}/items/{fqn_b64}/impls`.",
+        "required": [
+          "repo_id",
+          "trait_fqn",
+          "impls"
+        ],
+        "properties": {
+          "impls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImplEntry"
+            },
+            "description": "Impl blocks found in the graph."
+          },
+          "repo_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Repository UUID."
+          },
+          "trait_fqn": {
+            "type": "string",
+            "description": "FQN of the queried trait."
           }
         }
       },
@@ -2451,6 +2612,51 @@
           "user_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "UsageEntry": {
+        "type": "object",
+        "description": "One item that references the queried type.",
+        "required": [
+          "fqn",
+          "usage_kind"
+        ],
+        "properties": {
+          "fqn": {
+            "type": "string",
+            "description": "Fully-qualified name of the using item or type instance."
+          },
+          "usage_kind": {
+            "type": "string",
+            "description": "`\"textual\"` — item uses the type by name in its source.\n`\"monomorphized\"` — `TypeInstance` instantiated from this type's `TypeDef`."
+          }
+        }
+      },
+      "UsagesResponse": {
+        "type": "object",
+        "description": "Response for `GET /v1/repos/{repo_id}/items/{fqn_b64}/usages`.",
+        "required": [
+          "repo_id",
+          "type_fqn",
+          "usages"
+        ],
+        "properties": {
+          "repo_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Repository UUID."
+          },
+          "type_fqn": {
+            "type": "string",
+            "description": "FQN of the queried type."
+          },
+          "usages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageEntry"
+            },
+            "description": "All usages found in the graph, combining textual and monomorphized."
           }
         }
       },

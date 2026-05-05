@@ -6,7 +6,7 @@
 
 use axum::{Json, extract::State, response::IntoResponse};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use rb_query::graph::usages::fetch_type_usages;
+use rb_query::fetch_type_usages;
 use rb_schemas::TenantId;
 use serde::Serialize;
 use utoipa::ToSchema;

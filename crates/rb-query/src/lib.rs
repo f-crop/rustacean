@@ -7,9 +7,11 @@
 //! [`rb_storage_neo4j::TenantGraph`] for tenant isolation (ADR-007 §3.4).
 
 mod error;
-pub mod graph;
+mod graph;
 mod pg;
 
 pub use error::QueryError;
+pub use graph::impls::{ImplEntry, fetch_trait_impls};
+pub use graph::usages::{UsageEntry, fetch_type_usages};
 pub use pg::items;
 pub use pg::modules::{ModuleNode, ModuleTreeCache, fetch_module_tree, new_module_tree_cache};
