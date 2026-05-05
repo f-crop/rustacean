@@ -25,6 +25,8 @@ use crate::routes::{
     github::webhook::github_webhook,
     health::{health_check, openapi_json, ready_check},
     ingest::events_stream::events_stream,
+    ingest::recent::list_recent_runs,
+    ingest::stages::get_stage_timeline,
     ingest::test_publish::test_publish,
     ingest::trigger::trigger_ingestion,
     me::{get_me, switch_tenant},
@@ -65,6 +67,8 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/repos/{id}/ingest", post(trigger_ingest))
         .route("/v1/repos/{repo_id}/ingestions", post(trigger_ingestion))
         .route("/v1/repos/{repo_id}/items/{fqn_b64}", get(get_item))
+        .route("/v1/ingestions/recent", get(list_recent_runs))
+        .route("/v1/ingestions/{ingestion_run_id}/stages", get(get_stage_timeline))
         .route("/v1/ingest/events", get(events_stream))
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))

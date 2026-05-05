@@ -42,3 +42,17 @@ export {
   type ItemResponse,
   type ModuleTreeResponse,
 } from "./useCodeIntel";
+export {
+  useAuditEvents,
+  auditEventsQueryKey,
+  type AuditEventItem,
+  type AuditListResponse,
+  type AuditEventsParams,
+} from "./useAuditEvents";
+export {
+  useRecentIngestions,
+  useInvalidateRecentIngestions,
+  recentIngestionsQueryKey,
+  type RecentIngestionRun,
+  type RecentIngestionsResponse,
+} from "./useRecentIngestions";
