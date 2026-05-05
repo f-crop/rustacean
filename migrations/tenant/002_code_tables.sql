@@ -71,4 +71,6 @@ CREATE TABLE code_embeddings (
 );
 
 CREATE INDEX idx_code_embeddings_repo ON code_embeddings (repo_id);
-CREATE INDEX idx_code_embeddings_vector ON code_embeddings USING ivfflat (vector vector_cosine_ops);
+-- Vector similarity index omitted: pgvector requires explicit column dimensions for
+-- ivfflat/hnsw but this column is intentionally dimensionless (stores multiple models).
+-- Add a partial index per model dimension in a later migration.
