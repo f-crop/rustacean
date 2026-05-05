@@ -60,6 +60,7 @@ Common error codes:
 | `already_member` | 409 | User is already a member of the tenant |
 | `cannot_remove_owner` | 400 | Attempt to demote or remove the tenant owner |
 | `rate_limited` | 429 | Login rate limit exceeded (5 failures / 10 min) |
+| `insufficient_scope` | 403 | API key presented but lacks the required scope (e.g. `read`) |
 
 ---
 
@@ -520,4 +521,94 @@ KEY=$(curl -s -b cookies.txt -X POST http://localhost:8080/v1/api-keys \
 
 # 2. Use the key as a Bearer token
 curl -s -H "Authorization: Bearer $KEY" http://localhost:8080/v1/me | jq .
+```
+
+---
+
+## Query endpoints
+
+Query endpoints read from the ingested code graph stored in each tenant's PostgreSQL schema. They accept both session cookies and API keys with the `read` scope.
+
+### GET /v1/repos/{repo_id}/items/{fqn_b64}
+
+Retrieve a single code symbol by its fully-qualified name (FQN) within a repository (REQ-DP-02 / ADR-008 §12.2).
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Path parameters**:
+- `repo_id` — UUID of the connected repository (from `GET /v1/repos`)
+- `fqn_b64` — URL-safe base64 (no padding, RFC 4648 §5) encoded FQN
+
+**Encoding the FQN**
+
+```bash
+# Shell one-liner (GNU coreutils)
+FQN="my_crate::module::MyStruct"
+FQN_B64=$(printf '%s' "$FQN" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+```
+
+**Response 200** — symbol found
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "fqn": "my_crate::module::MyStruct",
+  "kind": "STRUCT",
+  "repo_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+  "source_path": "src/module.rs",
+  "line_start": 42,
+  "line_end": 58
+}
+```
+
+When the item's stored source exceeds the inline threshold, `blob_ref` is populated and `source_preview` is absent:
+
+```json
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "fqn": "my_crate::huge_fn",
+  "kind": "FN",
+  "repo_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+  "source_path": "src/lib.rs",
+  "line_start": 1,
+  "line_end": 600,
+  "blob_ref": "rb-blob://tenant_a1b2c3/items/3fa85f64.json"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Internal symbol identifier |
+| `fqn` | string | Fully-qualified name as stored by the parse worker |
+| `kind` | string | Symbol type: `FN`, `STRUCT`, `ENUM`, `TRAIT`, `IMPL`, `MOD`, `TYPE`, `CONST`, `STATIC`, `MACRO` |
+| `repo_id` | UUID | Repository the symbol belongs to |
+| `source_path` | string? | Repo-relative file path (e.g. `src/lib.rs`) |
+| `line_start` | int? | 1-based start line |
+| `line_end` | int? | 1-based end line |
+| `source_preview` | string? | Inline source text (small items only; omitted when `blob_ref` is present) |
+| `blob_ref` | string? | `rb-blob://` URI for full AST JSON (large items only; omitted otherwise) |
+
+**Response 400** — `invalid_input` (malformed base64 or non-UTF-8 bytes)  
+**Response 401** — `unauthorized` or `session_expired`  
+**Response 403** — `email_not_verified` or `insufficient_scope`  
+**Response 404** — repository not found, belongs to a different tenant, or FQN absent
+
+Cross-tenant requests are always rejected with 404 — the caller's tenant must own `repo_id` (AC4).
+
+**Example — curl with API key**
+
+```bash
+REPO_ID="6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+FQN="my_crate::module::MyStruct"
+FQN_B64=$(printf '%s' "$FQN" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+
+curl -s \
+  -H "Authorization: Bearer $KEY" \
+  "http://localhost:8080/v1/repos/${REPO_ID}/items/${FQN_B64}" | jq .
+```
+
+**Example — curl with session cookie**
+
+```bash
+curl -s -b cookies.txt \
+  "http://localhost:8080/v1/repos/${REPO_ID}/items/${FQN_B64}" | jq .
 ```

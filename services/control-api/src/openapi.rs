@@ -5,7 +5,7 @@
 
 use utoipa::OpenApi;
 
-use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, me, repos, tenants};
+use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, me, query, repos, tenants};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -37,6 +37,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         repos::list_repos,
         repos::trigger_ingest,
         ingest::trigger::trigger_ingestion,
+        query::items::get_item,
     ),
     components(
         schemas(
@@ -78,6 +79,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             repos::TriggerIngestResponse,
             ingest::trigger::TriggerIngestionRequest,
             ingest::trigger::TriggerIngestionResponse,
+            query::items::ItemResponse,
         )
     ),
     info(
@@ -99,6 +101,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         (name = "github", description = "GitHub App integration"),
         (name = "repos", description = "Connected repository management"),
         (name = "ingestions", description = "Manual ingestion trigger and run management"),
+        (name = "query", description = "Code graph read queries"),
     ),
 )]
 pub struct ApiDoc;

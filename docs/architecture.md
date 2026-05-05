@@ -53,12 +53,13 @@ The Cargo workspace (`Cargo.toml`) contains two kinds of members:
 | `rb-storage-pg` | PostgreSQL connection pool and repository abstractions (sqlx 0.8) |
 | `rb-tenant` | `TenantId` newtype and schema-name derivation for per-tenant PostgreSQL schemas |
 | `rb-tracing` | OpenTelemetry + tracing-subscriber initialisation, JSON log layer |
+| `rb-query` | Read-path queries against tenant schemas: symbol lookup by `(repo_id, fqn)` via `TenantCtx::qualify` (ADR-008 §4.1) |
 
 ### Services (`services/`)
 
 | Service | Binary | Purpose |
 |---------|--------|---------|
-| `control-api` | `control-api` | Main HTTP API — auth, tenants, API keys, user profile |
+| `control-api` | `control-api` | Main HTTP API — auth, tenants, API keys, user profile, GitHub integration, ingestion, code-symbol query |
 | `migrate` | `migrate` | Runs PostgreSQL migrations and Kafka topic creation |
 
 ---

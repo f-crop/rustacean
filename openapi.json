@@ -852,6 +852,61 @@
         }
       }
     },
+    "/v1/repos/{repo_id}/items/{fqn_b64}": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "summary": "Retrieve a code symbol by its fully-qualified name within a repository.",
+        "description": "`fqn_b64` must be the FQN encoded as URL-safe base64 without padding\n(`base64url` / RFC 4648 §5, no `=` padding). Returns the item's metadata\nand, when the stored source is ≤ 4 KiB, an inline `source_preview`.\nLarger items carry only a `blob_ref` URI pointing to the full AST JSON.\n\nCross-tenant requests are rejected: the repository must belong to the\ncaller's tenant (AC4). Returns 404 both when the repo is absent and when\nthe `(repo_id, fqn)` tuple is not found (AC2).",
+        "operationId": "get_item",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository UUID (from POST /v1/repos)",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fqn_b64",
+            "in": "path",
+            "description": "URL-safe base64 (no padding) encoded fully-qualified name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Item found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed fqn_b64 encoding (invalid_input)"
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Email not verified or API key lacks read scope"
+          },
+          "404": {
+            "description": "Repository or item not found (not_found)"
+          }
+        }
+      }
+    },
     "/v1/tenants/{id}/members": {
       "get": {
         "tags": [
@@ -1475,6 +1530,73 @@
           }
         }
       },
+      "ItemResponse": {
+        "type": "object",
+        "description": "Code symbol returned by the item-lookup endpoint.",
+        "required": [
+          "id",
+          "fqn",
+          "kind",
+          "repo_id"
+        ],
+        "properties": {
+          "blob_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`rb-blob://` URI for the item's serialised AST JSON.\nPopulated only when the item's source exceeds 4 KiB (AC3)."
+          },
+          "fqn": {
+            "type": "string",
+            "description": "Fully-qualified name (e.g. `my_crate::module::MyStruct`)."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal symbol UUID."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`ItemKind` string (e.g. `\"FN\"`, `\"STRUCT\"`, `\"TRAIT\"`)."
+          },
+          "line_end": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "1-based end line of the item in `source_path`."
+          },
+          "line_start": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "1-based start line of the item in `source_path`."
+          },
+          "repo_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Repository this symbol belongs to."
+          },
+          "source_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Repo-relative source path (e.g. `src/lib.rs`)."
+          },
+          "source_preview": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Inline source text — present when the item's source is ≤ 4 KiB.\nAbsent when `blob_ref` is populated (AC3)."
+          }
+        }
+      },
       "ListApiKeysResponse": {
         "type": "object",
         "required": [
@@ -1997,6 +2119,10 @@
     {
       "name": "ingestions",
       "description": "Manual ingestion trigger and run management"
+    },
+    {
+      "name": "query",
+      "description": "Code graph read queries"
     }
   ]
 }
