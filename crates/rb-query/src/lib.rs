@@ -7,8 +7,5 @@ mod error;
 mod pg;
 
 pub use error::QueryError;
-<<<<<<< HEAD
 pub use pg::items;
-=======
->>>>>>> 725e519 (fix(rb-query, control-api): CI fixes for RUSAA-77 PR #199)
 pub use pg::modules::{ModuleNode, ModuleTreeCache, fetch_module_tree, new_module_tree_cache};

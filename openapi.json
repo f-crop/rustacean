@@ -907,6 +907,49 @@
         }
       }
     },
+    "/v1/repos/{repo_id}/modules": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "summary": "Return the crate/module hierarchy for a repository.",
+        "description": "Tree is derived from `code_symbols.fqn` (split on `::`) via a single SQL\nquery. Results are cached in-process for 60 s per `(repo_id, last_ingest_run_id)`.",
+        "operationId": "get_module_tree",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Module tree for the repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleTreeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Email not verified or insufficient scope"
+          },
+          "404": {
+            "description": "Repository not found or belongs to another tenant"
+          }
+        }
+      }
+    },
     "/v1/tenants/{id}/members": {
       "get": {
         "tags": [
@@ -1746,6 +1789,92 @@
           }
         }
       },
+      "ModuleNodeItem": {
+        "type": "object",
+        "description": "A single node in the module/item tree.",
+        "required": [
+          "name",
+          "fqn",
+          "kind",
+          "children"
+        ],
+        "properties": {
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleNodeItem"
+            },
+            "description": "Nested child nodes."
+          },
+          "fqn": {
+            "type": "string",
+            "description": "Fully-qualified name (e.g. `\"alloc::vec::Vec\"`)."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Symbol kind from `code_symbols.kind` (e.g. `\"MOD\"`, `\"STRUCT\"`, `\"FN\"`)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Leaf segment of the FQN (e.g. `\"Vec\"` for `alloc::vec::Vec`)."
+          },
+          "source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NodeSource",
+                "description": "Source location — absent for virtual/synthetic module nodes."
+              }
+            ]
+          }
+        }
+      },
+      "ModuleTreeResponse": {
+        "type": "object",
+        "description": "Response envelope for `GET /v1/repos/{repo_id}/modules`.",
+        "required": [
+          "repo_id",
+          "tree"
+        ],
+        "properties": {
+          "repo_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tree": {
+            "$ref": "#/components/schemas/ModuleNodeItem"
+          }
+        }
+      },
+      "NodeSource": {
+        "type": "object",
+        "description": "Source location for a symbol.",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "line_end": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "line_start": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "path": {
+            "type": "string",
+            "description": "Relative path within the repository (e.g. `\"src/lib.rs\"`)."
+          }
+        }
+      },
       "ProbeResponse": {
         "type": "object",
         "required": [
@@ -2122,7 +2251,7 @@
     },
     {
       "name": "query",
-      "description": "Code graph read queries"
+      "description": "Data-plane query endpoints (ADR-008 Wave 6)"
     }
   ]
 }
