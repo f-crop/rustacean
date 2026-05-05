@@ -101,9 +101,18 @@ function RepoDetailInner({
       ) : (
         <div className="flex flex-col gap-6">
           <header className="flex flex-col gap-1">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {repo.full_name}
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {repo.full_name}
+              </h1>
+              <Link
+                to={routes.codeWorkspace}
+                params={{ repoId: repo.repo_id }}
+                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:border-primary hover:text-primary"
+              >
+                Code workspace →
+              </Link>
+            </div>
             <StatusBadge status={repo.status} />
           </header>
 
