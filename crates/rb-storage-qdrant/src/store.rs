@@ -60,6 +60,7 @@ impl TenantVectorStore {
     /// - [`QdrantError::Http`] — Qdrant returned a non-2xx status.
     /// - [`QdrantError::Request`] — network-level failure.
     /// - [`QdrantError::Parse`] — unexpected response shape.
+    #[allow(clippy::cast_possible_truncation)]
     pub async fn search(
         &self,
         tenant_id: &TenantId,
