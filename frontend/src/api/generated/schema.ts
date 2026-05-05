@@ -507,6 +507,57 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/repos/{repo_id}/items/{fqn_b64}/impls": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List all impl blocks for the trait identified by `fqn_b64` within a repository.
+         * @description Returns both direct impls (`impl Trait for Type`) and blanket impls
+         *     (`impl<T: Bound> Trait for T`) found in the graph.
+         *
+         *     `fqn_b64` must be URL-safe base64 (no padding) of the trait's FQN.
+         *     Requires the graph to be configured (`RB_NEO4J_URI`); returns 503 otherwise.
+         */
+        readonly get: operations["get_trait_impls"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/repos/{repo_id}/items/{fqn_b64}/usages": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List all usages of the type identified by `fqn_b64` within a repository.
+         * @description Returns two categories of usage combined in a flat list:
+         *     - **Textual** (`usage_kind = "textual"`)  — items that reference the type
+         *       by name (`USES_TYPE` edge).
+         *     - **Monomorphized** (`usage_kind = "monomorphized"`) — `TypeInstance` nodes
+         *       derived from this type via a `MONOMORPHIZED_FROM` edge.
+         *
+         *     `fqn_b64` must be URL-safe base64 (no padding) of the type's FQN.
+         *     Requires the graph to be configured (`RB_NEO4J_URI`); returns 503 otherwise.
+         */
+        readonly get: operations["get_type_usages"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/repos/{repo_id}/modules": {
         readonly parameters: {
             readonly query?: never;
@@ -762,6 +813,25 @@ export interface components {
             readonly app_id: number;
             readonly owner: string;
             readonly slug: string;
+        };
+        /** @description One impl block that implements the queried trait. */
+        readonly ImplEntry: {
+            /** @description Fully-qualified name of the impl block. */
+            readonly fqn: string;
+            /** @description `"direct"` for concrete impls; `"blanket"` for blanket impls. */
+            readonly impl_kind: string;
+        };
+        /** @description Response for `GET /v1/repos/{repo_id}/items/{fqn_b64}/impls`. */
+        readonly ImplsResponse: {
+            /** @description Impl blocks found in the graph. */
+            readonly impls: readonly components["schemas"]["ImplEntry"][];
+            /**
+             * Format: uuid
+             * @description Repository UUID.
+             */
+            readonly repo_id: string;
+            /** @description FQN of the queried trait. */
+            readonly trait_fqn: string;
         };
         readonly InstallUrlResponse: {
             /** @description The raw opaque state token embedded in the URL. */
@@ -1036,6 +1106,28 @@ export interface components {
             readonly role: string;
             /** Format: uuid */
             readonly user_id: string;
+        };
+        /** @description One item that references the queried type. */
+        readonly UsageEntry: {
+            /** @description Fully-qualified name of the using item or type instance. */
+            readonly fqn: string;
+            /**
+             * @description `"textual"` — item uses the type by name in its source.
+             *     `"monomorphized"` — `TypeInstance` instantiated from this type's `TypeDef`.
+             */
+            readonly usage_kind: string;
+        };
+        /** @description Response for `GET /v1/repos/{repo_id}/items/{fqn_b64}/usages`. */
+        readonly UsagesResponse: {
+            /**
+             * Format: uuid
+             * @description Repository UUID.
+             */
+            readonly repo_id: string;
+            /** @description FQN of the queried type. */
+            readonly type_fqn: string;
+            /** @description All usages found in the graph, combining textual and monomorphized. */
+            readonly usages: readonly components["schemas"]["UsageEntry"][];
         };
         /** @description Public profile of the authenticated user. */
         readonly UserInfo: {
@@ -2027,6 +2119,126 @@ export interface operations {
             };
             /** @description Repository or item not found (not_found) */
             readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_trait_impls: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Repository UUID */
+                readonly repo_id: string;
+                /** @description URL-safe base64 (no padding) encoded trait FQN */
+                readonly fqn_b64: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Impl list */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ImplsResponse"];
+                };
+            };
+            /** @description Malformed fqn_b64 */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or insufficient scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Repository not found or belongs to another tenant */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Neo4j graph not configured on this instance */
+            readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_type_usages: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Repository UUID */
+                readonly repo_id: string;
+                /** @description URL-safe base64 (no padding) encoded type FQN */
+                readonly fqn_b64: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Usage list */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["UsagesResponse"];
+                };
+            };
+            /** @description Malformed fqn_b64 */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or insufficient scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Repository not found or belongs to another tenant */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Neo4j graph not configured on this instance */
+            readonly 503: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
