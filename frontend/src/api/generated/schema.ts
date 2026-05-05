@@ -436,6 +436,33 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/repos/{repo_id}/items/{fqn_b64}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Retrieve a code symbol by its fully-qualified name within a repository.
+         * @description `fqn_b64` must be the FQN encoded as URL-safe base64 without padding
+         *     (`base64url` / RFC 4648 §5, no `=` padding). Returns the item's metadata
+         *     and, when the stored source is ≤ 4 KiB, an inline `source_preview`.
+         *     Larger items carry only a `blob_ref` URI pointing to the full AST JSON.
+         *
+         *     Cross-tenant requests are rejected: the repository must belong to the
+         *     caller's tenant (AC4). Returns 404 both when the repo is absent and when
+         *     the `(repo_id, fqn)` tuple is not found (AC2).
+         */
+        readonly get: operations["get_item"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/tenants/{id}/members": {
         readonly parameters: {
             readonly query?: never;
@@ -649,6 +676,45 @@ export interface components {
              * @description Present when an existing user was added directly.
              */
             readonly user_id?: string | null;
+        };
+        /** @description Code symbol returned by the item-lookup endpoint. */
+        readonly ItemResponse: {
+            /**
+             * @description `rb-blob://` URI for the item's serialised AST JSON.
+             *     Populated only when the item's source exceeds 4 KiB (AC3).
+             */
+            readonly blob_ref?: string | null;
+            /** @description Fully-qualified name (e.g. `my_crate::module::MyStruct`). */
+            readonly fqn: string;
+            /**
+             * Format: uuid
+             * @description Internal symbol UUID.
+             */
+            readonly id: string;
+            /** @description `ItemKind` string (e.g. `"FN"`, `"STRUCT"`, `"TRAIT"`). */
+            readonly kind: string;
+            /**
+             * Format: int32
+             * @description 1-based end line of the item in `source_path`.
+             */
+            readonly line_end?: number | null;
+            /**
+             * Format: int32
+             * @description 1-based start line of the item in `source_path`.
+             */
+            readonly line_start?: number | null;
+            /**
+             * Format: uuid
+             * @description Repository this symbol belongs to.
+             */
+            readonly repo_id: string;
+            /** @description Repo-relative source path (e.g. `src/lib.rs`). */
+            readonly source_path?: string | null;
+            /**
+             * @description Inline source text — present when the item's source is ≤ 4 KiB.
+             *     Absent when `blob_ref` is populated (AC3).
+             */
+            readonly source_preview?: string | null;
         };
         readonly ListApiKeysResponse: {
             readonly keys: readonly components["schemas"]["ApiKeyItem"][];
@@ -1660,6 +1726,59 @@ export interface operations {
             };
             /** @description Kafka producer not available (kafka_not_configured, kafka_unavailable) */
             readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_item: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Repository UUID (from POST /v1/repos) */
+                readonly repo_id: string;
+                /** @description URL-safe base64 (no padding) encoded fully-qualified name */
+                readonly fqn_b64: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Item found */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ItemResponse"];
+                };
+            };
+            /** @description Malformed fqn_b64 encoding (invalid_input) */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or API key lacks read scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Repository or item not found (not_found) */
+            readonly 404: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
