@@ -109,6 +109,20 @@ export RUST_LOG=info,control_api=debug
 
 Full variable reference: [docs/api-reference.md — Environment Variables](api-reference.md#environment-variables).
 
+### Code intelligence (optional)
+
+The code intelligence features (semantic search, call-graph traversal, trait impls, type usages) require additional infrastructure. Docker Compose starts these services automatically; if running the API outside Docker, set:
+
+```bash
+export RB_NEO4J_URI=bolt://localhost:7687      # enables graph endpoints (callers, callees, impls, usages)
+export RB_NEO4J_PASSWORD=neo4j
+export RB_QDRANT_URL=http://localhost:6333      # enables POST /v1/search
+export RB_OLLAMA_URL=http://localhost:11434      # required for search (query embedding)
+export RB_EMBEDDING_MODEL=nomic-embed-text      # must match embed-worker model
+```
+
+When these variables are absent, the corresponding endpoints return 503 — the rest of the API works normally.
+
 ---
 
 ## 5. Start the frontend dev server
@@ -187,7 +201,7 @@ curl -s -b cookies.txt http://localhost:8080/v1/me | jq .
 
 ## Next steps
 
-- **Architecture deep-dive**: [docs/architecture.md](architecture.md)
+- **Architecture deep-dive**: [docs/architecture.md](architecture.md) — system overview, crate layout, read-side topology
 - **Ops reference**: [docs/runbook.md](runbook.md)
-- **API reference**: [docs/api-reference.md](api-reference.md)
+- **API reference**: [docs/api-reference.md](api-reference.md) — all endpoints including code intelligence (search, graph traversal)
 - **Contributing**: a contributor guide is forthcoming.

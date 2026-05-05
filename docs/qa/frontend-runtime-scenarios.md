@@ -4,8 +4,7 @@ Canonical list of FE runtime scenarios that must be covered by the gating Playwr
 Engineers add rows when new scenarios are introduced. QA flags `GAP` rows as soft caveats in QA reports.
 
 **Last reviewed:** 2026-04-28  
-**Owner:** QA Engineer (RUSAA-234)  
-**Related:** RUSAA-229 (design), RUSAA-230 (CI job + AGENTS.md reference), RUSAA-231 (CI job), RUSAA-232 (baseline specs)
+**Owner:** QA Engineer
 
 ---
 

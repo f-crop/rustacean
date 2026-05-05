@@ -17,23 +17,30 @@ rust-brain is a multi-tenant platform built as a Rust monorepo with a React fron
                ┌─────────────────▼─┐    ┌──▼───────────────┐
                │   control-api     │    │   frontend (dist) │
                │  Axum 0.8 :8080   │    │  Vite build       │
-               └──┬──────────┬─────┘    └──────────────────-┘
-                  │          │
-       ┌──────────▼──┐  ┌───▼──────────┐
-       │  PostgreSQL  │  │ otel-collector│
-       │  :5432       │  │ :4317/:4318  │
-       └─────────────-┘  └───┬──────────┘
-                              │
-                    ┌─────────▼──────────┐
-                    │  Tempo / Prometheus │
-                    │  Grafana dashboards │
-                    └────────────────────┘
-
-Additional infra (not yet wired to control-api):
-  Kafka (KRaft)  :9092 internal / :9094 external
-  Neo4j          :7687 bolt
-  Qdrant         :6333 REST
-  Ollama         :11434
+               └──┬──┬──┬──┬──┬───┘    └──────────────────-┘
+                  │  │  │  │  │
+       ┌──────────▼┐ │  │  │  └──────────────┐
+       │ PostgreSQL│ │  │  │   ┌─────────────▼──┐
+       │ :5432     │ │  │  │   │ otel-collector  │
+       └───────────┘ │  │  │   │ :4317/:4318     │
+                     │  │  │   └───┬─────────────┘
+          ┌──────────▼┐ │  │       │
+          │ Neo4j     │ │  │  ┌────▼─────────────┐
+          │ :7687 bolt│ │  │  │ Tempo / Prometheus│
+          └───────────┘ │  │  │ Grafana dashboards│
+                        │  │  └──────────────────-┘
+             ┌──────────▼┐ │
+             │ Qdrant    │ │
+             │ :6333 REST│ │
+             └───────────┘ │
+                  ┌────────▼────────┐
+                  │ Kafka (KRaft)   │──▶ ingestion pipeline
+                  │ :9092 / :9094   │    (parse, extract, embed workers)
+                  └─────────────────┘
+                           │
+                  ┌────────▼──────┐
+                  │ Ollama :11434 │  (embedding via embed-worker)
+                  └───────────────┘
 ```
 
 ---
@@ -53,14 +60,32 @@ The Cargo workspace (`Cargo.toml`) contains two kinds of members:
 | `rb-storage-pg` | PostgreSQL connection pool and repository abstractions (sqlx 0.8) |
 | `rb-tenant` | `TenantId` newtype and schema-name derivation for per-tenant PostgreSQL schemas |
 | `rb-tracing` | OpenTelemetry + tracing-subscriber initialisation, JSON log layer |
-| `rb-query` | Read-path queries against tenant schemas: symbol lookup by `(repo_id, fqn)` via `TenantCtx::qualify` (ADR-008 §4.1) |
+| `rb-query` | Read-path queries: symbol lookup, semantic search coordination, BFS call-graph traversal (callers/callees), trait-impl lookup, type-usage lookup |
+| `rb-storage-neo4j` | Neo4j graph driver: tenant-isolated Cypher execution, write-operator detection, tenant label injection |
+| `rb-storage-qdrant` | Qdrant vector store: tenant-isolated ANN search against the `rb_embeddings` collection |
+| `rb-kafka` | Kafka producer/consumer helpers and topic management |
+| `rb-github` | GitHub App authentication (JWT signing, installation tokens) and API client |
+| `rb-blob` | Blob storage abstraction for large source artifacts |
+| `rb-sse` | Server-Sent Events helpers for real-time ingestion status |
+| `rb-parse-syn` | Rust source parser using `syn` for AST extraction |
+| `rb-parse-tree-sitter` | Multi-language parser using tree-sitter for AST extraction |
 
 ### Services (`services/`)
 
 | Service | Binary | Purpose |
 |---------|--------|---------|
-| `control-api` | `control-api` | Main HTTP API — auth, tenants, API keys, user profile, GitHub integration, ingestion, code-symbol query |
+| `control-api` | `control-api` | Main HTTP API — auth, tenants, API keys, user profile, GitHub integration, ingestion, code-symbol query, semantic search, graph traversal |
 | `migrate` | `migrate` | Runs PostgreSQL migrations and Kafka topic creation |
+| `ingest-clone` | `ingest-clone` | Stage 1 — clones Git repositories into a local working directory |
+| `parse-worker` | `parse-worker` | Stage 2 — parses source files into AST items |
+| `expand-worker` | `expand-worker` | Stage 3 — resolves macros and expands AST |
+| `typecheck-worker` | `typecheck-worker` | Stage 4 — type-checks expanded AST |
+| `ingest-graph` | `ingest-graph` | Stage 5 — extracts graph relations (calls, impls, usages) into Neo4j |
+| `embed-worker` | `embed-worker` | Stage 6 — embeds code symbols via Ollama into Qdrant |
+| `projector-pg` | `projector-pg` | Kafka → PostgreSQL projector for read-model materialization |
+| `projector-neo4j` | `projector-neo4j` | Kafka → Neo4j projector for graph data |
+| `tombstoner` | `tombstoner` | Async tenant deletion: drops PostgreSQL schemas, removes Neo4j nodes, deletes Qdrant points |
+| `audit-worker` | `audit-worker` | Kafka → PostgreSQL projector for audit events |
 
 ---
 
@@ -96,8 +121,10 @@ The `control` schema is created by the `migrate` service on first run. Tenant sc
 - **Auth surface** — signup, login, logout, email verification, password reset
 - **Session management** — sliding-window `HttpOnly` sessions via `rb_session` cookie; session TTL configurable with `RB_SESSION_TTL_DAYS` (default 30 days)
 - **API keys** — create, list, revoke; scopes: `read`, `write`, `admin`
-- **Tenant membership** — invite, role update, remove, ownership transfer
+- **Tenant membership** — invite, role update, remove, ownership transfer, tenant deletion
 - **User profile** — `GET /v1/me` returns the caller's identity, current tenant, and all available tenants
+- **Code intelligence** — semantic search (`POST /v1/search`), call-graph traversal (callers/callees), trait-impl lookup, type-usage lookup, raw Cypher queries (`POST /v1/graph/query`)
+- **Health probes** — per-store liveness (`GET /health`) and Kafka consistency metrics (`GET /v1/health/consistency`)
 
 The service has no internal state beyond the database connection pool and an in-memory rate limiter (`DashMap`). It can run multiple replicas behind a load balancer without shared state.
 
@@ -217,6 +244,50 @@ control-api handlers
 ```
 
 Any type mismatch between the Rust handler and the TypeScript frontend is caught by CI before it can reach production.
+
+---
+
+## Read-side architecture (code intelligence)
+
+The code intelligence query surface reads from three stores populated by the ingestion pipeline:
+
+```
+                              ┌────────────────┐
+                              │  control-api   │
+                              │  query routes  │
+                              └──┬──┬──┬───────┘
+                                 │  │  │
+              ┌──────────────────▼┐ │  └──────────────┐
+              │ PostgreSQL        │ │    ┌─────────────▼┐
+              │ tenant_<uuid>     │ │    │   Qdrant     │
+              │ (items table —    │ │    │ rb_embeddings│
+              │  symbol lookup)   │ │    │ (ANN search) │
+              └───────────────────┘ │    └──────────────┘
+                                    │
+                         ┌──────────▼──────────┐
+                         │      Neo4j          │
+                         │ (call graph, impls,  │
+                         │  usages, type defs)  │
+                         └─────────────────────┘
+```
+
+| Store | Crate | Query endpoints |
+|-------|-------|-----------------|
+| PostgreSQL | `rb-query` (pg module) | `GET /v1/repos/{id}/items/{fqn}` — symbol lookup by FQN |
+| Qdrant | `rb-storage-qdrant` | `POST /v1/search` — semantic nearest-neighbour search |
+| Neo4j | `rb-storage-neo4j` | callers, callees, impls, usages, `POST /v1/graph/query` |
+
+**Tenant isolation** is enforced at every layer:
+- **PostgreSQL** — per-tenant schema (`tenant_<uuid>`) qualified via `TenantCtx`
+- **Qdrant** — mandatory `must` filter on `tenant_id` in every search query (`TenantVectorStore`)
+- **Neo4j** — automatic tenant label injection into all Cypher node patterns (`TenantGraph`)
+
+**Semantic search flow** (`POST /v1/search`):
+1. Embed the user's natural-language query via Ollama (`RB_OLLAMA_URL`, model `RB_EMBEDDING_MODEL`)
+2. Search the `rb_embeddings` Qdrant collection with the resulting vector, filtered by `tenant_id`
+3. Return ranked results with cosine similarity scores
+
+See [API reference](api-reference.md#search-endpoints) for request/response details.
 
 ---
 
