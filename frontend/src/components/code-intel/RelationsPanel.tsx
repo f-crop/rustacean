@@ -130,9 +130,15 @@ function TraversalGraph({ data, onSelect, direction }: TraversalGraphProps): JSX
       </div>
 
       {related.length === 0 ? (
-        <p className="px-3 pb-3 text-xs text-muted-foreground">
-          No {label} found.
-        </p>
+        <div className="px-3 pb-3">
+          <p className="text-xs text-muted-foreground">
+            Call graph analysis is not yet available for this repository.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground/70">
+            {label.charAt(0).toUpperCase() + label.slice(1)} will appear here once call graph
+            extraction has been completed for this codebase.
+          </p>
+        </div>
       ) : (
         <ul
           aria-label={`${direction} list`}
