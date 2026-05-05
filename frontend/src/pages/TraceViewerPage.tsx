@@ -1,4 +1,4 @@
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { fetchTempoTrace, type TempoTrace, type TempoSpan, type TempoProcess } from "@/api/tempo";
 import { useStageTimeline } from "@/api/hooks/useTraceViewer";
@@ -183,7 +183,7 @@ interface SpanNodeProps {
 
 function SpanNode({ span, minStart, totalDuration, processes, depth }: SpanNodeProps): JSX.Element {
   const [expanded, setExpanded] = useState(true);
-  const offsetMs = (span.startTime / 1000 - minStart) / 1000;
+  const offsetMs = span.startTime / 1000 - minStart;
   const durationMs = span.duration / 1000;
   const leftPct = totalDuration > 0 ? (offsetMs / totalDuration) * 100 : 0;
   const widthPct = totalDuration > 0 ? Math.max((durationMs / totalDuration) * 100, 0.5) : 0.5;
@@ -387,8 +387,8 @@ function TraceViewerInner({ traceId, ingestionRunId }: TraceViewerInnerProps): J
 }
 
 export function TraceViewerPage(): JSX.Element {
-  const { traceId } = useParams({ strict: false }) as { traceId: string };
-  const ingestionRunId = new URLSearchParams(window.location.search).get("runId") ?? undefined;
+  const { traceId } = useParams({ from: '/trace/$traceId' });
+  const { runId: ingestionRunId } = useSearch({ from: '/trace/$traceId' });
 
   return <TraceViewerInner traceId={traceId} ingestionRunId={ingestionRunId} />;
 }
