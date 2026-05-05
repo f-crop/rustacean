@@ -1,16 +1,9 @@
-use thiserror::Error;
-
-#[derive(Debug, Error)]
+/// Error type for Qdrant REST operations.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum QdrantError {
-    #[error("tenant_id filter is required — refusing to execute an unscoped query")]
-    MissingTenantFilter,
-
-    #[error("Qdrant HTTP error {status}: {body}")]
-    Http { status: u16, body: String },
-
-    #[error("Qdrant request failed: {0}")]
-    Request(#[from] reqwest::Error),
-
-    #[error("Qdrant response parse error: {0}")]
-    Parse(String),
+    #[error("Qdrant HTTP request failed: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("Qdrant returned HTTP {status}: {body}")]
+    Api { status: u16, body: String },
 }

@@ -1077,7 +1077,6 @@ dependencies = [
  "rb-secrets",
  "rb-sse",
  "rb-storage-pg",
- "rb-storage-qdrant",
  "rb-tenant",
  "rb-tracing",
  "rdkafka",
@@ -3821,9 +3820,9 @@ name = "rb-query"
 version = "0.1.0"
 dependencies = [
  "moka",
- "rb-schemas",
  "rb-storage-qdrant",
  "rb-tenant",
+ "reqwest",
  "serde",
  "sqlx",
  "thiserror 2.0.18",
@@ -3897,13 +3896,11 @@ dependencies = [
 name = "rb-storage-qdrant"
 version = "0.1.0"
 dependencies = [
- "rb-schemas",
  "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
- "uuid",
 ]
 
 [[package]]
