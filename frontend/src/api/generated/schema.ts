@@ -1340,6 +1340,8 @@ export interface components {
         readonly TriggerIngestionResponse: {
             /** Format: uuid */
             readonly ingest_run_id: string;
+            /** @description 32-hex OpenTelemetry trace ID for this run. `null` when no active trace context. */
+            readonly trace_id?: string | null;
         };
         readonly UpdateRoleRequest: {
             /** @description Target role: `member` or `admin`. Cannot set `owner` via this endpoint. */
