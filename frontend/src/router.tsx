@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 import { AppShell, GlobalSuspenseFallback } from "@/components/AppShell";
 import { ActivityPage } from "@/pages/ActivityPage";
+import { TraceViewerPage } from "@/pages/TraceViewerPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { CodeWorkspacePage } from "@/pages/CodeWorkspacePage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
@@ -135,6 +136,17 @@ const activityRoute = createRoute({
   component: ActivityPage,
 });
 
+const traceSearchSchema = z.object({
+  runId: z.string().optional(),
+});
+
+const traceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: routes.trace,
+  validateSearch: traceSearchSchema,
+  component: TraceViewerPage,
+});
+
 const catchAllRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -158,6 +170,7 @@ const routeTree = rootRoute.addChildren([
   ingestionRoute,
   codeWorkspaceRoute,
   activityRoute,
+  traceRoute,
   catchAllRoute,
 ]);
 

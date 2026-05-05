@@ -56,3 +56,9 @@ export {
   type RecentIngestionRun,
   type RecentIngestionsResponse,
 } from "./useRecentIngestions";
+export {
+  useStageTimeline,
+  stageTimelineQueryKey,
+  type StageTimelineResponse,
+  type StageRunItem,
+} from "./useTraceViewer";
