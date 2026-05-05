@@ -7,9 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-rb-tenant = { path = "../rb-tenant", version = "0.1.0" }
 rb-schemas = { path = "../rb-schemas", version = "0.1.0" }
 rb-storage-neo4j = { path = "../rb-storage-neo4j", version = "0.1.0" }
+rb-storage-qdrant = { path = "../rb-storage-qdrant", version = "0.1.0" }
+rb-tenant = { path = "../rb-tenant", version = "0.1.0" }
 sqlx.workspace = true
 neo4rs.workspace = true
 uuid.workspace = true

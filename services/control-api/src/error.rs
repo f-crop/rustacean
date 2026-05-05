@@ -58,6 +58,8 @@ pub enum AppError {
     ConfirmationMismatch,
     #[error("Neo4j graph is not configured on this instance")]
     GraphUnavailable,
+    #[error("required upstream service is not available")]
+    ServiceUnavailable,
     #[error("Kafka producer is not configured on this instance")]
     KafkaNotConfigured,
     #[error("Kafka brokers are not reachable")]
@@ -142,6 +144,11 @@ impl IntoResponse for AppError {
             AppError::GraphUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "graph_unavailable",
+                self.to_string(),
+            ),
+            AppError::ServiceUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "service_unavailable",
                 self.to_string(),
             ),
             AppError::KafkaNotConfigured => (

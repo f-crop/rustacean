@@ -42,6 +42,7 @@ fn test_state() -> AppState {
         tombstone_producer: None,
         module_tree_cache: rb_query::new_module_tree_cache(),
         graph: None,
+        qdrant: None,
     }
 }
 
@@ -326,6 +327,9 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         kafka_bootstrap_servers: "localhost:9092".to_owned(),
         dev_test_routes: false,
         migrations_root: None,
+        qdrant_url: None,
+        ollama_url: None,
+        embedding_model: "nomic-embed-text".to_owned(),
     };
     let state = AppState {
         pool: pool.clone(),
@@ -339,6 +343,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         tombstone_producer: None,
         module_tree_cache: rb_query::new_module_tree_cache(),
         graph: None,
+        qdrant: None,
     };
     Some((state, pool))
 }

@@ -6,4 +6,6 @@ pub enum QueryError {
     Database(#[from] sqlx::Error),
     #[error("graph error: {0}")]
     Graph(#[from] rb_storage_neo4j::CypherError),
+    #[error("vector store error: {0}")]
+    Qdrant(#[from] rb_storage_qdrant::QdrantError),
 }

@@ -8,6 +8,7 @@ use rb_query::ModuleTreeCache;
 use rb_schemas::{IngestRequest, Tombstone};
 use rb_sse::EventBus;
 use rb_storage_neo4j::TenantGraph;
+use rb_storage_qdrant::TenantVectorStore;
 use sqlx::PgPool;
 
 use crate::config::Config;
@@ -37,4 +38,7 @@ pub struct AppState {
     /// Neo4j tenant-graph handle.  `None` when `RB_NEO4J_URI` is not configured;
     /// graph endpoints (`/impls`, `/usages`) return 503 in that case.
     pub graph: Option<Arc<TenantGraph>>,
+    /// Qdrant vector store for semantic search (REQ-DP-01). `None` when
+    /// `RB_QDRANT_URL` is not configured; `POST /v1/search` returns 503.
+    pub qdrant: Option<Arc<TenantVectorStore>>,
 }
