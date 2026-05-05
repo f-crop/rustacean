@@ -3,11 +3,8 @@
 ///
 /// Used by `POST /v1/graph/query` when `read_only = true` to pre-flight the
 /// query before sending it to Neo4j.
+#[must_use]
 pub fn has_write_operators(cypher: &str) -> bool {
-    let bytes = cypher.as_bytes();
-    let len = bytes.len();
-    let mut i = 0;
-
     #[derive(PartialEq)]
     enum State {
         Normal,
@@ -18,6 +15,9 @@ pub fn has_write_operators(cypher: &str) -> bool {
         BlockComment,
     }
 
+    let bytes = cypher.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
     let mut state = State::Normal;
 
     while i < len {

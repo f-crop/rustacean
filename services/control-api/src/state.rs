@@ -26,6 +26,7 @@ pub struct KafkaConsistencyState {
 }
 
 impl KafkaConsistencyState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             last_event_at_ms: AtomicI64::new(0),

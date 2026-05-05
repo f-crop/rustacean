@@ -7,12 +7,11 @@
 //! [`rb_storage_neo4j::TenantGraph`] for tenant isolation (ADR-007 §3.4).
 //! The `vector` module provides semantic search via [`rb_storage_qdrant::TenantVectorStore`]
 //! with mandatory per-tenant isolation (ADR-007 §13.2).
-//! The `semantic` module provides function-based semantic search for health/embedding workflows.
 
 mod error;
 mod graph;
 mod pg;
-pub mod semantic;
+mod semantic;
 mod vector;
 
 pub use error::QueryError;
@@ -20,6 +19,7 @@ pub use graph::impls::{ImplEntry, fetch_trait_impls};
 pub use graph::usages::{UsageEntry, fetch_type_usages};
 pub use pg::items;
 pub use pg::modules::{ModuleNode, ModuleTreeCache, fetch_module_tree, new_module_tree_cache};
+pub use semantic::{SemanticSearchError, search_by_vector};
 pub use vector::search::{
     DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, SearchOptions, SemanticHit, semantic_search,
 };

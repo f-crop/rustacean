@@ -9,7 +9,7 @@
 //! enforces this boundary (analogous to `rb-storage-neo4j`).
 
 mod error;
-pub mod search;
+mod search;
 mod store;
 
 pub use error::QdrantError;

@@ -211,7 +211,7 @@ pub async fn consistency_check(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Returns seconds since the epoch-ms timestamp, or i64::MAX when ms == 0.
+/// Returns seconds since the epoch-ms timestamp, or `i64::MAX` when ms == 0.
 fn age_from_ms(last_ms: i64) -> i64 {
     if last_ms == 0 {
         return i64::MAX;

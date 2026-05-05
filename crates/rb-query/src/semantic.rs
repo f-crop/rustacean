@@ -56,6 +56,7 @@ pub enum SemanticSearchError {
 /// # Errors
 ///
 /// Returns [`SemanticSearchError`] on Qdrant or Postgres failure.
+#[allow(clippy::too_many_arguments)]
 pub async fn search_by_vector(
     http: &reqwest::Client,
     qdrant_url: &str,

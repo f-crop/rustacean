@@ -26,6 +26,7 @@ use crate::{config::Config, ingest_consumer, routes, state::{AppState, KafkaCons
 ///
 /// Returns an error if the database connection fails, the TCP listener cannot
 /// bind, or axum returns an IO error during serving.
+#[allow(clippy::too_many_lines)]
 pub async fn run(config: Config) -> Result<()> {
     let metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
         .install_recorder()

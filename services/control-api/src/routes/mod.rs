@@ -74,6 +74,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/repos/{repo_id}/items/{fqn_b64}", get(get_item))
         .route("/v1/repos/{repo_id}/items/{fqn_b64}/impls", get(get_trait_impls))
         .route("/v1/repos/{repo_id}/items/{fqn_b64}/usages", get(get_type_usages))
+        .route("/v1/repos/{repo_id}/graph/query", post(post_graph_query))
         .route("/v1/search", post(search))
         .route("/v1/health/consistency", get(consistency_check))
         .route("/v1/ingestions/recent", get(list_recent_runs))
