@@ -10,6 +10,7 @@
 use std::time::Duration;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use opentelemetry::trace::TraceContextExt as _;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{IngestRequest, TenantId};
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,8 @@ pub struct TriggerIngestionRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TriggerIngestionResponse {
     pub ingest_run_id: Uuid,
+    /// 32-hex OpenTelemetry trace ID for this run. `null` when no active trace context.
+    pub trace_id: Option<String>,
 }
 
 /// Trigger a manual ingestion run for a connected repository.
@@ -126,6 +129,13 @@ pub async fn trigger_ingestion(
     let run_id = Uuid::new_v4();
     let event_id = Uuid::new_v4();
 
+    // Capture the active OTel trace ID so Grafana/Tempo links work.
+    // Returns None when no HTTP middleware has established a trace context.
+    let trace_id: Option<String> = {
+        let span_ctx = opentelemetry::Context::current().span().span_context().clone();
+        span_ctx.is_valid().then(|| span_ctx.trace_id().to_string())
+    };
+
     // 3. Build the Kafka envelope before opening the transaction (pure in-memory,
     //    no I/O). This lets us publish to Kafka while still inside the transaction
     //    and rollback cleanly if the broker is unavailable.
@@ -151,13 +161,14 @@ pub async fn trigger_ingestion(
 
     sqlx::query(
         "INSERT INTO control.ingestion_runs \
-         (id, tenant_id, repo_id, status, requested_by) \
-         VALUES ($1, $2, $3, 'queued', $4)",
+         (id, tenant_id, repo_id, status, requested_by, trace_id) \
+         VALUES ($1, $2, $3, 'queued', $4, $5)",
     )
     .bind(run_id)
     .bind(session.tenant_id)
     .bind(repo_id)
     .bind(session.user_id)
+    .bind(&trace_id)
     .execute(&mut *txn)
     .await?;
 
@@ -196,7 +207,7 @@ pub async fn trigger_ingestion(
 
     Ok((
         StatusCode::ACCEPTED,
-        Json(TriggerIngestionResponse { ingest_run_id: run_id }),
+        Json(TriggerIngestionResponse { ingest_run_id: run_id, trace_id }),
     ))
 }
 
@@ -232,11 +243,24 @@ mod tests {
     }
 
     #[test]
-    fn trigger_ingestion_response_serializes() {
+    fn trigger_ingestion_response_serializes_with_trace_id() {
         let run_id = Uuid::new_v4();
-        let resp = TriggerIngestionResponse { ingest_run_id: run_id };
+        let resp = TriggerIngestionResponse {
+            ingest_run_id: run_id,
+            trace_id: Some("abcdef0123456789abcdef0123456789".to_owned()),
+        };
         let val = serde_json::to_value(&resp).unwrap();
         assert!(val.get("ingest_run_id").is_some());
+        assert_eq!(val["trace_id"], "abcdef0123456789abcdef0123456789");
+    }
+
+    #[test]
+    fn trigger_ingestion_response_serializes_null_trace_id() {
+        let run_id = Uuid::new_v4();
+        let resp = TriggerIngestionResponse { ingest_run_id: run_id, trace_id: None };
+        let val = serde_json::to_value(&resp).unwrap();
+        assert!(val.get("ingest_run_id").is_some());
+        assert!(val["trace_id"].is_null());
     }
 
     #[test]
