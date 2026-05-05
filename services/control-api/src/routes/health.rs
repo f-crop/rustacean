@@ -115,7 +115,10 @@ async fn check_neo4j(state: &AppState) -> &'static str {
 }
 
 async fn check_qdrant(state: &AppState) -> &'static str {
-    let url = format!("{}/healthz", state.config.qdrant_url.trim_end_matches('/'));
+    let Some(base) = state.config.qdrant_url.as_deref() else {
+        return "unknown";
+    };
+    let url = format!("{}/healthz", base.trim_end_matches('/'));
     match tokio::time::timeout(
         Duration::from_secs(2),
         state.http_client.get(&url).send(),
@@ -130,7 +133,9 @@ async fn check_qdrant(state: &AppState) -> &'static str {
 fn check_kafka_liveness(state: &AppState) -> impl std::future::Future<Output = &'static str> {
     let last_ms = state.kafka_consistency.last_event_at_ms.load(Ordering::Relaxed);
     let age_secs = age_from_ms(last_ms);
-    std::future::ready(if age_secs < 300 || last_ms == 0 {
+    std::future::ready(if last_ms == 0 {
+        "unknown"
+    } else if age_secs < 300 {
         "ok"
     } else {
         "error"
@@ -320,5 +325,50 @@ mod tests {
         let now_ms = Utc::now().timestamp_millis();
         let age = age_from_ms(now_ms - 5000);
         assert!(age <= 6, "age should be ~5s, got {age}");
+    }
+
+    /// `/health` must return "unknown" (not "ok") when no Kafka event has
+    /// ever been seen — matching the Neo4j not-configured pattern.
+    #[test]
+    fn kafka_liveness_never_seen_is_unknown() {
+        // last_ms == 0 → age_from_ms returns i64::MAX → branch: last_ms == 0 → "unknown"
+        let last_ms: i64 = 0;
+        let age_secs = age_from_ms(last_ms);
+        let status = if last_ms == 0 {
+            "unknown"
+        } else if age_secs < 300 {
+            "ok"
+        } else {
+            "error"
+        };
+        assert_eq!(status, "unknown");
+    }
+
+    #[test]
+    fn kafka_liveness_fresh_event_is_ok() {
+        let last_ms = Utc::now().timestamp_millis() - 1000; // 1 s ago
+        let age_secs = age_from_ms(last_ms);
+        let status = if last_ms == 0 {
+            "unknown"
+        } else if age_secs < 300 {
+            "ok"
+        } else {
+            "error"
+        };
+        assert_eq!(status, "ok");
+    }
+
+    #[test]
+    fn kafka_liveness_stale_event_is_error() {
+        let last_ms = Utc::now().timestamp_millis() - 400_000; // ~6 min ago
+        let age_secs = age_from_ms(last_ms);
+        let status = if last_ms == 0 {
+            "unknown"
+        } else if age_secs < 300 {
+            "ok"
+        } else {
+            "error"
+        };
+        assert_eq!(status, "error");
     }
 }

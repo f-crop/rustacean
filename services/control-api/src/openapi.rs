@@ -109,7 +109,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             query::usages::UsageEntry,
             query::usages::UsagesResponse,
             query::search::SearchRequest,
-            query::search::SearchResultItem,
+            query::search::SearchResult,
             query::search::SearchResponse,
         )
     ),
