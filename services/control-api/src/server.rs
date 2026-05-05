@@ -18,7 +18,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{config::Config, ingest_consumer, routes, state::{AppState, KafkaConsistencyState}};
+use crate::{config::Config, ingest_consumer, middleware, routes, state::{AppState, KafkaConsistencyState}};
 
 /// Connects to Postgres, builds [`AppState`], and drives the server until shutdown.
 ///
@@ -142,7 +142,10 @@ pub async fn run(config: Config) -> Result<()> {
         .route("/metrics", get(move || async move { metrics_handle.render() }))
         .layer(TraceLayer::new_for_http())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
-        .layer(cors);
+        .layer(cors)
+        .layer(axum::middleware::from_fn(
+            middleware::otel_trace::otel_trace_middleware,
+        ));
 
     let addr: std::net::SocketAddr = config.listen_addr.parse()?;
     tracing::info!(addr = %addr, "control-api listening");
