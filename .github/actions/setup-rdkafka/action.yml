@@ -1,0 +1,9 @@
+name: Setup rdkafka build dependencies
+description: Install apt packages required to build the rdkafka-sys crate on ubuntu-latest runners.
+
+runs:
+  using: composite
+  steps:
+    - name: Install rdkafka build dependencies
+      shell: bash
+      run: sudo apt-get update -qq && sudo apt-get install -y cmake libssl-dev libsasl2-dev zlib1g-dev libcurl4-openssl-dev
