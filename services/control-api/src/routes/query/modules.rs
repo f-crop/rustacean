@@ -1,4 +1,4 @@
-//! `GET /v1/repos/{repo_id}/modules` — Module tree (REQ-DP-06, RUSAA-77).
+//! `GET /v1/repos/{repo_id}/modules` — Module tree (REQ-DP-06).
 //!
 //! Returns the crate/module hierarchy derived from `code_symbols.fqn`.
 //! Fetches with one SQL, builds in-Rust, and caches the result in-process
