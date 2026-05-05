@@ -107,6 +107,7 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         ))),
         sse_bus: Arc::new(EventBus::new(SseConfig::default())),
         ingest_producer: None,
+        module_tree_cache: rb_query::new_module_tree_cache(),
     }
 }
 
@@ -121,6 +122,7 @@ fn state_without_gh() -> AppState {
         gh: None,
         sse_bus: Arc::new(EventBus::new(SseConfig::default())),
         ingest_producer: None,
+        module_tree_cache: rb_query::new_module_tree_cache(),
     }
 }
 
