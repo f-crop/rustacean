@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { z } from "zod";
 import { AppShell, GlobalSuspenseFallback } from "@/components/AppShell";
+import { ActivityPage } from "@/pages/ActivityPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { CodeWorkspacePage } from "@/pages/CodeWorkspacePage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
@@ -128,6 +129,12 @@ const codeWorkspaceRoute = createRoute({
   component: CodeWorkspacePage,
 });
 
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: routes.activity,
+  component: ActivityPage,
+});
+
 const catchAllRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -150,6 +157,7 @@ const routeTree = rootRoute.addChildren([
   apiKeysRoute,
   ingestionRoute,
   codeWorkspaceRoute,
+  activityRoute,
   catchAllRoute,
 ]);
 

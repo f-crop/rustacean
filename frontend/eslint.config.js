@@ -42,9 +42,10 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/api/client.ts"],
+    files: ["src/api/client.ts", "src/api/tempo.ts"],
     rules: {
-      // openapi-fetch wraps fetch internally; this is the only allowed site.
+      // openapi-fetch wraps fetch internally (client.ts); Tempo is an external
+      // observability backend with no OpenAPI spec (tempo.ts) — raw fetch allowed.
       "no-restricted-globals": "off",
       "no-restricted-properties": "off",
     },

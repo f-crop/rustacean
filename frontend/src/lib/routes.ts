@@ -11,6 +11,8 @@ export const routes = {
   apiKeys: "/api-keys",
   ingestion: "/ingestion",
   codeWorkspace: "/repos/$repoId/code",
+  activity: "/activity",
+  trace: "/trace/$traceId",
 } as const;
 
 export type RoutePath = (typeof routes)[keyof typeof routes];

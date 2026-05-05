@@ -315,6 +315,50 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/ingestions/recent": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List recent ingestion runs for the caller's tenant.
+         * @description Returns up to `limit` runs ordered newest-first.  Used by the
+         *     Activity Dashboard (REQ-FE-07) and Trace Viewer index (REQ-FE-08).
+         */
+        readonly get: operations["list_recent_runs"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/ingestions/{ingestion_run_id}/stages": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Retrieve the stage timeline for an ingestion run (trace viewer fallback).
+         * @description Reads `pipeline_stage_runs` ordered by stage sequence.  The cross-tenant
+         *     isolation check joins `ingestion_runs` to verify `tenant_id` matches the
+         *     caller's session/key.  Returns 404 when the run does not exist or belongs
+         *     to a different tenant.
+         */
+        readonly get: operations["get_stage_timeline"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/me": {
         readonly parameters: {
             readonly query?: never;
@@ -855,6 +899,24 @@ export interface components {
         readonly ProbeResponse: {
             readonly status: string;
         };
+        readonly RecentRunItem: {
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: date-time */
+            readonly finished_at?: string | null;
+            /** Format: uuid */
+            readonly id: string;
+            /** Format: uuid */
+            readonly repo_id: string;
+            /** Format: date-time */
+            readonly started_at?: string | null;
+            readonly status: string;
+            /** @description 32-hex OpenTelemetry trace ID.  `null` when not yet propagated. */
+            readonly trace_id?: string | null;
+        };
+        readonly RecentRunsResponse: {
+            readonly runs: readonly components["schemas"]["RecentRunItem"][];
+        };
         readonly RepoItem: {
             /** Format: date-time */
             readonly connected_at: string;
@@ -902,6 +964,21 @@ export interface components {
             readonly email_verification_required: boolean;
             /** Format: uuid */
             readonly user_id: string;
+        };
+        readonly StageRunItem: {
+            readonly error_message?: string | null;
+            /** Format: date-time */
+            readonly finished_at?: string | null;
+            readonly stage: string;
+            /** Format: date-time */
+            readonly started_at?: string | null;
+            readonly status: string;
+        };
+        readonly StageTimelineResponse: {
+            /** Format: uuid */
+            readonly ingestion_run_id: string;
+            readonly stages: readonly components["schemas"]["StageRunItem"][];
+            readonly trace_id?: string | null;
         };
         readonly SwitchTenantRequest: {
             /**
@@ -1524,6 +1601,87 @@ export interface operations {
             };
             /** @description GitHub App not configured */
             readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly list_recent_runs: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Maximum number of runs to return (1–100; default 50). */
+                readonly limit?: number | null;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Recent ingestion runs */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["RecentRunsResponse"];
+                };
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or insufficient scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_stage_timeline: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Ingestion run UUID */
+                readonly ingestion_run_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Stage timeline */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["StageTimelineResponse"];
+                };
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or insufficient scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Ingestion run not found or belongs to another tenant */
+            readonly 404: {
                 headers: {
                     readonly [name: string]: unknown;
                 };

@@ -603,6 +603,92 @@
         }
       }
     },
+    "/v1/ingestions/recent": {
+      "get": {
+        "tags": [
+          "ingestions"
+        ],
+        "summary": "List recent ingestion runs for the caller's tenant.",
+        "description": "Returns up to `limit` runs ordered newest-first.  Used by the\nActivity Dashboard (REQ-FE-07) and Trace Viewer index (REQ-FE-08).",
+        "operationId": "list_recent_runs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of runs to return (1–100; default 50).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent ingestion runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecentRunsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Email not verified or insufficient scope"
+          }
+        }
+      }
+    },
+    "/v1/ingestions/{ingestion_run_id}/stages": {
+      "get": {
+        "tags": [
+          "ingestions"
+        ],
+        "summary": "Retrieve the stage timeline for an ingestion run (trace viewer fallback).",
+        "description": "Reads `pipeline_stage_runs` ordered by stage sequence.  The cross-tenant\nisolation check joins `ingestion_runs` to verify `tenant_id` matches the\ncaller's session/key.  Returns 404 when the run does not exist or belongs\nto a different tenant.",
+        "operationId": "get_stage_timeline",
+        "parameters": [
+          {
+            "name": "ingestion_run_id",
+            "in": "path",
+            "description": "Ingestion run UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stage timeline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StageTimelineResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Email not verified or insufficient scope"
+          },
+          "404": {
+            "description": "Ingestion run not found or belongs to another tenant"
+          }
+        }
+      }
+    },
     "/v1/me": {
       "get": {
         "tags": [
@@ -1965,6 +2051,67 @@
           }
         }
       },
+      "RecentRunItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "repo_id",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "repo_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "32-hex OpenTelemetry trace ID.  `null` when not yet propagated."
+          }
+        }
+      },
+      "RecentRunsResponse": {
+        "type": "object",
+        "required": [
+          "runs"
+        ],
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecentRunItem"
+            }
+          }
+        }
+      },
       "RepoItem": {
         "type": "object",
         "required": [
@@ -2102,6 +2249,66 @@
           "user_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "StageRunItem": {
+        "type": "object",
+        "required": [
+          "stage",
+          "status"
+        ],
+        "properties": {
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "StageTimelineResponse": {
+        "type": "object",
+        "required": [
+          "ingestion_run_id",
+          "stages"
+        ],
+        "properties": {
+          "ingestion_run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StageRunItem"
+            }
+          },
+          "trace_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
