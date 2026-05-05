@@ -554,6 +554,50 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/repos/{repo_id}/items/{fqn_b64}/callees": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List all functions transitively called by the target item (callees BFS).
+         * @description Traverses `CALLS` and `CALL_INSTANTIATES` edges forward from the root.
+         *     See the callers endpoint for provenance semantics and pagination.
+         */
+        readonly get: operations["get_callees"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/repos/{repo_id}/items/{fqn_b64}/callers": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List all functions that transitively call the target item (callers BFS).
+         * @description Traverses `CALLS` and `CALL_INSTANTIATES` edges backward from the root.
+         *     Cycle detection prevents infinite loops; per-edge provenance distinguishes
+         *     static (`direct`), monomorphized (`monomorph`), and dynamic (`dyn_candidate`) calls.
+         *     Use `next_cursor` for pagination.
+         */
+        readonly get: operations["get_callers"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/repos/{repo_id}/items/{fqn_b64}/impls": {
         readonly parameters: {
             readonly query?: never;
@@ -884,6 +928,11 @@ export interface components {
              */
             readonly tenant_id: string;
         };
+        /**
+         * @description Per-edge dispatch provenance.
+         * @enum {string}
+         */
+        readonly EdgeProvenanceSchema: "direct" | "monomorph" | "dyn_candidate";
         readonly ForgotPasswordRequest: {
             /** @description Email address for the account to recover. */
             readonly email: string;
@@ -1223,6 +1272,31 @@ export interface components {
              * @description User ID of the existing member to promote to owner.
              */
             readonly user_id: string;
+        };
+        /** @description A directed edge in the call graph. */
+        readonly TraversalEdgeSchema: {
+            /** Format: int32 */
+            readonly depth: number;
+            readonly from_fqn: string;
+            readonly provenance: components["schemas"]["EdgeProvenanceSchema"];
+            readonly to_fqn: string;
+        };
+        /** @description A node discovered during BFS traversal. */
+        readonly TraversalNodeSchema: {
+            readonly file_path?: string | null;
+            readonly fqn: string;
+            readonly kind?: string | null;
+            /** Format: int64 */
+            readonly line?: number | null;
+            readonly name?: string | null;
+        };
+        /** @description Response for caller/callee traversal endpoints. */
+        readonly TraversalResponse: {
+            readonly cycles_detected: boolean;
+            readonly edges: readonly components["schemas"]["TraversalEdgeSchema"][];
+            readonly next_cursor?: string | null;
+            readonly nodes: readonly components["schemas"]["TraversalNodeSchema"][];
+            readonly root: components["schemas"]["TraversalNodeSchema"];
         };
         readonly TriggerIngestResponse: {
             /** Format: uuid */
@@ -2350,6 +2424,140 @@ export interface operations {
             };
             /** @description Repository or item not found (not_found) */
             readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_callees: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description BFS traversal depth (1–10, default 3). */
+                readonly depth?: number;
+                /** @description Maximum edges to return per page (1–200, default 50). */
+                readonly limit?: number;
+                /** @description Opaque continuation cursor from a prior response. */
+                readonly cursor?: string | null;
+            };
+            readonly header?: never;
+            readonly path: {
+                /** @description Repository UUID */
+                readonly repo_id: string;
+                /** @description URL-safe base64 (no padding) encoded item FQN */
+                readonly fqn_b64: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Callee graph */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["TraversalResponse"];
+                };
+            };
+            /** @description Malformed fqn_b64, depth > 10, or invalid cursor */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or insufficient scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Repository not found or belongs to another tenant */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Neo4j graph not configured on this instance */
+            readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_callers: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description BFS traversal depth (1–10, default 3). */
+                readonly depth?: number;
+                /** @description Maximum edges to return per page (1–200, default 50). */
+                readonly limit?: number;
+                /** @description Opaque continuation cursor from a prior response. */
+                readonly cursor?: string | null;
+            };
+            readonly header?: never;
+            readonly path: {
+                /** @description Repository UUID */
+                readonly repo_id: string;
+                /** @description URL-safe base64 (no padding) encoded item FQN */
+                readonly fqn_b64: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Caller graph */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["TraversalResponse"];
+                };
+            };
+            /** @description Malformed fqn_b64, depth > 10, or invalid cursor */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or insufficient scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Repository not found or belongs to another tenant */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Neo4j graph not configured on this instance */
+            readonly 503: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
