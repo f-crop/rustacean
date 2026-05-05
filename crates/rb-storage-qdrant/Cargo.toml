@@ -7,11 +7,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+rb-schemas = { path = "../rb-schemas", version = "0.1.0" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true

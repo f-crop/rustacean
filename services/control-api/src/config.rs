@@ -61,8 +61,8 @@ pub struct Config {
     /// `RB_OLLAMA_URL` — Ollama HTTP base URL (e.g. `http://ollama:11434`).
     /// Optional; `POST /v1/search` returns 503 when absent.
     pub ollama_url: Option<String>,
-    /// `RB_EMBEDDING_MODEL` — model name passed to Ollama for query embedding.
-    /// Defaults to `nomic-embed-text`.
+    /// `RB_EMBEDDING_MODEL` — Ollama model used to embed search queries.
+    /// Must match the model used by `embed-worker`. Defaults to `nomic-embed-text`.
     pub embedding_model: String,
 }
 

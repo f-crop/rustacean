@@ -91,7 +91,7 @@ pub async fn search(
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(QdrantError::Api { status: status.as_u16(), body });
+        return Err(QdrantError::Http { status: status.as_u16(), body });
     }
 
     let json_val: serde_json::Value = resp.json().await?;
