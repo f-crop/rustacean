@@ -499,8 +499,8 @@ export interface paths {
          * @description Soft-deletes the tenant by setting `deleted_at` and transitioning its
          *     status to `deleting`, cancels all in-flight ingestion runs, then emits a
          *     `Tombstone` to `rb.tombstones.v1`. The tombstoner service performs the
-         *     async data-plane cleanup (PostgreSQL schema drop, Neo4j node removal,
-         *     Qdrant point deletion).
+         *     async data-plane cleanup (`PostgreSQL` schema drop, `Neo4j` node removal,
+         *     `Qdrant` point deletion).
          *
          *     **Idempotent**: repeating the call on a tenant already in `deleting` or
          *     `deleted` state returns `204 No Content`.
