@@ -578,6 +578,50 @@
         }
       }
     },
+    "/v1/graph/query": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "summary": "Execute an arbitrary Cypher query against the tenant's Neo4j graph store.",
+        "description": "The tenant label is automatically injected into every node pattern so queries\nare isolated to the calling tenant's data. Multi-statement queries\n(containing a bare semicolon outside strings/comments) are rejected.\n\nWhen `read_only` is `true` (the default), the query is pre-flight checked\nfor Cypher write operators (`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH`,\n`REMOVE`). Any match causes a `400 cypher_write_denied` response before the\nquery reaches Neo4j.\n\nRequires an API key with the `admin` scope **or** an active session with the\n`owner` or `admin` tenant role.",
+        "operationId": "post_graph_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Query executed; rows returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphQueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query or write operators detected in read-only mode (cypher_write_denied / invalid_input)"
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Insufficient role or scope"
+          },
+          "503": {
+            "description": "Neo4j graph store not configured (graph_not_configured)"
+          }
+        }
+      }
+    },
     "/v1/health/consistency": {
       "get": {
         "tags": [
@@ -903,59 +947,6 @@
           },
           "409": {
             "description": "Ingestion run already in-flight (ingest_run_already_in_flight)"
-          }
-        }
-      }
-    },
-    "/v1/repos/{repo_id}/graph/query": {
-      "post": {
-        "tags": [
-          "query"
-        ],
-        "summary": "Execute a Cypher query against the tenant's code-intelligence graph.",
-        "description": "This endpoint is stubbed for RUSAA-78 (health/consistency PR). The\nwrite-check pre-flight is implemented; the Neo4j execution layer is a\nfollow-on task.",
-        "operationId": "post_graph_query",
-        "parameters": [
-          {
-            "name": "repo_id",
-            "in": "path",
-            "description": "Repository UUID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GraphQueryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Query results",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GraphQueryResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Write operators detected in read-only query (cypher_write_denied)"
-          },
-          "401": {
-            "description": "Not authenticated"
-          },
-          "503": {
-            "description": "Neo4j graph store is not configured on this instance"
           }
         }
       }
@@ -2142,38 +2133,46 @@
       },
       "GraphQueryRequest": {
         "type": "object",
-        "description": "Request body for `POST /v1/repos/{repo_id}/graph/query`.",
+        "description": "Request body for `POST /v1/graph/query`.",
         "required": [
           "cypher"
         ],
         "properties": {
           "cypher": {
             "type": "string",
-            "description": "Cypher query string."
+            "description": "Raw Cypher statement. The tenant label is injected automatically; multi-statement\nqueries (semicolons outside strings) are rejected."
+          },
+          "params": {
+            "type": "object",
+            "description": "Named parameters bound into the query (`$key` → value).",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "read_only": {
             "type": "boolean",
-            "description": "When `true` (default), reject queries that contain write operators."
+            "description": "When `true` (default), the query is pre-flight checked for write operators\n(CREATE, MERGE, SET, DELETE, DETACH, REMOVE) and rejected with 400 if found."
           }
         }
       },
       "GraphQueryResponse": {
         "type": "object",
-        "description": "Placeholder response — full Neo4j integration is a follow-on task.",
+        "description": "Response body for `POST /v1/graph/query`.",
         "required": [
-          "columns",
-          "rows"
+          "rows",
+          "row_count"
         ],
         "properties": {
-          "columns": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "row_count": {
+            "type": "integer",
+            "description": "Number of rows returned.",
+            "minimum": 0
           },
           "rows": {
             "type": "array",
-            "items": {}
+            "items": {},
+            "description": "Each element is a JSON object mapping column names to their values."
           }
         }
       },

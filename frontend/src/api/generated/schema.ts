@@ -295,6 +295,36 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/graph/query": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Execute an arbitrary Cypher query against the tenant's Neo4j graph store.
+         * @description The tenant label is automatically injected into every node pattern so queries
+         *     are isolated to the calling tenant's data. Multi-statement queries
+         *     (containing a bare semicolon outside strings/comments) are rejected.
+         *
+         *     When `read_only` is `true` (the default), the query is pre-flight checked
+         *     for Cypher write operators (`CREATE`, `MERGE`, `SET`, `DELETE`, `DETACH`,
+         *     `REMOVE`). Any match causes a `400 cypher_write_denied` response before the
+         *     query reaches Neo4j.
+         *
+         *     Requires an API key with the `admin` scope **or** an active session with the
+         *     `owner` or `admin` tenant role.
+         */
+        readonly post: operations["post_graph_query"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/health/consistency": {
         readonly parameters: {
             readonly query?: never;
@@ -474,28 +504,6 @@ export interface paths {
          *     409 if an ingestion run is already queued or running for this repo.
          */
         readonly post: operations["trigger_ingest"];
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
-    readonly "/v1/repos/{repo_id}/graph/query": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly get?: never;
-        readonly put?: never;
-        /**
-         * Execute a Cypher query against the tenant's code-intelligence graph.
-         * @description This endpoint is stubbed for RUSAA-78 (health/consistency PR). The
-         *     write-check pre-flight is implemented; the Neo4j execution layer is a
-         *     follow-on task.
-         */
-        readonly post: operations["post_graph_query"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -943,16 +951,28 @@ export interface components {
             readonly owner: string;
             readonly slug: string;
         };
-        /** @description Request body for `POST /v1/repos/{repo_id}/graph/query`. */
+        /** @description Request body for `POST /v1/graph/query`. */
         readonly GraphQueryRequest: {
-            /** @description Cypher query string. */
+            /**
+             * @description Raw Cypher statement. The tenant label is injected automatically; multi-statement
+             *     queries (semicolons outside strings) are rejected.
+             */
             readonly cypher: string;
-            /** @description When `true` (default), reject queries that contain write operators. */
+            /** @description Named parameters bound into the query (`$key` → value). */
+            readonly params?: {
+                readonly [key: string]: unknown;
+            };
+            /**
+             * @description When `true` (default), the query is pre-flight checked for write operators
+             *     (CREATE, MERGE, SET, DELETE, DETACH, REMOVE) and rejected with 400 if found.
+             */
             readonly read_only?: boolean;
         };
-        /** @description Placeholder response — full Neo4j integration is a follow-on task. */
+        /** @description Response body for `POST /v1/graph/query`. */
         readonly GraphQueryResponse: {
-            readonly columns: readonly string[];
+            /** @description Number of rows returned. */
+            readonly row_count: number;
+            /** @description Each element is a JSON object mapping column names to their values. */
             readonly rows: readonly unknown[];
         };
         readonly HealthResponse: {
@@ -1896,6 +1916,58 @@ export interface operations {
             };
         };
     };
+    readonly post_graph_query: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["GraphQueryRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Query executed; rows returned */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["GraphQueryResponse"];
+                };
+            };
+            /** @description Malformed query or write operators detected in read-only mode (cypher_write_denied / invalid_input) */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient role or scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Neo4j graph store not configured (graph_not_configured) */
+            readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     readonly consistency_check: {
         readonly parameters: {
             readonly query?: never;
@@ -2261,54 +2333,6 @@ export interface operations {
             };
             /** @description Ingestion run already in-flight (ingest_run_already_in_flight) */
             readonly 409: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    readonly post_graph_query: {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path: {
-                /** @description Repository UUID */
-                readonly repo_id: string;
-            };
-            readonly cookie?: never;
-        };
-        readonly requestBody: {
-            readonly content: {
-                readonly "application/json": components["schemas"]["GraphQueryRequest"];
-            };
-        };
-        readonly responses: {
-            /** @description Query results */
-            readonly 200: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": components["schemas"]["GraphQueryResponse"];
-                };
-            };
-            /** @description Write operators detected in read-only query (cypher_write_denied) */
-            readonly 400: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not authenticated */
-            readonly 401: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Neo4j graph store is not configured on this instance */
-            readonly 503: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
