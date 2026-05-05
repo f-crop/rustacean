@@ -9,7 +9,7 @@
 #   POLL_INTERVAL   Seconds between git fetch polls (default: 60)
 #   REMOTE          Remote name to poll (default: origin)
 #   BRANCH          Branch to track (default: main)
-#   COMPOSE_CMD     Passed through to dev-stack-auto-rebuild.sh
+#   COMPOSE_CMD     Used locally to detect running containers; also passed through to dev-stack-auto-rebuild.sh
 #
 # Logs: journald captures stdout/stderr when run as a systemd service.
 # Rebuild records are written by dev-stack-auto-rebuild.sh to
@@ -26,6 +26,17 @@ REMOTE="${REMOTE:-origin}"
 BRANCH="${BRANCH:-main}"
 
 REBUILD_SCRIPT="$SCRIPT_DIR/dev-stack-auto-rebuild.sh"
+
+# Resolve COMPOSE_CMD with the same default as dev-stack-auto-rebuild.sh uses.
+# This is needed to inspect running container counts for cold-start detection.
+COMPOSE_CMD="${COMPOSE_CMD:-docker compose -f $REPO_ROOT/compose/dev.yml}"
+
+# Returns exit code 0 when zero compose services are currently running.
+stack_is_cold() {
+  local running_ids
+  running_ids="$($COMPOSE_CMD ps --quiet --status running 2>/dev/null)" || true
+  [[ -z "$running_ids" ]]
+}
 
 # Persist LAST_KNOWN_SHA across restarts so commits that land during an outage
 # are not silently dropped when the service comes back up.
@@ -53,6 +64,17 @@ fi
 
 echo "[dev-stack-watch] tracking from $LAST_KNOWN_SHA"
 
+# Cold-start check on startup: if the stack is fully stopped, bring it up immediately
+# without waiting for the next commit. This handles the case where the watcher restarts
+# after an outage that also stopped the compose stack.
+if stack_is_cold; then
+  echo "[dev-stack-watch] stack is not running — triggering cold start"
+  "$REBUILD_SCRIPT" --cold-start "$LAST_KNOWN_SHA" "$LAST_KNOWN_SHA" || \
+    echo "[dev-stack-watch] cold start failed — see rebuild logs for details" >&2
+else
+  echo "[dev-stack-watch] stack is running — entering poll loop"
+fi
+
 while true; do
   sleep "$POLL_INTERVAL"
 
@@ -79,8 +101,15 @@ while true; do
   LAST_KNOWN_SHA="$NEW_SHA"
   echo "$LAST_KNOWN_SHA" > "$SHA_STATE_FILE"
 
-  echo "[dev-stack-watch] triggering rebuild: $PREV_SHA → $NEW_SHA"
-  # Never let a rebuild failure crash the watch loop.
-  "$REBUILD_SCRIPT" "$PREV_SHA" "$NEW_SHA" || \
-    echo "[dev-stack-watch] rebuild exited non-zero — see logs for details" >&2
+  # If the stack is fully stopped, force a cold start so infra services come up too.
+  if stack_is_cold; then
+    echo "[dev-stack-watch] stack is not running — triggering cold start: $PREV_SHA → $NEW_SHA"
+    "$REBUILD_SCRIPT" --cold-start "$PREV_SHA" "$NEW_SHA" || \
+      echo "[dev-stack-watch] cold start exited non-zero — see logs for details" >&2
+  else
+    echo "[dev-stack-watch] triggering rebuild: $PREV_SHA → $NEW_SHA"
+    # Never let a rebuild failure crash the watch loop.
+    "$REBUILD_SCRIPT" "$PREV_SHA" "$NEW_SHA" || \
+      echo "[dev-stack-watch] rebuild exited non-zero — see logs for details" >&2
+  fi
 done

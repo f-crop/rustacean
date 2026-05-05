@@ -2,10 +2,11 @@
 # Rebuilds and restarts dev-stack services whose source paths changed between two git SHAs.
 #
 # Usage:
-#   scripts/dev-stack-auto-rebuild.sh [PREV_SHA [NEW_SHA]]
+#   scripts/dev-stack-auto-rebuild.sh [--cold-start] [PREV_SHA [NEW_SHA]]
 #   scripts/dev-stack-auto-rebuild.sh --logs [N]    # show last N rebuild records (default: 10)
 #
 # If SHAs are omitted, detects PREV_SHA=HEAD^1 and NEW_SHA=HEAD from the repo.
+# --cold-start forces a full up -d of the entire stack regardless of which paths changed.
 #
 # Environment:
 #   COMPOSE_CMD      Full docker compose invocation (default: "docker compose -f <repo>/compose/dev.yml")
@@ -77,6 +78,14 @@ print(json.dumps({'state': sys.argv[1], 'description': sys.argv[2], 'context': '
     "https://api.github.com/repos/${GITHUB_REPO}/statuses/${NEW_SHA}" || true
 }
 
+# -- Flag parsing ------------------------------------------------------------
+
+COLD_START=false
+if [[ "${1:-}" == "--cold-start" ]]; then
+  COLD_START=true
+  shift
+fi
+
 # -- Logs mode ---------------------------------------------------------------
 
 if [[ "${1:-}" == "--logs" ]]; then
@@ -129,38 +138,44 @@ if [[ -f "$BYPASS_FILE" ]]; then
   exit 0
 fi
 
-# -- Detect changed paths ----------------------------------------------------
-
-CHANGED_FILES="$(git diff --name-only "$PREV_SHA" "$NEW_SHA" 2>/dev/null || true)"
-
-if [[ -z "$CHANGED_FILES" ]]; then
-  echo "[dev-stack-auto-rebuild] no changed files — nothing to do"
-  log_record "skipped" "" "[]" "no changed files"
-  exit 0
-fi
+# -- Detect changed paths (skipped in cold-start mode) -----------------------
 
 REBUILD_CONTROL_API=false
 REBUILD_FRONTEND=false
 
-while IFS= read -r f; do
-  case "$f" in
-    # control-api source: Rust crates, Dockerfiles, migrations, proto
-    services/control-api/*|crates/*|Cargo.toml|Cargo.lock|docker/control-api/*|migrations/*|proto/*)
-      REBUILD_CONTROL_API=true ;;
-    # frontend source
-    frontend/*|docker/frontend/*)
-      REBUILD_FRONTEND=true ;;
-    # compose config changes affect all built services
-    compose/dev.yml|compose/full.yml|compose/tailscale.yml|compose/tailscale.env|compose/scripts/*)
-      REBUILD_CONTROL_API=true
-      REBUILD_FRONTEND=true ;;
-  esac
-done <<< "$CHANGED_FILES"
+if [[ "$COLD_START" == "true" ]]; then
+  echo "[dev-stack-auto-rebuild] cold start — forcing rebuild of all services"
+  REBUILD_CONTROL_API=true
+  REBUILD_FRONTEND=true
+else
+  CHANGED_FILES="$(git diff --name-only "$PREV_SHA" "$NEW_SHA" 2>/dev/null || true)"
 
-if [[ "$REBUILD_CONTROL_API" == "false" && "$REBUILD_FRONTEND" == "false" ]]; then
-  echo "[dev-stack-auto-rebuild] no service paths changed — skipping"
-  log_record "skipped" "" "[]" "no service paths changed"
-  exit 0
+  if [[ -z "$CHANGED_FILES" ]]; then
+    echo "[dev-stack-auto-rebuild] no changed files — nothing to do"
+    log_record "skipped" "" "[]" "no changed files"
+    exit 0
+  fi
+
+  while IFS= read -r f; do
+    case "$f" in
+      # control-api source: Rust crates, Dockerfiles, migrations, proto
+      services/control-api/*|crates/*|Cargo.toml|Cargo.lock|docker/control-api/*|migrations/*|proto/*)
+        REBUILD_CONTROL_API=true ;;
+      # frontend source
+      frontend/*|docker/frontend/*)
+        REBUILD_FRONTEND=true ;;
+      # compose config changes affect all built services
+      compose/dev.yml|compose/full.yml|compose/tailscale.yml|compose/tailscale.env|compose/scripts/*)
+        REBUILD_CONTROL_API=true
+        REBUILD_FRONTEND=true ;;
+    esac
+  done <<< "$CHANGED_FILES"
+
+  if [[ "$REBUILD_CONTROL_API" == "false" && "$REBUILD_FRONTEND" == "false" ]]; then
+    echo "[dev-stack-auto-rebuild] no service paths changed — skipping"
+    log_record "skipped" "" "[]" "no service paths changed"
+    exit 0
+  fi
 fi
 
 # -- Build -------------------------------------------------------------------
@@ -195,32 +210,51 @@ fi
 
 # -- Restart -----------------------------------------------------------------
 
-if [[ "$REBUILD_CONTROL_API" == "true" ]]; then
-  echo "[dev-stack-auto-rebuild] re-running migrations..."
-  # Blocks until rb-migrations exits (restart: "no"). Idempotent — skips applied versions.
+if [[ "$COLD_START" == "true" ]]; then
+  # Cold start: run migrations then bring up the entire stack (infra + app services).
+  # --no-deps is intentionally omitted so dependencies (postgres, neo4j, qdrant, etc.) start too.
+  echo "[dev-stack-auto-rebuild] cold start: running migrations..."
   if ! $COMPOSE_CMD up --force-recreate rb-migrations 2>&1; then
     echo "[dev-stack-auto-rebuild] rb-migrations FAILED"
-    log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "migrations failed"
-    post_gh_status "failure" "rb-migrations failed"
+    log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "cold start migrations failed"
+    post_gh_status "failure" "Cold start rb-migrations failed"
     exit 1
   fi
-
-  echo "[dev-stack-auto-rebuild] restarting control-api..."
-  if ! $COMPOSE_CMD up -d --no-deps --force-recreate control-api 2>&1; then
-    echo "[dev-stack-auto-rebuild] control-api restart FAILED"
-    log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "control-api compose up error"
-    post_gh_status "failure" "control-api restart failed"
+  echo "[dev-stack-auto-rebuild] cold start: bringing up full stack..."
+  if ! $COMPOSE_CMD up -d 2>&1; then
+    echo "[dev-stack-auto-rebuild] full stack up FAILED"
+    log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "cold start compose up -d error"
+    post_gh_status "failure" "Cold start compose up -d failed"
     exit 1
   fi
-fi
+else
+  if [[ "$REBUILD_CONTROL_API" == "true" ]]; then
+    echo "[dev-stack-auto-rebuild] re-running migrations..."
+    # Blocks until rb-migrations exits (restart: "no"). Idempotent — skips applied versions.
+    if ! $COMPOSE_CMD up --force-recreate rb-migrations 2>&1; then
+      echo "[dev-stack-auto-rebuild] rb-migrations FAILED"
+      log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "migrations failed"
+      post_gh_status "failure" "rb-migrations failed"
+      exit 1
+    fi
 
-if [[ "$REBUILD_FRONTEND" == "true" ]]; then
-  echo "[dev-stack-auto-rebuild] restarting frontend..."
-  if ! $COMPOSE_CMD up -d --no-deps --force-recreate frontend 2>&1; then
-    echo "[dev-stack-auto-rebuild] frontend restart FAILED"
-    log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "frontend compose up error"
-    post_gh_status "failure" "frontend restart failed"
-    exit 1
+    echo "[dev-stack-auto-rebuild] restarting control-api..."
+    if ! $COMPOSE_CMD up -d --no-deps --force-recreate control-api 2>&1; then
+      echo "[dev-stack-auto-rebuild] control-api restart FAILED"
+      log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "control-api compose up error"
+      post_gh_status "failure" "control-api restart failed"
+      exit 1
+    fi
+  fi
+
+  if [[ "$REBUILD_FRONTEND" == "true" ]]; then
+    echo "[dev-stack-auto-rebuild] restarting frontend..."
+    if ! $COMPOSE_CMD up -d --no-deps --force-recreate frontend 2>&1; then
+      echo "[dev-stack-auto-rebuild] frontend restart FAILED"
+      log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "frontend compose up error"
+      post_gh_status "failure" "frontend restart failed"
+      exit 1
+    fi
   fi
 fi
 

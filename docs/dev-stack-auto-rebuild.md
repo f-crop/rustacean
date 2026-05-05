@@ -166,9 +166,23 @@ To trigger a rebuild outside the watch loop (e.g. after a manual `git pull` or t
 
 ```bash
 export COMPOSE_CMD="docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/tailscale.yml"
-scripts/dev-stack-auto-rebuild.sh          # diffs HEAD vs HEAD^1
-scripts/dev-stack-auto-rebuild.sh <prev_sha> <new_sha>   # explicit range
+scripts/dev-stack-auto-rebuild.sh                        # diffs HEAD vs HEAD^1
+scripts/dev-stack-auto-rebuild.sh <prev_sha> <new_sha>  # explicit range
 ```
+
+### Cold start (stack fully stopped)
+
+If the stack has zero running containers (e.g. after `docker compose down` or a machine reboot), use `--cold-start` to skip the diff and bring up the entire stack including infrastructure services:
+
+```bash
+export COMPOSE_CMD="docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/tailscale.yml"
+scripts/dev-stack-auto-rebuild.sh --cold-start                        # builds both services, full up -d
+scripts/dev-stack-auto-rebuild.sh --cold-start <prev_sha> <new_sha>  # with explicit SHA range
+```
+
+`--cold-start` forces both `control-api` and `frontend` to rebuild, runs migrations, then calls `docker compose up -d` (without `--no-deps`) so databases, queues, and all other infrastructure services start alongside the application containers.
+
+The watcher (`dev-stack-watch.sh`) automatically detects a stopped stack at startup and on each new-commit cycle, and passes `--cold-start` to the rebuild script when needed. The `COMPOSE_CMD` environment variable must be set (or accept the default) for cold-start detection to work correctly.
 
 ## Troubleshooting
 
@@ -185,3 +199,8 @@ scripts/dev-stack-auto-rebuild.sh <prev_sha> <new_sha>   # explicit range
 **Build fails**
 - Docker build errors are printed inline and recorded in the NDJSON log.
 - Run `docker compose -f compose/dev.yml build control-api` manually to see the full output.
+
+**Stack was stopped and watcher didn't bring it back**
+- The watcher checks for a cold stack at startup and on each new commit. If no commit landed while the stack was down, trigger manually: `scripts/dev-stack-auto-rebuild.sh --cold-start`
+- Check `journalctl -fu rustbrain-dev-watch` to see if the cold-start detection fired at startup.
+- Ensure `COMPOSE_CMD` in the systemd unit matches the actual compose file set — the watcher uses this to query running containers.
