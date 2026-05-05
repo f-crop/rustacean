@@ -16,9 +16,12 @@ pub struct CodeSymbol {
     pub source_path: Option<String>,
     pub line_start: Option<i32>,
     pub line_end: Option<i32>,
-    /// `rb-blob://` URI pointing to the serialised AST JSON.
-    /// Present only for items whose source exceeds the inline threshold.
+    /// `rb-blob://` URI pointing to the item's source text.
+    /// Present only for items whose source exceeds the inline threshold (> 512 KiB).
     pub blob_ref: Option<String>,
+    /// Inline source text for items whose source is ≤ 512 KiB.
+    /// Absent when `blob_ref` is populated.
+    pub source_text: Option<String>,
 }
 
 /// Look up a single code symbol by `(repo_id, fqn)` within `ctx`'s schema.
@@ -37,10 +40,10 @@ pub async fn get_by_fqn(
     repo_id: Uuid,
     fqn: &str,
 ) -> Result<Option<CodeSymbol>, sqlx::Error> {
-    type Row = (Uuid, String, String, Option<String>, Option<i32>, Option<i32>, Option<String>);
+    type Row = (Uuid, String, String, Option<String>, Option<i32>, Option<i32>, Option<String>, Option<String>);
     let table = ctx.qualify("code_symbols");
     let row: Option<Row> = sqlx::query_as(&format!(
-            "SELECT id, fqn, kind, source_path, line_start, line_end, blob_ref \
+            "SELECT id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text \
              FROM {table} \
              WHERE repo_id = $1 AND fqn = $2",
         ))
@@ -49,8 +52,8 @@ pub async fn get_by_fqn(
         .fetch_optional(pool)
         .await?;
 
-    Ok(row.map(|(id, fqn, kind, source_path, line_start, line_end, blob_ref)| {
-        CodeSymbol { id, fqn, kind, source_path, line_start, line_end, blob_ref }
+    Ok(row.map(|(id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text)| {
+        CodeSymbol { id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text }
     }))
 }
 
@@ -68,9 +71,11 @@ mod tests {
             line_start: Some(10),
             line_end: Some(25),
             blob_ref: None,
+            source_text: Some("pub struct MyStruct {}".to_owned()),
         };
         assert_eq!(sym.kind, "STRUCT");
         assert!(sym.blob_ref.is_none());
+        assert!(sym.source_text.is_some());
     }
 
     #[test]
@@ -83,7 +88,9 @@ mod tests {
             line_start: Some(1),
             line_end: Some(500),
             blob_ref: Some("rb-blob://tenant_abc123/items/uuid123.json".to_owned()),
+            source_text: None,
         };
         assert!(sym.blob_ref.is_some());
+        assert!(sym.source_text.is_none());
     }
 }
