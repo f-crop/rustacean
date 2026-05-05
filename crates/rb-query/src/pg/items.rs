@@ -37,9 +37,9 @@ pub async fn get_by_fqn(
     repo_id: Uuid,
     fqn: &str,
 ) -> Result<Option<CodeSymbol>, sqlx::Error> {
+    type Row = (Uuid, String, String, Option<String>, Option<i32>, Option<i32>, Option<String>);
     let table = ctx.qualify("code_symbols");
-    let row: Option<(Uuid, String, String, Option<String>, Option<i32>, Option<i32>, Option<String>)> =
-        sqlx::query_as(&format!(
+    let row: Option<Row> = sqlx::query_as(&format!(
             "SELECT id, fqn, kind, source_path, line_start, line_end, blob_ref \
              FROM {table} \
              WHERE repo_id = $1 AND fqn = $2",
