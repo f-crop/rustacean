@@ -4,7 +4,7 @@
 //! collection within the caller's tenant scope, and returns ranked code symbols.
 //!
 //! Multi-tenancy is enforced at two layers:
-//!   1. [`TenantVectorStore::search`] injects a `must` tenant_id filter so
+//!   1. [`TenantVectorStore::search`] injects a `must` `tenant_id` filter so
 //!      Qdrant never returns cross-tenant points.
 //!   2. Optional `repo_id` filter further narrows to a single repository that
 //!      must belong to the caller's tenant (validated against Postgres).
@@ -172,11 +172,7 @@ pub async fn search(
     let ollama_url =
         state.config.ollama_url.as_deref().ok_or(AppError::ServiceUnavailable)?;
 
-    let limit = req
-        .limit
-        .unwrap_or(DEFAULT_SEARCH_LIMIT)
-        .min(MAX_SEARCH_LIMIT)
-        .max(1);
+    let limit = req.limit.unwrap_or(DEFAULT_SEARCH_LIMIT).clamp(1, MAX_SEARCH_LIMIT);
 
     let repo_id_filter = req.filters.as_ref().and_then(|f| f.repo_id);
 
