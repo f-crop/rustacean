@@ -68,33 +68,13 @@ pub async fn run(config: Config) -> Result<()> {
 
     let sse_bus = Arc::new(EventBus::new(SseConfig::default()));
 
-    // Build the Kafka ingestion producer.  Failure is non-fatal — the route
-    // returns 503 when the producer is absent (graceful degradation).
+    // Build the Kafka producers.  Failure is non-fatal — routes degrade to 503.
     let producer_cfg = ProducerCfg {
         bootstrap_servers: config.kafka_bootstrap_servers.clone(),
         ..ProducerCfg::default()
     };
-    let ingest_producer = match Producer::new(&producer_cfg) {
-        Ok(p) => {
-            tracing::info!("ingest_producer connected to Kafka");
-            Some(Arc::new(p))
-        }
-        Err(e) => {
-            tracing::warn!("ingest_producer failed to connect (Kafka unavailable?): {e}");
-            None
-        }
-    };
-
-    let tombstone_producer = match Producer::new(&producer_cfg) {
-        Ok(p) => {
-            tracing::info!("tombstone_producer connected to Kafka");
-            Some(Arc::new(p))
-        }
-        Err(e) => {
-            tracing::warn!("tombstone_producer failed to connect (Kafka unavailable?): {e}");
-            None
-        }
-    };
+    let ingest_producer = build_producer(&producer_cfg, "ingest_producer");
+    let tombstone_producer = build_producer(&producer_cfg, "tombstone_producer");
 
     // Connect to Neo4j.  Failure is non-fatal — graph endpoints degrade to 503.
     let graph = if let (Some(uri), Some(password)) =
@@ -158,6 +138,19 @@ pub async fn run(config: Config) -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+fn build_producer(cfg: &ProducerCfg, name: &str) -> Option<Arc<Producer>> {
+    match Producer::new(cfg) {
+        Ok(p) => {
+            tracing::info!("{name} connected to Kafka");
+            Some(Arc::new(p))
+        }
+        Err(e) => {
+            tracing::warn!("{name} failed to connect (Kafka unavailable?): {e}");
+            None
+        }
+    }
 }
 
 /// Constructs a [`GhApp`] from config, or returns `None` when the GitHub App
