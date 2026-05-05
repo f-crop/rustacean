@@ -10,6 +10,10 @@ pub enum CypherError {
     #[error("unclosed node pattern: missing ')'")]
     UnclosedNodePattern,
 
+    /// JSON parameter value cannot be represented as a Bolt type.
+    #[error("cannot convert JSON parameter to Bolt type: {0}")]
+    ParamConversion(String),
+
     /// Neo4j driver error (wraps `neo4rs::Error`).
     #[error("neo4j error: {0}")]
     Neo4j(#[from] neo4rs::Error),

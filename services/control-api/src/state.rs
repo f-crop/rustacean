@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicI64, AtomicU64},
+};
 
 use rb_auth::{LoginRateLimiter, PasswordHasher};
 use rb_email::EmailSender;
@@ -12,6 +15,31 @@ use rb_storage_qdrant::TenantVectorStore;
 use sqlx::PgPool;
 
 use crate::config::Config;
+
+/// Shared in-memory Kafka consistency state, updated by `ingest_consumer` on
+/// each consumed message and read by `GET /v1/health/consistency` (REQ-DP-07).
+pub struct KafkaConsistencyState {
+    /// Unix epoch milliseconds of the last consumed event; 0 means never.
+    pub last_event_at_ms: AtomicI64,
+    /// Number of messages in the consumer lag window.
+    pub lag_records: AtomicU64,
+}
+
+impl KafkaConsistencyState {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            last_event_at_ms: AtomicI64::new(0),
+            lag_records: AtomicU64::new(0),
+        }
+    }
+}
+
+impl Default for KafkaConsistencyState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Shared application state injected into every request handler.
 #[derive(Clone)]
@@ -41,4 +69,10 @@ pub struct AppState {
     /// Qdrant vector store for semantic search (REQ-DP-01). `None` when
     /// `RB_QDRANT_URL` is not configured; `POST /v1/search` returns 503.
     pub qdrant: Option<Arc<TenantVectorStore>>,
+    /// Shared HTTP client for outbound health probes (Qdrant, Ollama, etc.).
+    pub http_client: reqwest::Client,
+    /// Neo4j bolt URI for TCP health probe (REQ-DP-07). `None` when not configured.
+    pub neo4j_uri: Option<String>,
+    /// Kafka consistency state updated by `ingest_consumer` on each consumed message.
+    pub kafka_consistency: Arc<KafkaConsistencyState>,
 }

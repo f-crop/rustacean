@@ -9,7 +9,15 @@
 //! enforces this boundary (analogous to `rb-storage-neo4j`).
 
 mod error;
+mod search;
 mod store;
 
 pub use error::QdrantError;
 pub use store::{SearchHit, TenantVectorStore};
+pub use search::{SearchOptions, SearchResults, search};
+
+/// Name of the single shared Qdrant collection for all tenants.
+pub const COLLECTION: &str = "rb_embeddings";
+
+/// Default minimum cosine-similarity score for a Qdrant hit to be returned.
+pub const DEFAULT_SCORE_FLOOR: f32 = 0.20;

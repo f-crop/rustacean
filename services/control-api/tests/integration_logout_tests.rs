@@ -68,6 +68,9 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         module_tree_cache: rb_query::new_module_tree_cache(),
         graph: None,
         qdrant: None,
+        http_client: reqwest::Client::new(),
+        neo4j_uri: None,
+        kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
     };
     Some((state, pool))
 }

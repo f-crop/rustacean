@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 rb-schemas = { path = "../rb-schemas", version = "0.1.0" }
 neo4rs.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [lints]

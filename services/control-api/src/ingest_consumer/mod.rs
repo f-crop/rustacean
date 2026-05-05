@@ -6,13 +6,18 @@ use db::{TOTAL_PIPELINE_STAGES, stage_db_params};
 #[cfg(test)]
 use sse::{IngestStatusEventJson, stage_label, status_label};
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::Ordering,
+};
 
 use anyhow::Result;
 use rb_kafka::{Consumer, ConsumerCfg};
 use rb_schemas::IngestStatusEvent;
 use rb_sse::EventBus;
 use sqlx::PgPool;
+
+use crate::state::KafkaConsistencyState;
 
 /// Spawn the long-running Kafka consumer task that subscribes to
 /// `rb.projector.events`, persists status transitions to Postgres, and fans
@@ -27,6 +32,7 @@ pub fn spawn(
     cfg: &ConsumerCfg,
     sse_bus: Arc<EventBus>,
     pool: Arc<PgPool>,
+    consistency: Arc<KafkaConsistencyState>,
 ) -> Result<tokio::task::JoinHandle<()>> {
     let consumer = Consumer::<IngestStatusEvent>::new(cfg)?;
     consumer.subscribe(&["rb.projector.events"])?;
@@ -43,6 +49,10 @@ pub fn spawn(
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
                 Some(Ok(envelope)) => {
+                    let now_ms = chrono::Utc::now().timestamp_millis();
+                    consistency.last_event_at_ms.store(now_ms, Ordering::Relaxed);
+                    consistency.lag_records.store(0, Ordering::Relaxed);
+
                     let ev = &envelope.payload;
                     let tenant_id = envelope.tenant_id;
 

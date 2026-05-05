@@ -19,15 +19,16 @@
         "tags": [
           "health"
         ],
-        "summary": "Liveness probe — always returns 200 while the process is running.",
+        "summary": "Liveness probe with per-store connectivity status.",
+        "description": "Returns 200 in all cases (even when stores are degraded) so load-balancers\ndo not kill the process — callers inspect `status` for fine-grained health.\nPublic / unauthenticated.",
         "operationId": "health_check",
         "responses": {
           "200": {
-            "description": "Service is alive",
+            "description": "Per-store health status",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProbeResponse"
+                  "$ref": "#/components/schemas/HealthResponse"
                 }
               }
             }
@@ -41,7 +42,6 @@
           "health"
         ],
         "summary": "Readiness probe — returns 200 when the service is ready to serve traffic.",
-        "description": "Full DB connectivity check is wired in RUSAA-38; currently mirrors the\nliveness probe so health and ready endpoints can be tested immediately.",
         "operationId": "ready_check",
         "responses": {
           "200": {
@@ -578,6 +578,34 @@
         }
       }
     },
+    "/v1/health/consistency": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Kafka consistency metrics (admin only).",
+        "description": "Reports consumer lag and time since last event for each data-plane store.\nAdmin-only because these metrics expose internal pipeline internals.\n\nRequires an `Admin`-scoped API key **or** an active session with at least\nthe `admin` tenant role.",
+        "operationId": "consistency_check",
+        "responses": {
+          "200": {
+            "description": "Consistency metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsistencyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired"
+          },
+          "403": {
+            "description": "Insufficient role or scope"
+          }
+        }
+      }
+    },
     "/v1/health/github-app": {
       "get": {
         "tags": [
@@ -879,6 +907,59 @@
         }
       }
     },
+    "/v1/repos/{repo_id}/graph/query": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "summary": "Execute a Cypher query against the tenant's code-intelligence graph.",
+        "description": "This endpoint is stubbed for RUSAA-78 (health/consistency PR). The\nwrite-check pre-flight is implemented; the Neo4j execution layer is a\nfollow-on task.",
+        "operationId": "post_graph_query",
+        "parameters": [
+          {
+            "name": "repo_id",
+            "in": "path",
+            "description": "Repository UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Query results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphQueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Write operators detected in read-only query (cypher_write_denied)"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "503": {
+            "description": "Neo4j graph store is not configured on this instance"
+          }
+        }
+      }
+    },
     "/v1/repos/{repo_id}/ingestions": {
       "post": {
         "tags": [
@@ -1148,6 +1229,50 @@
           },
           "404": {
             "description": "Repository not found or belongs to another tenant"
+          }
+        }
+      }
+    },
+    "/v1/search": {
+      "post": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Semantic search across embedded code symbols within the caller's tenant.",
+        "description": "Embeds `q` via Ollama, performs approximate nearest-neighbour search in\nthe Qdrant `rb_embeddings` collection filtered by `tenant_id`, and returns\nranked results with their fully-qualified names and crate context.\n\nReturns 503 when either Qdrant (`RB_QDRANT_URL`) or Ollama (`RB_OLLAMA_URL`)\nare not configured on this instance.",
+        "operationId": "search",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Ranked search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (query empty or limit out of range)"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Email not verified or API key lacks read scope"
+          },
+          "503": {
+            "description": "Qdrant or Ollama not configured on this instance"
           }
         }
       }
@@ -1670,6 +1795,33 @@
           }
         }
       },
+      "ConsistencyResponse": {
+        "type": "object",
+        "required": [
+          "checked_at",
+          "stores"
+        ],
+        "properties": {
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "stores": {
+            "$ref": "#/components/schemas/ConsistencyStores"
+          }
+        }
+      },
+      "ConsistencyStores": {
+        "type": "object",
+        "required": [
+          "kafka"
+        ],
+        "properties": {
+          "kafka": {
+            "$ref": "#/components/schemas/StoreConsistency"
+          }
+        }
+      },
       "CreateApiKeyRequest": {
         "type": "object",
         "required": [
@@ -1794,6 +1946,59 @@
           },
           "slug": {
             "type": "string"
+          }
+        }
+      },
+      "GraphQueryRequest": {
+        "type": "object",
+        "description": "Request body for `POST /v1/repos/{repo_id}/graph/query`.",
+        "required": [
+          "cypher"
+        ],
+        "properties": {
+          "cypher": {
+            "type": "string",
+            "description": "Cypher query string."
+          },
+          "read_only": {
+            "type": "boolean",
+            "description": "When `true` (default), reject queries that contain write operators."
+          }
+        }
+      },
+      "GraphQueryResponse": {
+        "type": "object",
+        "description": "Placeholder response — full Neo4j integration is a follow-on task.",
+        "required": [
+          "columns",
+          "rows"
+        ],
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {}
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "stores"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Overall status: `\"ok\"` when all stores are reachable, `\"degraded\"` otherwise."
+          },
+          "stores": {
+            "$ref": "#/components/schemas/StoreStatuses"
           }
         }
       },
@@ -2203,6 +2408,7 @@
       },
       "ProbeResponse": {
         "type": "object",
+        "description": "Simple status envelope used by `/ready`.",
         "required": [
           "status"
         ],
@@ -2374,6 +2580,97 @@
           "admin"
         ]
       },
+      "SearchFilters": {
+        "type": "object",
+        "description": "Optional filters applied on top of the vector similarity ranking.",
+        "properties": {
+          "repo_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Restrict results to a single repository UUID."
+          }
+        }
+      },
+      "SearchRequest": {
+        "type": "object",
+        "description": "Body for `POST /v1/search`.",
+        "required": [
+          "q"
+        ],
+        "properties": {
+          "filters": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SearchFilters",
+                "description": "Optional result filters."
+              }
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Maximum number of results to return (default 10, max 50).",
+            "minimum": 0
+          },
+          "q": {
+            "type": "string",
+            "description": "Natural-language query to embed and search."
+          }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "description": "Response body for `POST /v1/search`.",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SearchResult"
+            }
+          }
+        }
+      },
+      "SearchResult": {
+        "type": "object",
+        "description": "A single ranked result returned by `/v1/search`.",
+        "required": [
+          "fqn",
+          "crate_name",
+          "repo_id",
+          "score"
+        ],
+        "properties": {
+          "crate_name": {
+            "type": "string",
+            "description": "Top-level crate name extracted from the FQN."
+          },
+          "fqn": {
+            "type": "string",
+            "description": "Fully-qualified name (e.g. `my_crate::module::my_fn`)."
+          },
+          "repo_id": {
+            "type": "string",
+            "description": "Repository UUID this symbol belongs to."
+          },
+          "score": {
+            "type": "number",
+            "format": "float",
+            "description": "Cosine similarity score in `[0, 1]`."
+          }
+        }
+      },
       "SignupRequest": {
         "type": "object",
         "required": [
@@ -2470,6 +2767,54 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "StoreConsistency": {
+        "type": "object",
+        "required": [
+          "lag_messages",
+          "status"
+        ],
+        "properties": {
+          "lag_messages": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "last_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "description": "`healthy` (<30 s), `degraded` (30–300 s), `stale` (>300 s or never)."
+          }
+        }
+      },
+      "StoreStatuses": {
+        "type": "object",
+        "required": [
+          "postgres",
+          "neo4j",
+          "qdrant",
+          "kafka"
+        ],
+        "properties": {
+          "kafka": {
+            "type": "string"
+          },
+          "neo4j": {
+            "type": "string"
+          },
+          "postgres": {
+            "type": "string"
+          },
+          "qdrant": {
+            "type": "string"
           }
         }
       },

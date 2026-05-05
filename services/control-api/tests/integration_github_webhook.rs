@@ -111,6 +111,9 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         module_tree_cache: rb_query::new_module_tree_cache(),
         graph: None,
         qdrant: None,
+        http_client: reqwest::Client::new(),
+        neo4j_uri: None,
+        kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
     }
 }
 
@@ -129,6 +132,9 @@ fn state_without_gh() -> AppState {
         module_tree_cache: rb_query::new_module_tree_cache(),
         graph: None,
         qdrant: None,
+        http_client: reqwest::Client::new(),
+        neo4j_uri: None,
+        kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
     }
 }
 

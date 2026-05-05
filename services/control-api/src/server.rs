@@ -18,7 +18,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{config::Config, ingest_consumer, routes, state::AppState};
+use crate::{config::Config, ingest_consumer, routes, state::{AppState, KafkaConsistencyState}};
 
 /// Connects to Postgres, builds [`AppState`], and drives the server until shutdown.
 ///
@@ -26,6 +26,7 @@ use crate::{config::Config, ingest_consumer, routes, state::AppState};
 ///
 /// Returns an error if the database connection fails, the TCP listener cannot
 /// bind, or axum returns an IO error during serving.
+#[allow(clippy::too_many_lines)]
 pub async fn run(config: Config) -> Result<()> {
     let metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
         .install_recorder()
@@ -103,6 +104,8 @@ pub async fn run(config: Config) -> Result<()> {
         Arc::new(TenantVectorStore::new(url))
     });
 
+    let kafka_consistency = Arc::new(KafkaConsistencyState::new());
+
     let state = AppState {
         pool,
         email_sender: Arc::from(email_sender),
@@ -116,13 +119,16 @@ pub async fn run(config: Config) -> Result<()> {
         module_tree_cache: rb_query::new_module_tree_cache(),
         graph,
         qdrant,
+        http_client: reqwest::Client::new(),
+        neo4j_uri: config.neo4j_uri.clone(),
+        kafka_consistency: Arc::clone(&kafka_consistency),
     };
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do
     // not prevent the HTTP server from starting — the SSE endpoint degrades
     // gracefully when Kafka is unavailable (no events; long-poll returns empty).
     let consumer_cfg = ConsumerCfg::new("control-api-sse");
-    match ingest_consumer::spawn(&consumer_cfg, sse_bus, Arc::new(state.pool.clone())) {
+    match ingest_consumer::spawn(&consumer_cfg, sse_bus, Arc::new(state.pool.clone()), kafka_consistency) {
         Ok(_handle) => tracing::info!("ingest_consumer started"),
         Err(e) => tracing::warn!("ingest_consumer failed to start (Kafka unavailable?): {e}"),
     }

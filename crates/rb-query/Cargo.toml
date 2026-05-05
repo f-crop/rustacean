@@ -13,6 +13,7 @@ rb-storage-qdrant = { path = "../rb-storage-qdrant", version = "0.1.0" }
 rb-tenant = { path = "../rb-tenant", version = "0.1.0" }
 sqlx.workspace = true
 neo4rs.workspace = true
+reqwest.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
 serde.workspace = true

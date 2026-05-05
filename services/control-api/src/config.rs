@@ -30,9 +30,9 @@ pub struct Config {
     /// signature verification.
     pub gh_app_webhook_secret: Option<String>,
 
-    // --- Neo4j (REQ-DP-04) ---
+    // --- Neo4j (REQ-DP-04, REQ-DP-07) ---
     /// `RB_NEO4J_URI` — bolt URI for the Neo4j instance (e.g. `bolt://neo4j:7687`).
-    /// Optional; graph endpoints return 503 when absent.
+    /// Optional; graph endpoints and Neo4j health probe return 503/unknown when absent.
     pub neo4j_uri: Option<String>,
     /// `RB_NEO4J_USER` — Neo4j username.  Defaults to `"neo4j"` when URI is set.
     pub neo4j_user: String,
@@ -54,15 +54,15 @@ pub struct Config {
     /// Set to `None` (env var absent) to disable automatic tenant migration.
     pub migrations_root: Option<PathBuf>,
 
-    // --- Semantic search (REQ-DP-01) ---
+    // --- Semantic search / Health probes (REQ-DP-01, REQ-DP-07) ---
     /// `RB_QDRANT_URL` — Qdrant REST base URL (e.g. `http://qdrant:6333`).
-    /// Optional; `POST /v1/search` returns 503 when absent.
+    /// Optional; `POST /v1/search` and Qdrant health probe return 503/unknown when absent.
     pub qdrant_url: Option<String>,
     /// `RB_OLLAMA_URL` — Ollama HTTP base URL (e.g. `http://ollama:11434`).
     /// Optional; `POST /v1/search` returns 503 when absent.
     pub ollama_url: Option<String>,
-    /// `RB_EMBEDDING_MODEL` — model name passed to Ollama for query embedding.
-    /// Defaults to `nomic-embed-text`.
+    /// `RB_EMBEDDING_MODEL` — Ollama model used to embed search queries.
+    /// Must match the model used by `embed-worker`. Defaults to `nomic-embed-text`.
     pub embedding_model: String,
 }
 
