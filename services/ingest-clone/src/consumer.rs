@@ -163,17 +163,12 @@ async fn process_clone(
     Ok(())
 }
 
-/// Resolves a GitHub HTTPS clone URL.
-///
-/// When GitHub App credentials are configured (`ctx.gh_app` is `Some`), embeds an
-/// installation access token. Otherwise falls back to a `GITHUB_PAT` env var or,
-/// if that is also absent, a plain unauthenticated URL (public repos only).
+/// Resolves a clone URL: GH App token when configured, `GITHUB_PAT` or plain HTTPS otherwise.
 async fn resolve_clone_url(
     ctx: &CloneCtx,
     tenant_id: TenantId,
     repo_id: Uuid,
 ) -> Result<String> {
-    // LEFT JOIN so the query succeeds even when no installation row exists (PAT/public path).
     let row: (String, Option<i64>) = sqlx::query_as(
         "SELECT r.full_name, gi.github_installation_id \
          FROM control.repos r \
@@ -195,7 +190,6 @@ async fn resolve_clone_url(
             .installation_token(inst_id)
             .await
             .context("failed to get GitHub installation token")?;
-        // Embed the token as a URL credential so git authenticates without prompts.
         return Ok(format!(
             "https://x-access-token:{}@github.com/{}.git",
             token.expose(),
@@ -203,7 +197,6 @@ async fn resolve_clone_url(
         ));
     }
 
-    // GH App not configured — try a personal access token, then fall back to public HTTPS.
     let pat = std::env::var("GITHUB_PAT").unwrap_or_default();
     if pat.is_empty() {
         Ok(format!("https://github.com/{}.git", full_name))
@@ -493,12 +486,6 @@ async fn emit_failed_status(
         tracing::error!("ingest_clone: failed to publish failed status: {e}");
     }
 }
-
-// ── Topic constant consistency note ─────────────────────────────────────────
-// projector-pg currently has `TOPIC_SOURCE_FILE = "rb.ingest.clone.commands"`.
-// That is a placeholder from early scaffolding. The authoritative source-file
-// topic is `rb.source-files.v1` (emitted here). projector-pg will be updated
-// in its own PR to consume from `rb.source-files.v1`.
 
 #[cfg(test)]
 mod tests {
