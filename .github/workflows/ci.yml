@@ -37,16 +37,6 @@ jobs:
 
   # ── Real Rust jobs ─────────────────────────────────────────────────────────
 
-  cargo-check:
-    name: cargo check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: ./.github/actions/setup-rdkafka
-      - run: cargo check --workspace
-
   cargo-test:
     name: cargo test
     runs-on: ubuntu-latest
@@ -60,6 +50,7 @@ jobs:
   clippy:
     name: clippy
     runs-on: ubuntu-latest
+    needs: [cargo-test]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -133,6 +124,7 @@ jobs:
   frontend-typecheck:
     name: frontend typecheck
     runs-on: ubuntu-latest
+    needs: [codegen-drift]
     defaults:
       run:
         working-directory: frontend
