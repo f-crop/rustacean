@@ -71,6 +71,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         gh: None,
         sse_bus: Arc::new(EventBus::new(SseConfig::default())),
         ingest_producer: None,
+        tombstone_producer: None,
         module_tree_cache: rb_query::new_module_tree_cache(),
     };
     Some((state, pool))

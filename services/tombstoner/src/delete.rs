@@ -154,8 +154,6 @@ async fn delete_qdrant_by_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rb_schemas::TenantId;
-
     #[test]
     fn qdrant_collection_is_shared_rb_embeddings() {
         // ADR-008 §6: the shared collection name is a constant, not derived from
