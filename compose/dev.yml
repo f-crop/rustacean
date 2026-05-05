@@ -339,6 +339,7 @@ services:
       dockerfile: docker/ingest-clone/Dockerfile
     image: ghcr.io/jarnura/rustacean/ingest-clone:dev
     pull_policy: never
+    restart: on-failure
     environment:
       DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"

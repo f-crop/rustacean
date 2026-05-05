@@ -43,7 +43,7 @@ const CLONE_TIMEOUT_SECS: u64 = 300;
 
 struct CloneCtx {
     pool: Arc<PgPool>,
-    gh_app: Arc<GhApp>,
+    gh_app: Option<Arc<GhApp>>,
     blob_store: Arc<dyn BlobStore>,
     source_producer: Arc<Producer<SourceFileEvent>>,
     expand_producer: Arc<Producer<IngestRequest>>,
@@ -53,7 +53,7 @@ struct CloneCtx {
 pub async fn run(
     consumer: Consumer<IngestRequest>,
     pool: Arc<PgPool>,
-    gh_app: Arc<GhApp>,
+    gh_app: Option<Arc<GhApp>>,
     blob_store: Arc<dyn BlobStore>,
     source_producer: Arc<Producer<SourceFileEvent>>,
     expand_producer: Arc<Producer<IngestRequest>>,
@@ -163,16 +163,16 @@ async fn process_clone(
     Ok(())
 }
 
-/// Resolves a GitHub HTTPS clone URL with embedded installation access token.
+/// Resolves a clone URL: GH App token when configured, `GITHUB_PAT` or plain HTTPS otherwise.
 async fn resolve_clone_url(
     ctx: &CloneCtx,
     tenant_id: TenantId,
     repo_id: Uuid,
 ) -> Result<String> {
-    let row: (String, i64) = sqlx::query_as(
+    let row: (String, Option<i64>) = sqlx::query_as(
         "SELECT r.full_name, gi.github_installation_id \
          FROM control.repos r \
-         JOIN control.github_installations gi ON gi.id = r.installation_id \
+         LEFT JOIN control.github_installations gi ON gi.id = r.installation_id \
          WHERE r.id = $1 AND r.tenant_id = $2 AND r.archived_at IS NULL",
     )
     .bind(repo_id)
@@ -183,18 +183,26 @@ async fn resolve_clone_url(
 
     let (full_name, installation_id) = row;
 
-    let token = ctx
-        .gh_app
-        .installation_token(installation_id)
-        .await
-        .context("failed to get GitHub installation token")?;
+    if let Some(app) = &ctx.gh_app {
+        let inst_id = installation_id
+            .context("repo has no GitHub installation; cannot obtain clone token")?;
+        let token = app
+            .installation_token(inst_id)
+            .await
+            .context("failed to get GitHub installation token")?;
+        return Ok(format!(
+            "https://x-access-token:{}@github.com/{}.git",
+            token.expose(),
+            full_name
+        ));
+    }
 
-    // Embed the token as a URL credential so git authenticates without prompts.
-    Ok(format!(
-        "https://x-access-token:{}@github.com/{}.git",
-        token.expose(),
-        full_name
-    ))
+    let pat = std::env::var("GITHUB_PAT").unwrap_or_default();
+    if pat.is_empty() {
+        Ok(format!("https://github.com/{full_name}.git"))
+    } else {
+        Ok(format!("https://x-access-token:{pat}@github.com/{full_name}.git"))
+    }
 }
 
 /// Removes the embedded token from a clone URL for safe logging.
@@ -474,12 +482,6 @@ async fn emit_failed_status(
         tracing::error!("ingest_clone: failed to publish failed status: {e}");
     }
 }
-
-// ── Topic constant consistency note ─────────────────────────────────────────
-// projector-pg currently has `TOPIC_SOURCE_FILE = "rb.ingest.clone.commands"`.
-// That is a placeholder from early scaffolding. The authoritative source-file
-// topic is `rb.source-files.v1` (emitted here). projector-pg will be updated
-// in its own PR to consume from `rb.source-files.v1`.
 
 #[cfg(test)]
 mod tests {
