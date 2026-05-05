@@ -30,6 +30,15 @@ pub struct Config {
     /// signature verification.
     pub gh_app_webhook_secret: Option<String>,
 
+    // --- Neo4j (REQ-DP-04) ---
+    /// `RB_NEO4J_URI` — bolt URI for the Neo4j instance (e.g. `bolt://neo4j:7687`).
+    /// Optional; graph endpoints return 503 when absent.
+    pub neo4j_uri: Option<String>,
+    /// `RB_NEO4J_USER` — Neo4j username.  Defaults to `"neo4j"` when URI is set.
+    pub neo4j_user: String,
+    /// `RB_NEO4J_PASSWORD` — Neo4j password.
+    pub neo4j_password: Option<String>,
+
     // --- Kafka / SSE (REQ-DP-08) ---
     /// `KAFKA_BOOTSTRAP_SERVERS` — broker list for the ingest consumer.
     /// Defaults to `kafka:9092` (dev compose alias).
@@ -98,6 +107,9 @@ impl Config {
             gh_app_webhook_secret: env::var("RB_GH_APP_WEBHOOK_SECRET")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            neo4j_uri: env::var("RB_NEO4J_URI").ok().filter(|s| !s.is_empty()),
+            neo4j_user: env::var("RB_NEO4J_USER").unwrap_or_else(|_| "neo4j".to_owned()),
+            neo4j_password: env::var("RB_NEO4J_PASSWORD").ok().filter(|s| !s.is_empty()),
             kafka_bootstrap_servers: env::var("KAFKA_BOOTSTRAP_SERVERS")
                 .unwrap_or_else(|_| "kafka:9092".to_owned()),
             dev_test_routes: env::var("RB_DEV_TEST_ROUTES")
@@ -127,6 +139,9 @@ impl Config {
             gh_app_id: None,
             gh_app_private_key_b64: None,
             gh_app_webhook_secret: None,
+            neo4j_uri: None,
+            neo4j_user: "neo4j".to_owned(),
+            neo4j_password: None,
             kafka_bootstrap_servers: "localhost:9092".to_owned(),
             dev_test_routes: false,
             migrations_root: None,

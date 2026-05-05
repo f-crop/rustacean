@@ -9,6 +9,7 @@ use rb_email::{SmtpConfig, from_transport};
 use rb_github::{GhApp, Secret};
 use rb_kafka::{ConsumerCfg, Producer, ProducerCfg};
 use rb_sse::{EventBus, SseConfig};
+use rb_storage_neo4j::TenantGraph;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -95,6 +96,25 @@ pub async fn run(config: Config) -> Result<()> {
         }
     };
 
+    // Connect to Neo4j.  Failure is non-fatal — graph endpoints degrade to 503.
+    let graph = if let (Some(uri), Some(password)) =
+        (config.neo4j_uri.as_deref(), config.neo4j_password.as_deref())
+    {
+        match TenantGraph::connect(uri, &config.neo4j_user, password).await {
+            Ok(g) => {
+                tracing::info!("neo4j connected at {uri}");
+                Some(Arc::new(g))
+            }
+            Err(e) => {
+                tracing::warn!("neo4j connection failed (graph endpoints disabled): {e}");
+                None
+            }
+        }
+    } else {
+        tracing::info!("RB_NEO4J_URI / RB_NEO4J_PASSWORD not set — graph endpoints disabled");
+        None
+    };
+
     let state = AppState {
         pool,
         email_sender: Arc::from(email_sender),
@@ -106,6 +126,7 @@ pub async fn run(config: Config) -> Result<()> {
         ingest_producer,
         tombstone_producer,
         module_tree_cache: rb_query::new_module_tree_cache(),
+        graph,
     };
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do

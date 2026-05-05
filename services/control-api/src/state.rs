@@ -7,6 +7,7 @@ use rb_kafka::Producer;
 use rb_query::ModuleTreeCache;
 use rb_schemas::{IngestRequest, Tombstone};
 use rb_sse::EventBus;
+use rb_storage_neo4j::TenantGraph;
 use sqlx::PgPool;
 
 use crate::config::Config;
@@ -33,4 +34,7 @@ pub struct AppState {
     /// 60-second in-process cache for `GET /v1/repos/{id}/modules` (ADR-008 §3.6 / AC3).
     /// Keyed by `(repo_id, last_succeeded_ingest_run_id)`.
     pub module_tree_cache: ModuleTreeCache,
+    /// Neo4j tenant-graph handle.  `None` when `RB_NEO4J_URI` is not configured;
+    /// graph endpoints (`/impls`, `/usages`) return 503 in that case.
+    pub graph: Option<Arc<TenantGraph>>,
 }

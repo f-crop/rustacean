@@ -109,6 +109,7 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         ingest_producer: None,
         tombstone_producer: None,
         module_tree_cache: rb_query::new_module_tree_cache(),
+        graph: None,
     }
 }
 
@@ -125,6 +126,7 @@ fn state_without_gh() -> AppState {
         ingest_producer: None,
         tombstone_producer: None,
         module_tree_cache: rb_query::new_module_tree_cache(),
+        graph: None,
     }
 }
 

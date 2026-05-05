@@ -56,6 +56,8 @@ pub enum AppError {
     IngestRunAlreadyInFlight,
     #[error("X-Confirm header must match the tenant slug exactly")]
     ConfirmationMismatch,
+    #[error("Neo4j graph is not configured on this instance")]
+    GraphUnavailable,
     #[error("Kafka producer is not configured on this instance")]
     KafkaNotConfigured,
     #[error("Kafka brokers are not reachable")]
@@ -135,6 +137,11 @@ impl IntoResponse for AppError {
             AppError::ConfirmationMismatch => (
                 StatusCode::BAD_REQUEST,
                 "confirmation_mismatch",
+                self.to_string(),
+            ),
+            AppError::GraphUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "graph_unavailable",
                 self.to_string(),
             ),
             AppError::KafkaNotConfigured => (

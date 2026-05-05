@@ -42,6 +42,8 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         ingest::trigger::trigger_ingestion,
         query::items::get_item,
         query::modules::get_module_tree,
+        query::impls::get_trait_impls,
+        query::usages::get_type_usages,
     ),
     components(
         schemas(
@@ -92,6 +94,10 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             query::modules::NodeSource,
             query::modules::ModuleNodeItem,
             query::modules::ModuleTreeResponse,
+            query::impls::ImplEntry,
+            query::impls::ImplsResponse,
+            query::usages::UsageEntry,
+            query::usages::UsagesResponse,
         )
     ),
     info(
