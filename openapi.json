@@ -3218,6 +3218,13 @@
           "ingest_run_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "trace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "32-hex OpenTelemetry trace ID for this run. `null` when no active trace context."
           }
         }
       },
