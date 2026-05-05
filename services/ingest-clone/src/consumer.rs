@@ -43,7 +43,7 @@ const CLONE_TIMEOUT_SECS: u64 = 300;
 
 struct CloneCtx {
     pool: Arc<PgPool>,
-    gh_app: Arc<GhApp>,
+    gh_app: Option<Arc<GhApp>>,
     blob_store: Arc<dyn BlobStore>,
     source_producer: Arc<Producer<SourceFileEvent>>,
     expand_producer: Arc<Producer<IngestRequest>>,
@@ -53,7 +53,7 @@ struct CloneCtx {
 pub async fn run(
     consumer: Consumer<IngestRequest>,
     pool: Arc<PgPool>,
-    gh_app: Arc<GhApp>,
+    gh_app: Option<Arc<GhApp>>,
     blob_store: Arc<dyn BlobStore>,
     source_producer: Arc<Producer<SourceFileEvent>>,
     expand_producer: Arc<Producer<IngestRequest>>,
@@ -163,16 +163,21 @@ async fn process_clone(
     Ok(())
 }
 
-/// Resolves a GitHub HTTPS clone URL with embedded installation access token.
+/// Resolves a GitHub HTTPS clone URL.
+///
+/// When GitHub App credentials are configured (`ctx.gh_app` is `Some`), embeds an
+/// installation access token. Otherwise falls back to a `GITHUB_PAT` env var or,
+/// if that is also absent, a plain unauthenticated URL (public repos only).
 async fn resolve_clone_url(
     ctx: &CloneCtx,
     tenant_id: TenantId,
     repo_id: Uuid,
 ) -> Result<String> {
-    let row: (String, i64) = sqlx::query_as(
+    // LEFT JOIN so the query succeeds even when no installation row exists (PAT/public path).
+    let row: (String, Option<i64>) = sqlx::query_as(
         "SELECT r.full_name, gi.github_installation_id \
          FROM control.repos r \
-         JOIN control.github_installations gi ON gi.id = r.installation_id \
+         LEFT JOIN control.github_installations gi ON gi.id = r.installation_id \
          WHERE r.id = $1 AND r.tenant_id = $2 AND r.archived_at IS NULL",
     )
     .bind(repo_id)
@@ -183,18 +188,32 @@ async fn resolve_clone_url(
 
     let (full_name, installation_id) = row;
 
-    let token = ctx
-        .gh_app
-        .installation_token(installation_id)
-        .await
-        .context("failed to get GitHub installation token")?;
+    if let Some(app) = &ctx.gh_app {
+        let inst_id = installation_id
+            .context("repo has no GitHub installation; cannot obtain clone token")?;
+        let token = app
+            .installation_token(inst_id)
+            .await
+            .context("failed to get GitHub installation token")?;
+        // Embed the token as a URL credential so git authenticates without prompts.
+        return Ok(format!(
+            "https://x-access-token:{}@github.com/{}.git",
+            token.expose(),
+            full_name
+        ));
+    }
 
-    // Embed the token as a URL credential so git authenticates without prompts.
-    Ok(format!(
-        "https://x-access-token:{}@github.com/{}.git",
-        token.expose(),
-        full_name
-    ))
+    // GH App not configured — try a personal access token, then fall back to public HTTPS.
+    let pat = std::env::var("GITHUB_PAT").unwrap_or_default();
+    if pat.is_empty() {
+        Ok(format!("https://github.com/{}.git", full_name))
+    } else {
+        Ok(format!(
+            "https://x-access-token:{}@github.com/{}.git",
+            pat,
+            full_name
+        ))
+    }
 }
 
 /// Removes the embedded token from a clone URL for safe logging.

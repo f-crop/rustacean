@@ -25,8 +25,7 @@ async fn main() -> Result<()> {
             .context("failed to connect to Postgres")?,
     );
 
-    let gh_app = build_gh_app()?;
-    let gh_app = Arc::new(gh_app);
+    let gh_app = build_gh_app()?.map(Arc::new);
 
     let blob_store = store_from_env().await.context("failed to init blob store")?;
 
@@ -43,7 +42,7 @@ async fn main() -> Result<()> {
     let handle: JoinHandle<()> = tokio::spawn(consumer::run(
         consumer,
         pool,
-        gh_app,
+        gh_app,  // Option<Arc<GhApp>>
         blob_store,
         source_producer,
         expand_producer,
@@ -57,14 +56,19 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn build_gh_app() -> Result<GhApp> {
-    let app_id: i64 = std::env::var("GITHUB_APP_ID")
-        .context("GITHUB_APP_ID is required")?
+fn build_gh_app() -> Result<Option<GhApp>> {
+    let app_id_str = std::env::var("GITHUB_APP_ID").unwrap_or_default();
+    if app_id_str.is_empty() {
+        tracing::info!("GITHUB_APP_ID is unset — GitHub App auth disabled; using PAT or public clone");
+        return Ok(None);
+    }
+
+    let app_id: i64 = app_id_str
         .parse()
         .context("GITHUB_APP_ID must be a number")?;
 
     let private_key_pem = std::env::var("GITHUB_APP_PRIVATE_KEY_PEM")
-        .context("GITHUB_APP_PRIVATE_KEY_PEM is required")?;
+        .context("GITHUB_APP_PRIVATE_KEY_PEM is required when GITHUB_APP_ID is set")?;
 
     let encoding_key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
         .context("invalid GITHUB_APP_PRIVATE_KEY_PEM")?;
@@ -73,11 +77,34 @@ fn build_gh_app() -> Result<GhApp> {
         .unwrap_or_default()
         .into_bytes();
 
-    Ok(GhApp::new(
+    Ok(Some(GhApp::new(
         app_id,
         encoding_key,
         rb_github::Secret::new(webhook_secret_raw),
-    ))
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_gh_app_returns_none_when_app_id_absent() {
+        // SAFETY: single-threaded test binary; no other thread reads GITHUB_APP_ID.
+        unsafe { std::env::remove_var("GITHUB_APP_ID") };
+        let result = build_gh_app()
+            .expect("build_gh_app must not error when GITHUB_APP_ID is absent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn build_gh_app_returns_none_when_app_id_empty_string() {
+        // SAFETY: single-threaded test binary; no other thread reads GITHUB_APP_ID.
+        unsafe { std::env::set_var("GITHUB_APP_ID", "") };
+        let result = build_gh_app()
+            .expect("build_gh_app must not error when GITHUB_APP_ID is empty");
+        assert!(result.is_none());
+    }
 }
 
 async fn shutdown_signal() {
