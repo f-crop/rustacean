@@ -53,6 +53,17 @@ pub struct Config {
     /// Defaults to `/migrations` (the standard mount point in Docker).
     /// Set to `None` (env var absent) to disable automatic tenant migration.
     pub migrations_root: Option<PathBuf>,
+
+    // --- Semantic search (REQ-DP-01) ---
+    /// `RB_QDRANT_URL` — Qdrant REST base URL (e.g. `http://qdrant:6333`).
+    /// Optional; `POST /v1/search` returns 503 when absent.
+    pub qdrant_url: Option<String>,
+    /// `RB_OLLAMA_URL` — Ollama HTTP base URL (e.g. `http://ollama:11434`).
+    /// Optional; `POST /v1/search` returns 503 when absent.
+    pub ollama_url: Option<String>,
+    /// `RB_EMBEDDING_MODEL` — model name passed to Ollama for query embedding.
+    /// Defaults to `nomic-embed-text`.
+    pub embedding_model: String,
 }
 
 impl Config {
@@ -115,6 +126,10 @@ impl Config {
             dev_test_routes: env::var("RB_DEV_TEST_ROUTES")
                 .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
             migrations_root: env::var("RB_MIGRATIONS_ROOT").ok().map(PathBuf::from),
+            qdrant_url: env::var("RB_QDRANT_URL").ok().filter(|s| !s.is_empty()),
+            ollama_url: env::var("RB_OLLAMA_URL").ok().filter(|s| !s.is_empty()),
+            embedding_model: env::var("RB_EMBEDDING_MODEL")
+                .unwrap_or_else(|_| "nomic-embed-text".to_owned()),
         })
     }
 
@@ -145,6 +160,9 @@ impl Config {
             kafka_bootstrap_servers: "localhost:9092".to_owned(),
             dev_test_routes: false,
             migrations_root: None,
+            qdrant_url: None,
+            ollama_url: None,
+            embedding_model: "nomic-embed-text".to_owned(),
         }
     }
 }

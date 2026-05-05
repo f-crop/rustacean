@@ -33,7 +33,9 @@ rb-schemas = { path = "../../crates/rb-schemas", version = "0.1.0" }
 rb-storage-pg = { path = "../../crates/rb-storage-pg", version = "0.1.0" }
 rb-query = { path = "../../crates/rb-query", version = "0.1.0" }
 rb-storage-neo4j = { path = "../../crates/rb-storage-neo4j", version = "0.1.0" }
+rb-storage-qdrant = { path = "../../crates/rb-storage-qdrant", version = "0.1.0" }
 rb-tracing = { path = "../../crates/rb-tracing", version = "0.1.0" }
+reqwest = { workspace = true }
 opentelemetry.workspace = true
 tokio.workspace = true
 tracing.workspace = true

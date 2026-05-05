@@ -10,6 +10,7 @@ use rb_github::{GhApp, Secret};
 use rb_kafka::{ConsumerCfg, Producer, ProducerCfg};
 use rb_sse::{EventBus, SseConfig};
 use rb_storage_neo4j::TenantGraph;
+use rb_storage_qdrant::TenantVectorStore;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::{
     cors::{Any, CorsLayer},
@@ -95,6 +96,13 @@ pub async fn run(config: Config) -> Result<()> {
         None
     };
 
+    // Build the Qdrant vector store.  Failure is non-fatal — `/v1/search`
+    // returns 503 when Qdrant is not configured.
+    let qdrant = config.qdrant_url.as_deref().map(|url| {
+        tracing::info!("qdrant configured at {url}");
+        Arc::new(TenantVectorStore::new(url))
+    });
+
     let state = AppState {
         pool,
         email_sender: Arc::from(email_sender),
@@ -107,6 +115,7 @@ pub async fn run(config: Config) -> Result<()> {
         tombstone_producer,
         module_tree_cache: rb_query::new_module_tree_cache(),
         graph,
+        qdrant,
     };
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do

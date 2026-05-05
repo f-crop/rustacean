@@ -33,6 +33,7 @@ use crate::routes::{
     query::impls::get_trait_impls,
     query::items::get_item,
     query::modules::get_module_tree,
+    query::search::search,
     query::usages::get_type_usages,
     repos::{connect_repo, list_repos, trigger_ingest},
     tenants::{delete_tenant, invite_member, list_members, remove_member, transfer_ownership, update_member_role},
@@ -72,6 +73,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/repos/{repo_id}/items/{fqn_b64}", get(get_item))
         .route("/v1/repos/{repo_id}/items/{fqn_b64}/impls", get(get_trait_impls))
         .route("/v1/repos/{repo_id}/items/{fqn_b64}/usages", get(get_type_usages))
+        .route("/v1/search", post(search))
         .route("/v1/ingestions/recent", get(list_recent_runs))
         .route("/v1/ingestions/{ingestion_run_id}/stages", get(get_stage_timeline))
         .route("/v1/ingest/events", get(events_stream))
