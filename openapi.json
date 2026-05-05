@@ -950,6 +950,67 @@
         }
       }
     },
+    "/v1/tenants/{id}": {
+      "delete": {
+        "tags": [
+          "tenants"
+        ],
+        "summary": "Delete a tenant (owner-only, requires typed confirmation).",
+        "description": "Soft-deletes the tenant by setting `deleted_at` and transitioning its\nstatus to `deleting`, cancels all in-flight ingestion runs, then emits a\n`Tombstone` to `rb.tombstones.v1`. The tombstoner service performs the\nasync data-plane cleanup (PostgreSQL schema drop, Neo4j node removal,\nQdrant point deletion).\n\n**Idempotent**: repeating the call on a tenant already in `deleting` or\n`deleted` state returns `204 No Content`.\n\n**Typed confirmation**: the `X-Confirm` header must match the tenant slug\nexactly (case-insensitive) to prevent accidental deletions.\n\nReturns `503` if the Kafka producer is not available — the request can be\nretried once the broker is reachable.",
+        "operationId": "delete_tenant",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Tenant ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Confirm",
+            "in": "header",
+            "description": "Must equal the tenant slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Deletion queued — tombstone emitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteTenantResponse"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Already deleted (idempotent)"
+          },
+          "400": {
+            "description": "X-Confirm header missing or slug mismatch (confirmation_mismatch)"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Insufficient role — must be owner (insufficient_role)"
+          },
+          "404": {
+            "description": "Tenant not found"
+          },
+          "503": {
+            "description": "Kafka producer not available (kafka_not_configured, kafka_unavailable)"
+          }
+        }
+      }
+    },
     "/v1/tenants/{id}/members": {
       "get": {
         "tags": [
@@ -1481,6 +1542,24 @@
           },
           "slug": {
             "type": "string"
+          }
+        }
+      },
+      "DeleteTenantResponse": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Status after this call: `\"deleting\"`."
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Tenant ID queued for deletion."
           }
         }
       },

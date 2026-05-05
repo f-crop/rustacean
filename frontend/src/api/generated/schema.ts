@@ -484,6 +484,39 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/tenants/{id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        /**
+         * Delete a tenant (owner-only, requires typed confirmation).
+         * @description Soft-deletes the tenant by setting `deleted_at` and transitioning its
+         *     status to `deleting`, cancels all in-flight ingestion runs, then emits a
+         *     `Tombstone` to `rb.tombstones.v1`. The tombstoner service performs the
+         *     async data-plane cleanup (PostgreSQL schema drop, Neo4j node removal,
+         *     Qdrant point deletion).
+         *
+         *     **Idempotent**: repeating the call on a tenant already in `deleting` or
+         *     `deleted` state returns `204 No Content`.
+         *
+         *     **Typed confirmation**: the `X-Confirm` header must match the tenant slug
+         *     exactly (case-insensitive) to prevent accidental deletions.
+         *
+         *     Returns `503` if the Kafka producer is not available — the request can be
+         *     retried once the broker is reachable.
+         */
+        readonly delete: operations["delete_tenant"];
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/tenants/{id}/members": {
         readonly parameters: {
             readonly query?: never;
@@ -666,6 +699,15 @@ export interface components {
             readonly name: string;
             readonly role: string;
             readonly slug: string;
+        };
+        readonly DeleteTenantResponse: {
+            /** @description Status after this call: `"deleting"`. */
+            readonly status: string;
+            /**
+             * Format: uuid
+             * @description Tenant ID queued for deletion.
+             */
+            readonly tenant_id: string;
         };
         readonly ForgotPasswordRequest: {
             /** @description Email address for the account to recover. */
@@ -1871,6 +1913,74 @@ export interface operations {
             };
             /** @description Repository not found or belongs to another tenant */
             readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly delete_tenant: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header: {
+                /** @description Must equal the tenant slug */
+                readonly "X-Confirm": string;
+            };
+            readonly path: {
+                /** @description Tenant ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Deletion queued — tombstone emitted */
+            readonly 202: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["DeleteTenantResponse"];
+                };
+            };
+            /** @description Already deleted (idempotent) */
+            readonly 204: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description X-Confirm header missing or slug mismatch (confirmation_mismatch) */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient role — must be owner (insufficient_role) */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Tenant not found */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Kafka producer not available (kafka_not_configured, kafka_unavailable) */
+            readonly 503: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
