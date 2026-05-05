@@ -35,6 +35,7 @@ use crate::routes::{
     query::items::get_item,
     query::modules::get_module_tree,
     query::search::search,
+    query::traversal::{get_callers, get_callees},
     query::usages::get_type_usages,
     repos::{connect_repo, list_repos, trigger_ingest},
     tenants::{delete_tenant, invite_member, list_members, remove_member, transfer_ownership, update_member_role},
@@ -79,6 +80,8 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/health/consistency", get(consistency_check))
         .route("/v1/ingestions/recent", get(list_recent_runs))
         .route("/v1/ingestions/{ingestion_run_id}/stages", get(get_stage_timeline))
+        .route("/v1/repos/{repo_id}/items/{fqn_b64}/callers", get(get_callers))
+        .route("/v1/repos/{repo_id}/items/{fqn_b64}/callees", get(get_callees))
         .route("/v1/ingest/events", get(events_stream))
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))

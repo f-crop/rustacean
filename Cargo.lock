@@ -3821,6 +3821,7 @@ dependencies = [
 name = "rb-query"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "moka",
  "neo4rs",
  "rb-schemas",
@@ -3829,6 +3830,7 @@ dependencies = [
  "rb-tenant",
  "reqwest",
  "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.18",
  "tracing",

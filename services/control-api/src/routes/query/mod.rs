@@ -5,4 +5,5 @@ pub mod impls;
 pub mod items;
 pub mod modules;
 pub mod search;
+pub mod traversal;
 pub mod usages;
