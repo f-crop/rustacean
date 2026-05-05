@@ -139,13 +139,11 @@ pub async fn get_item(
         .await?
         .ok_or(AppError::NotFound)?;
 
-    // AC3: source_preview ≤ 4 KiB inline; blob_ref when larger.
-    // code_symbols.blob_ref is only set for items whose source exceeds the
-    // parse-worker inline threshold. When it is NULL the item was small (no
-    // blob fetch needed here in v1 — future iteration adds inline text).
+    // AC3: source_preview from source_text column for inline items (≤ 512 KiB);
+    // blob_ref for large items whose source was stored in the blob store.
     let (source_preview, blob_ref) = match symbol.blob_ref {
         Some(r) => (None, Some(r)),
-        None => (None, None),
+        None => (symbol.source_text, None),
     };
 
     tracing::debug!(
@@ -321,6 +319,42 @@ mod tests {
         let val = serde_json::to_value(&resp).unwrap();
         assert!(val.get("blob_ref").is_some());
         assert!(val.get("source_preview").is_none());
+    }
+
+    #[test]
+    fn source_preview_present_when_source_text_populated() {
+        let resp = ItemResponse {
+            id: Uuid::new_v4(),
+            fqn: "my_crate::foo".to_owned(),
+            kind: "FN".to_owned(),
+            repo_id: Uuid::new_v4(),
+            source_path: Some("src/lib.rs".to_owned()),
+            line_start: Some(10),
+            line_end: Some(12),
+            source_preview: Some("fn foo() {}".to_owned()),
+            blob_ref: None,
+        };
+        let val = serde_json::to_value(&resp).unwrap();
+        assert_eq!(val["source_preview"], "fn foo() {}");
+        assert!(val.get("blob_ref").is_none());
+    }
+
+    #[test]
+    fn source_preview_absent_when_no_source_text() {
+        let resp = ItemResponse {
+            id: Uuid::new_v4(),
+            fqn: "my_crate::bar".to_owned(),
+            kind: "FN".to_owned(),
+            repo_id: Uuid::new_v4(),
+            source_path: None,
+            line_start: None,
+            line_end: None,
+            source_preview: None,
+            blob_ref: None,
+        };
+        let val = serde_json::to_value(&resp).unwrap();
+        assert!(val.get("source_preview").is_none());
+        assert!(val.get("blob_ref").is_none());
     }
 
     #[test]

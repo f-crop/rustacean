@@ -80,23 +80,27 @@ pub async fn write_parsed_item(
     verify_tenant(envelope_tenant, &ev.tenant_id)?;
     let table = tenant_ctx.qualify("code_symbols");
     let kind = item_kind_str(ItemKind::try_from(ev.kind).unwrap_or(ItemKind::Unspecified));
-    let blob_ref = match &ev.body {
-        Some(parsed_item_event::Body::BlobRef(s)) => Some(s.as_str()),
-        _ => None,
+    let (source_text, blob_ref): (Option<String>, Option<&str>) = match &ev.body {
+        Some(parsed_item_event::Body::BlobRef(s)) => (None, Some(s.as_str())),
+        Some(parsed_item_event::Body::InlinePayload(bytes)) => {
+            (Some(String::from_utf8_lossy(bytes).into_owned()), None)
+        }
+        None => (None, None),
     };
 
     let repo_id = parse_uuid(&ev.repo_id)
         .context("invalid repo_id in ParsedItemEvent")?;
 
     sqlx::query(&format!(
-        r"INSERT INTO {table} (repo_id, fqn, kind, source_path, line_start, line_end, blob_ref)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+        r"INSERT INTO {table} (repo_id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (repo_id, fqn) DO UPDATE SET
                kind = EXCLUDED.kind,
                source_path = EXCLUDED.source_path,
                line_start = EXCLUDED.line_start,
                line_end = EXCLUDED.line_end,
                blob_ref = EXCLUDED.blob_ref,
+               source_text = EXCLUDED.source_text,
                updated_at = now()"
     ))
     .bind(repo_id)
@@ -106,6 +110,7 @@ pub async fn write_parsed_item(
     .bind(ev.line_start)
     .bind(ev.line_end)
     .bind(blob_ref)
+    .bind(source_text)
     .execute(pool.control())
     .await
     .map_err(StorageError::Sqlx)
