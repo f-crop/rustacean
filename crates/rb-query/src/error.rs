@@ -8,4 +8,8 @@ pub enum QueryError {
     Graph(#[from] rb_storage_neo4j::CypherError),
     #[error("vector store error: {0}")]
     Qdrant(#[from] rb_storage_qdrant::QdrantError),
+    #[error("Qdrant is unavailable: {0}")]
+    QdrantUnavailable(String),
+    #[error("embedding failed (Ollama unavailable): {0}")]
+    OllamaUnavailable(String),
 }

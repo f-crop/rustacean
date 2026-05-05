@@ -38,6 +38,9 @@ pub struct SearchHit {
     pub repo_id: String,
     /// Cosine similarity score — higher is more relevant.
     pub score: f32,
+    /// Ingestion run UUID string that produced this embedding.
+    /// Used as `last_ingest_trace_id` in API responses (UUID hex sans dashes).
+    pub ingest_run_id: String,
 }
 
 /// Results of a single Qdrant search query.
@@ -80,7 +83,7 @@ pub async fn search(
         "limit": request_limit,
         "offset": opts.offset,
         "score_threshold": opts.score_threshold,
-        "with_payload": ["fqn", "repo_id"],
+        "with_payload": ["fqn", "repo_id", "ingest_run_id"],
         "filter": { "must": must_conditions },
     });
 
@@ -108,9 +111,14 @@ pub async fn search(
             let payload = pt.get("payload")?;
             let fqn = payload.get("fqn")?.as_str()?.to_owned();
             let repo_id = payload.get("repo_id")?.as_str()?.to_owned();
+            let ingest_run_id = payload
+                .get("ingest_run_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_owned();
             #[allow(clippy::cast_possible_truncation)]
             let score = pt.get("score")?.as_f64()? as f32;
-            Some(SearchHit { fqn, repo_id, score })
+            Some(SearchHit { fqn, repo_id, score, ingest_run_id })
         })
         .collect();
 
@@ -136,16 +144,18 @@ mod tests {
             fqn: "crate::mod::Fn".to_owned(),
             repo_id: "00000000-0000-0000-0000-000000000001".to_owned(),
             score: 0.75,
+            ingest_run_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_owned(),
         };
         assert!(hit.score > 0.0);
         assert!(!hit.fqn.is_empty());
         assert!(!hit.repo_id.is_empty());
+        assert!(!hit.ingest_run_id.is_empty());
     }
 
     #[test]
     fn search_results_next_offset_when_has_more() {
         let result = SearchResults {
-            hits: vec![SearchHit { fqn: "a::Foo".into(), repo_id: "r1".into(), score: 0.9 }],
+            hits: vec![SearchHit { fqn: "a::Foo".into(), repo_id: "r1".into(), score: 0.9, ingest_run_id: "run1".into() }],
             next_offset: Some(10),
         };
         assert_eq!(result.next_offset, Some(10));

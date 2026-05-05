@@ -3882,6 +3882,7 @@ version = "0.1.0"
 dependencies = [
  "neo4rs",
  "rb-schemas",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 

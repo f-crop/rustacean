@@ -62,6 +62,12 @@ pub enum AppError {
     ServiceUnavailable,
     #[error("Kafka producer is not configured on this instance")]
     KafkaNotConfigured,
+    #[error("Neo4j graph store is not configured on this instance")]
+    GraphNotConfigured,
+    #[error("query contains Cypher write operators but read_only is true")]
+    CypherWriteDenied,
+    #[error("graph query error: {0}")]
+    CypherQuery(#[from] rb_storage_neo4j::CypherError),
     #[error("Kafka brokers are not reachable")]
     KafkaUnavailable,
     #[error("failed to publish ingestion event to Kafka: {0}")]
@@ -156,6 +162,24 @@ impl IntoResponse for AppError {
                 "kafka_not_configured",
                 self.to_string(),
             ),
+            AppError::GraphNotConfigured => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "graph_not_configured",
+                self.to_string(),
+            ),
+            AppError::CypherWriteDenied => (
+                StatusCode::BAD_REQUEST,
+                "cypher_write_denied",
+                self.to_string(),
+            ),
+            AppError::CypherQuery(e) => {
+                tracing::error!(error = %e, "cypher query error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "graph_query_error",
+                    "graph query failed".to_owned(),
+                )
+            }
             AppError::KafkaUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "kafka_unavailable",

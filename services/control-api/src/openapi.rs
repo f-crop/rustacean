@@ -13,6 +13,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         audit::list_audit_events,
         health::health_check,
         health::ready_check,
+        health::consistency_check,
         github::health::github_app_health,
         github::install::github_install_url,
         github::install::github_callback,
@@ -44,12 +45,18 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         query::modules::get_module_tree,
         query::impls::get_trait_impls,
         query::usages::get_type_usages,
+        query::search::search,
     ),
     components(
         schemas(
             audit::AuditEventItem,
             audit::AuditListResponse,
             health::ProbeResponse,
+            health::HealthResponse,
+            health::StoreStatuses,
+            health::ConsistencyResponse,
+            health::ConsistencyStores,
+            health::StoreConsistency,
             github::health::GithubAppHealthResponse,
             github::install::InstallUrlResponse,
             github::repos::RepoItemResponse,
@@ -98,6 +105,9 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             query::impls::ImplsResponse,
             query::usages::UsageEntry,
             query::usages::UsagesResponse,
+            query::search::SearchRequest,
+            query::search::SearchResultItem,
+            query::search::SearchResponse,
         )
     ),
     info(
