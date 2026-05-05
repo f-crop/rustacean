@@ -1072,6 +1072,7 @@ dependencies = [
  "rb-email",
  "rb-github",
  "rb-kafka",
+ "rb-query",
  "rb-schemas",
  "rb-secrets",
  "rb-sse",
@@ -3811,6 +3812,17 @@ version = "0.1.0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-rust",
+]
+
+[[package]]
+name = "rb-query"
+version = "0.1.0"
+dependencies = [
+ "rb-tenant",
+ "serde",
+ "sqlx",
+ "thiserror 2.0.18",
+ "uuid",
 ]
 
 [[package]]

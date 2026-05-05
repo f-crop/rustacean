@@ -29,6 +29,7 @@ members = [
     "services/projector-neo4j",
     "services/tombstoner",
     "services/embed-worker",
+    "crates/rb-query",
 ]
 
 [workspace.package]

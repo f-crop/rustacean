@@ -7,6 +7,7 @@ pub mod github;
 pub mod health;
 pub mod ingest;
 pub mod me;
+pub mod query;
 pub mod repos;
 pub mod tenants;
 
@@ -27,6 +28,7 @@ use crate::routes::{
     ingest::test_publish::test_publish,
     ingest::trigger::trigger_ingestion,
     me::{get_me, switch_tenant},
+    query::items::get_item,
     repos::{connect_repo, list_repos, trigger_ingest},
     tenants::{invite_member, list_members, remove_member, transfer_ownership, update_member_role},
 };
@@ -60,6 +62,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/repos", post(connect_repo).get(list_repos))
         .route("/v1/repos/{id}/ingest", post(trigger_ingest))
         .route("/v1/repos/{repo_id}/ingestions", post(trigger_ingestion))
+        .route("/v1/repos/{repo_id}/items/{fqn_b64}", get(get_item))
         .route("/v1/ingest/events", get(events_stream))
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
