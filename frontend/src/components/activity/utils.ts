@@ -1,23 +1,5 @@
 import type { AuditEventItem } from "@/api";
 
-// ---------------------------------------------------------------------------
-// Chart skeleton
-// ---------------------------------------------------------------------------
-
-export function ChartSkeleton(): JSX.Element {
-  return (
-    <div
-      role="status"
-      aria-label="Loading chart"
-      className="h-[200px] animate-pulse rounded bg-muted"
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-
 export function formatTimestamp(iso: string): string {
   try {
     return new Date(iso).toLocaleString(undefined, {
@@ -31,7 +13,7 @@ export function formatTimestamp(iso: string): string {
   }
 }
 
-export interface DailyCount {
+interface DailyCount {
   day: string;
   count: number;
 }
