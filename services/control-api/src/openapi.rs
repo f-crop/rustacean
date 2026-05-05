@@ -5,7 +5,7 @@
 
 use utoipa::OpenApi;
 
-use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, me, query, repos, tenants};
+use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, me, query, repos, tenants, tenants::delete as tenant_delete};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -33,6 +33,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         tenants::update_member_role,
         tenants::remove_member,
         tenants::transfer_ownership,
+        tenant_delete::delete_tenant,
         repos::connect_repo,
         repos::list_repos,
         repos::trigger_ingest,
@@ -73,6 +74,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             tenants::UpdateRoleRequest,
             tenants::UpdateRoleResponse,
             tenants::TransferOwnershipRequest,
+            tenant_delete::DeleteTenantResponse,
             repos::ConnectRepoRequest,
             repos::ConnectRepoResponse,
             repos::RepoItem,

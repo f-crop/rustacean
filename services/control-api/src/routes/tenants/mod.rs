@@ -1,4 +1,7 @@
 mod role;
+pub mod delete;
+
+pub use delete::delete_tenant;
 
 use axum::{
     Json,

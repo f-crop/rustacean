@@ -84,6 +84,17 @@ pub async fn run(config: Config) -> Result<()> {
         }
     };
 
+    let tombstone_producer = match Producer::new(&producer_cfg) {
+        Ok(p) => {
+            tracing::info!("tombstone_producer connected to Kafka");
+            Some(Arc::new(p))
+        }
+        Err(e) => {
+            tracing::warn!("tombstone_producer failed to connect (Kafka unavailable?): {e}");
+            None
+        }
+    };
+
     let state = AppState {
         pool,
         email_sender: Arc::from(email_sender),
@@ -93,6 +104,7 @@ pub async fn run(config: Config) -> Result<()> {
         gh,
         sse_bus: Arc::clone(&sse_bus),
         ingest_producer,
+        tombstone_producer,
         module_tree_cache: rb_query::new_module_tree_cache(),
     };
 

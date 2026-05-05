@@ -497,6 +497,38 @@ If `user_id` equals the caller's own ID, the operation is a no-op (returns 204 i
 
 ---
 
+### DELETE /v1/tenants/{id}
+
+Delete a tenant and all associated data. Soft-deletes the tenant (sets `status = 'deleting'`, `deleted_at = now()`), cancels all in-flight ingestion runs, and emits a tombstone to `rb.tombstones.v1`. The tombstoner service performs async cleanup across all three stores: PostgreSQL schema drop, Neo4j node removal, and Qdrant point deletion.
+
+**Auth required**: owner role in tenant `{id}`
+
+**Path parameter**: `id` — tenant UUID
+
+**Required header**: `X-Confirm: <tenant_slug>` — must match the tenant slug exactly (case-insensitive). Prevents accidental deletions.
+
+**Idempotent**: if the tenant is already in `deleting` or `deleted` state, returns `204 No Content` immediately.
+
+**Request**
+```
+DELETE /v1/tenants/550e8400-e29b-41d4-a716-446655440000
+X-Confirm: acme-corp
+```
+
+**Response 202** — deletion initiated
+```json
+{ "tenant_id": "550e8400-e29b-41d4-a716-446655440000", "status": "deleting" }
+```
+
+**Response 204** — tenant was already deleting/deleted (idempotent)  
+**Response 400** — `confirmation_mismatch` (X-Confirm value did not match tenant slug)  
+**Response 401** — `unauthorized`  
+**Response 403** — `insufficient_role` (must be owner)  
+**Response 404** — tenant not found  
+**Response 503** — `kafka_unavailable` (Kafka broker unreachable; request is safely retryable)
+
+---
+
 ## Authentication guide: using the API programmatically
 
 ### Session-based (browser / curl)

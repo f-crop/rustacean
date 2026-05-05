@@ -54,6 +54,8 @@ pub enum AppError {
     RepoAlreadyConnected,
     #[error("an ingestion run is already in progress for this repository")]
     IngestRunAlreadyInFlight,
+    #[error("X-Confirm header must match the tenant slug exactly")]
+    ConfirmationMismatch,
     #[error("Kafka producer is not configured on this instance")]
     KafkaNotConfigured,
     #[error("Kafka brokers are not reachable")]
@@ -128,6 +130,11 @@ impl IntoResponse for AppError {
             AppError::IngestRunAlreadyInFlight => (
                 StatusCode::CONFLICT,
                 "ingest_run_already_in_flight",
+                self.to_string(),
+            ),
+            AppError::ConfirmationMismatch => (
+                StatusCode::BAD_REQUEST,
+                "confirmation_mismatch",
                 self.to_string(),
             ),
             AppError::KafkaNotConfigured => (

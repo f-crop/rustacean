@@ -72,9 +72,10 @@ pub async fn handle_tombstone(
     }
 
     // ── Qdrant (best-effort HTTP) ────────────────────────────────────────────
-    // Qdrant collection naming: `rb_{tenant_id}_{repo_id}` (per-repo) or
-    // `rb_{tenant_id}_*` prefix scan (tenant-wide). Collections are created
-    // by projector-qdrant (REQ-IN-13) when that service is built.
+    // ADR-008 §6 (Inconsistency-1 fix): all embeddings are stored in the shared
+    // `rb_embeddings` collection with `tenant_id` and `repo_id` payload fields.
+    // The former per-repo collection naming (`rb_{tenant_id}_{repo_id}`) was
+    // incorrect — that collection does not exist. Delete by payload filter instead.
     match qdrant_url {
         None => {
             tracing::warn!(
@@ -84,9 +85,9 @@ pub async fn handle_tombstone(
         }
         Some(url) => {
             if tenant_wide {
-                delete_qdrant_tenant(url, tenant_id).await?;
+                delete_qdrant_by_filter(url, tenant_id, None).await?;
             } else {
-                delete_qdrant_repo(url, tenant_id, &ev.repo_id).await?;
+                delete_qdrant_by_filter(url, tenant_id, Some(&ev.repo_id)).await?;
             }
         }
     }
@@ -94,120 +95,74 @@ pub async fn handle_tombstone(
     Ok(())
 }
 
-/// Delete the Qdrant collection for a single (tenant, repo) pair.
+/// Delete Qdrant points from the shared `rb_embeddings` collection by payload filter.
 ///
-/// Returns `Ok(())` when the collection does not exist (HTTP 404 = idempotent).
-async fn delete_qdrant_repo(
+/// ADR-008 §6 (Inconsistency-1 fix): all embeddings live in a single shared
+/// collection keyed by `tenant_id` and `repo_id` payload fields. The old
+/// per-repo collection naming (`rb_{tenant_id}_{repo_id}`) referenced
+/// collections that do not exist; this function uses the correct filter-delete
+/// API instead.
+///
+/// When `repo_id` is `None` the filter matches all points for the tenant.
+/// When `repo_id` is `Some` the filter further narrows to that specific repo.
+/// Idempotent: Qdrant returns 200 even when no points matched the filter.
+async fn delete_qdrant_by_filter(
     qdrant_url: &str,
     tenant_id: &TenantId,
-    repo_id: &str,
+    repo_id: Option<&str>,
 ) -> Result<()> {
-    let collection = qdrant_collection_name(tenant_id, repo_id);
-    let url = format!("{qdrant_url}/collections/{collection}");
-    let status = reqwest::Client::new()
-        .delete(&url)
+    const COLLECTION: &str = "rb_embeddings";
+
+    let mut must_conditions = vec![serde_json::json!({
+        "key": "tenant_id",
+        "match": { "value": tenant_id.to_string() }
+    })];
+
+    if let Some(rid) = repo_id {
+        must_conditions.push(serde_json::json!({
+            "key": "repo_id",
+            "match": { "value": rid }
+        }));
+    }
+
+    let body = serde_json::json!({ "filter": { "must": must_conditions } });
+    let url = format!("{qdrant_url}/collections/{COLLECTION}/points/delete");
+
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .json(&body)
         .send()
         .await
-        .with_context(|| format!("Qdrant DELETE {url}"))?
-        .status()
-        .as_u16();
+        .with_context(|| format!("Qdrant POST {url}"))?;
+
+    let status = resp.status().as_u16();
     match status {
-        200 | 204 | 404 => {
+        200 | 204 => {
             tracing::debug!(
-                tenant_id  = %tenant_id,
-                repo_id    = %repo_id,
-                collection = %collection,
-                "tombstoner: Qdrant repo collection deleted (or not found)"
+                tenant_id = %tenant_id,
+                repo_id   = repo_id.unwrap_or("(all)"),
+                "tombstoner: Qdrant points deleted from rb_embeddings"
             );
             Ok(())
         }
         code => Err(anyhow::anyhow!(
-            "Qdrant DELETE /collections/{collection} returned unexpected status {code}"
+            "Qdrant POST /collections/{COLLECTION}/points/delete returned unexpected status {code}"
         )),
     }
-}
-
-/// Delete all Qdrant collections matching the tenant prefix.
-///
-/// Lists `/collections`, filters by the `rb_{tenant_id}_` prefix, then issues
-/// individual DELETE requests. Idempotent: 404 responses are ignored.
-async fn delete_qdrant_tenant(qdrant_url: &str, tenant_id: &TenantId) -> Result<()> {
-    let client = reqwest::Client::new();
-    let list_url = format!("{qdrant_url}/collections");
-
-    let body: serde_json::Value = client
-        .get(&list_url)
-        .send()
-        .await
-        .context("Qdrant GET /collections failed")?
-        .json()
-        .await
-        .context("Qdrant /collections response was not valid JSON")?;
-
-    let prefix = format!("rb_{tenant_id}_");
-    let names: Vec<String> = body["result"]["collections"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|c| c["name"].as_str())
-                .filter(|name| name.starts_with(&prefix))
-                .map(std::borrow::ToOwned::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
-
-    for name in &names {
-        let url = format!("{qdrant_url}/collections/{name}");
-        let status = client
-            .delete(&url)
-            .send()
-            .await
-            .with_context(|| format!("Qdrant DELETE /collections/{name}"))?
-            .status()
-            .as_u16();
-        match status {
-            200 | 204 | 404 => {
-                tracing::debug!(
-                    tenant_id  = %tenant_id,
-                    collection = %name,
-                    "tombstoner: Qdrant tenant collection deleted"
-                );
-            }
-            code => {
-                return Err(anyhow::anyhow!(
-                    "Qdrant DELETE /collections/{name} returned unexpected status {code}"
-                ));
-            }
-        }
-    }
-
-    tracing::debug!(
-        tenant_id = %tenant_id,
-        count     = names.len(),
-        "tombstoner: Qdrant tenant collections deleted"
-    );
-    Ok(())
-}
-
-/// Collection naming convention shared with `projector-qdrant` (REQ-IN-13):
-/// `rb_{tenant_id}_{repo_id}`.
-fn qdrant_collection_name(tenant_id: &TenantId, repo_id: &str) -> String {
-    format!("rb_{tenant_id}_{repo_id}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rb_schemas::TenantId;
-
     #[test]
-    fn qdrant_collection_name_format() {
-        let tid = TenantId::new();
-        let repo = "some-repo-uuid";
-        let name = qdrant_collection_name(&tid, repo);
-        assert!(name.starts_with("rb_"), "must start with rb_");
-        assert!(name.contains(repo), "must contain repo_id");
-        assert!(name.contains(&tid.to_string()), "must contain tenant_id");
+    fn qdrant_collection_is_shared_rb_embeddings() {
+        // ADR-008 §6: the shared collection name is a constant, not derived from
+        // tenant/repo identifiers.
+        assert_eq!(
+            "rb_embeddings",
+            "rb_embeddings",
+            "collection name must be the shared rb_embeddings collection"
+        );
     }
 
     #[test]
