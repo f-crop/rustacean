@@ -29,6 +29,7 @@ use crate::routes::{
     ingest::trigger::trigger_ingestion,
     me::{get_me, switch_tenant},
     query::items::get_item,
+    query::modules::get_module_tree,
     repos::{connect_repo, list_repos, trigger_ingest},
     tenants::{invite_member, list_members, remove_member, transfer_ownership, update_member_role},
 };
@@ -59,6 +60,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/github/install-url", get(github_install_url))
         .route("/v1/github/callback", get(github_callback))
         .route("/v1/github/installations/{id}/available-repos", get(list_available_repos))
+        .route("/v1/repos/{repo_id}/modules", get(get_module_tree))
         .route("/v1/repos", post(connect_repo).get(list_repos))
         .route("/v1/repos/{id}/ingest", post(trigger_ingest))
         .route("/v1/repos/{repo_id}/ingestions", post(trigger_ingestion))

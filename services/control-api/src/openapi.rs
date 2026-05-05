@@ -38,6 +38,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         repos::trigger_ingest,
         ingest::trigger::trigger_ingestion,
         query::items::get_item,
+        query::modules::get_module_tree,
     ),
     components(
         schemas(
@@ -80,6 +81,9 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             ingest::trigger::TriggerIngestionRequest,
             ingest::trigger::TriggerIngestionResponse,
             query::items::ItemResponse,
+            query::modules::NodeSource,
+            query::modules::ModuleNodeItem,
+            query::modules::ModuleTreeResponse,
         )
     ),
     info(
@@ -101,7 +105,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         (name = "github", description = "GitHub App integration"),
         (name = "repos", description = "Connected repository management"),
         (name = "ingestions", description = "Manual ingestion trigger and run management"),
-        (name = "query", description = "Code graph read queries"),
+        (name = "query", description = "Data-plane query endpoints (ADR-008 Wave 6)"),
     ),
 )]
 pub struct ApiDoc;

@@ -260,6 +260,27 @@ pub fn require_verified_session(auth: AuthContext) -> Result<SessionInfo, AppErr
     }
 }
 
+/// Require either a verified session OR any API key (read | write | admin).
+///
+/// Returns the caller's `tenant_id` from whichever credential is present.
+/// Used by read-only query endpoints that accept both session and key auth
+/// per ADR-008 §3.6.
+///
+/// - `Session(info)` with `email_verified == true` → `Ok(tenant_id)`
+/// - `Session(info)` with `email_verified == false` → `EmailNotVerified` (403)
+/// - `ExpiredSession` → `SessionExpired` (401)
+/// - `ApiKey(info)` (any scope) → `Ok(tenant_id)`
+/// - `Anonymous` → `Unauthorized` (401)
+pub fn require_read_auth(auth: AuthContext) -> Result<Uuid, AppError> {
+    match auth {
+        AuthContext::Session(info) if info.email_verified => Ok(info.tenant_id),
+        AuthContext::Session(_) => Err(AppError::EmailNotVerified),
+        AuthContext::ExpiredSession => Err(AppError::SessionExpired),
+        AuthContext::ApiKey(info) => Ok(info.tenant_id),
+        AuthContext::Anonymous => Err(AppError::Unauthorized),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
