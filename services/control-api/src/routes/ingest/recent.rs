@@ -91,10 +91,10 @@ pub async fn list_recent_runs(
     auth: AuthContext,
     Query(query): Query<RecentQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    type Row = (Uuid, Uuid, String, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>, DateTime<Utc>);
     let tenant_id = require_read(auth)?;
     let limit = query.limit.unwrap_or(50).clamp(1, 100);
 
-    type Row = (Uuid, Uuid, String, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>, DateTime<Utc>);
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT id, repo_id, status, started_at, finished_at, trace_id, created_at \
          FROM control.ingestion_runs \
