@@ -10,6 +10,7 @@ export const routes = {
   members: "/members",
   apiKeys: "/api-keys",
   ingestion: "/ingestion",
+  codeWorkspace: "/repos/$repoId/code",
 } as const;
 
 export type RoutePath = (typeof routes)[keyof typeof routes];

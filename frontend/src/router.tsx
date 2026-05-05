@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 import { AppShell, GlobalSuspenseFallback } from "@/components/AppShell";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
+import { CodeWorkspacePage } from "@/pages/CodeWorkspacePage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { IngestionTheatre } from "@/pages/IngestionTheatre";
 import { LoginPage } from "@/pages/LoginPage";
@@ -116,6 +117,17 @@ const ingestionRoute = createRoute({
   component: IngestionTheatre,
 });
 
+const codeWorkspaceSearchSchema = z.object({
+  fqn: z.string().optional(),
+});
+
+const codeWorkspaceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: routes.codeWorkspace,
+  validateSearch: codeWorkspaceSearchSchema,
+  component: CodeWorkspacePage,
+});
+
 const catchAllRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -137,6 +149,7 @@ const routeTree = rootRoute.addChildren([
   membersRoute,
   apiKeysRoute,
   ingestionRoute,
+  codeWorkspaceRoute,
   catchAllRoute,
 ]);
 

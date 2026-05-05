@@ -32,3 +32,13 @@ export {
   type AvailableReposResponse,
 } from "./useRepos";
 export { useGithubInstallUrl } from "./useGithubInstall";
+export {
+  useModuleTree,
+  moduleTreeQueryKey,
+  useItem,
+  itemQueryKey,
+  fqnToB64,
+  b64ToFqn,
+  type ItemResponse,
+  type ModuleTreeResponse,
+} from "./useCodeIntel";
