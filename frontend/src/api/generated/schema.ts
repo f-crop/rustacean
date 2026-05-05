@@ -11,7 +11,12 @@ export interface paths {
             readonly path?: never;
             readonly cookie?: never;
         };
-        /** Liveness probe — always returns 200 while the process is running. */
+        /**
+         * Liveness probe with per-store connectivity status.
+         * @description Returns 200 in all cases (even when stores are degraded) so load-balancers
+         *     do not kill the process — callers inspect `status` for fine-grained health.
+         *     Public / unauthenticated.
+         */
         readonly get: operations["health_check"];
         readonly put?: never;
         readonly post?: never;
@@ -28,11 +33,7 @@ export interface paths {
             readonly path?: never;
             readonly cookie?: never;
         };
-        /**
-         * Readiness probe — returns 200 when the service is ready to serve traffic.
-         * @description Full DB connectivity check is wired in RUSAA-38; currently mirrors the
-         *     liveness probe so health and ready endpoints can be tested immediately.
-         */
+        /** Readiness probe — returns 200 when the service is ready to serve traffic. */
         readonly get: operations["ready_check"];
         readonly put?: never;
         readonly post?: never;
@@ -294,6 +295,30 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/health/consistency": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Kafka consistency metrics (admin only).
+         * @description Reports consumer lag and time since last event for each data-plane store.
+         *     Admin-only because these metrics expose internal pipeline internals.
+         *
+         *     Requires an `Admin`-scoped API key **or** an active session with at least
+         *     the `admin` tenant role.
+         */
+        readonly get: operations["consistency_check"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/health/github-app": {
         readonly parameters: {
             readonly query?: never;
@@ -455,6 +480,28 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/repos/{repo_id}/graph/query": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Execute a Cypher query against the tenant's code-intelligence graph.
+         * @description This endpoint is stubbed for RUSAA-78 (health/consistency PR). The
+         *     write-check pre-flight is implemented; the Neo4j execution layer is a
+         *     follow-on task.
+         */
+        readonly post: operations["post_graph_query"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/repos/{repo_id}/ingestions": {
         readonly parameters: {
             readonly query?: never;
@@ -573,6 +620,31 @@ export interface paths {
         readonly get: operations["get_module_tree"];
         readonly put?: never;
         readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/search": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Semantic search across embedded code symbols within the caller's tenant.
+         * @description Embeds `q` via Ollama, performs approximate nearest-neighbour search in
+         *     the Qdrant `rb_embeddings` collection filtered by `tenant_id`, and returns
+         *     ranked results with their fully-qualified names and crate context.
+         *
+         *     Returns 503 when either Qdrant (`RB_QDRANT_URL`) or Ollama (`RB_OLLAMA_URL`)
+         *     are not configured on this instance.
+         */
+        readonly post: operations["search"];
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -772,6 +844,14 @@ export interface components {
         readonly ConnectedReposResponse: {
             readonly repos: readonly components["schemas"]["RepoItem"][];
         };
+        readonly ConsistencyResponse: {
+            /** Format: date-time */
+            readonly checked_at: string;
+            readonly stores: components["schemas"]["ConsistencyStores"];
+        };
+        readonly ConsistencyStores: {
+            readonly kafka: components["schemas"]["StoreConsistency"];
+        };
         readonly CreateApiKeyRequest: {
             /** @description Human-readable label for the key. */
             readonly name: string;
@@ -813,6 +893,23 @@ export interface components {
             readonly app_id: number;
             readonly owner: string;
             readonly slug: string;
+        };
+        /** @description Request body for `POST /v1/repos/{repo_id}/graph/query`. */
+        readonly GraphQueryRequest: {
+            /** @description Cypher query string. */
+            readonly cypher: string;
+            /** @description When `true` (default), reject queries that contain write operators. */
+            readonly read_only?: boolean;
+        };
+        /** @description Placeholder response — full Neo4j integration is a follow-on task. */
+        readonly GraphQueryResponse: {
+            readonly columns: readonly string[];
+            readonly rows: readonly unknown[];
+        };
+        readonly HealthResponse: {
+            /** @description Overall status: `"ok"` when all stores are reachable, `"degraded"` otherwise. */
+            readonly status: string;
+            readonly stores: components["schemas"]["StoreStatuses"];
         };
         /** @description One impl block that implements the queried trait. */
         readonly ImplEntry: {
@@ -966,6 +1063,7 @@ export interface components {
             /** @description Relative path within the repository (e.g. `"src/lib.rs"`). */
             readonly path: string;
         };
+        /** @description Simple status envelope used by `/ready`. */
         readonly ProbeResponse: {
             readonly status: string;
         };
@@ -1021,6 +1119,43 @@ export interface components {
          * @enum {string}
          */
         readonly Scope: "read" | "write" | "admin";
+        /** @description Optional filters applied on top of the vector similarity ranking. */
+        readonly SearchFilters: {
+            /**
+             * Format: uuid
+             * @description Restrict results to a single repository UUID.
+             */
+            readonly repo_id?: string | null;
+        };
+        /** @description Body for `POST /v1/search`. */
+        readonly SearchRequest: {
+            readonly filters?: null | components["schemas"]["SearchFilters"];
+            /**
+             * Format: int32
+             * @description Maximum number of results to return (default 10, max 50).
+             */
+            readonly limit?: number | null;
+            /** @description Natural-language query to embed and search. */
+            readonly q: string;
+        };
+        /** @description Response body for `POST /v1/search`. */
+        readonly SearchResponse: {
+            readonly results: readonly components["schemas"]["SearchResult"][];
+        };
+        /** @description A single ranked result returned by `/v1/search`. */
+        readonly SearchResult: {
+            /** @description Top-level crate name extracted from the FQN. */
+            readonly crate_name: string;
+            /** @description Fully-qualified name (e.g. `my_crate::module::my_fn`). */
+            readonly fqn: string;
+            /** @description Repository UUID this symbol belongs to. */
+            readonly repo_id: string;
+            /**
+             * Format: float
+             * @description Cosine similarity score in `[0, 1]`.
+             */
+            readonly score: number;
+        };
         readonly SignupRequest: {
             /** @description RFC 5322 email address. */
             readonly email: string;
@@ -1049,6 +1184,20 @@ export interface components {
             readonly ingestion_run_id: string;
             readonly stages: readonly components["schemas"]["StageRunItem"][];
             readonly trace_id?: string | null;
+        };
+        readonly StoreConsistency: {
+            /** Format: int64 */
+            readonly lag_messages: number;
+            /** Format: date-time */
+            readonly last_event_at?: string | null;
+            /** @description `healthy` (<30 s), `degraded` (30–300 s), `stale` (>300 s or never). */
+            readonly status: string;
+        };
+        readonly StoreStatuses: {
+            readonly kafka: string;
+            readonly neo4j: string;
+            readonly postgres: string;
+            readonly qdrant: string;
         };
         readonly SwitchTenantRequest: {
             /**
@@ -1161,13 +1310,13 @@ export interface operations {
         };
         readonly requestBody?: never;
         readonly responses: {
-            /** @description Service is alive */
+            /** @description Per-store health status */
             readonly 200: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ProbeResponse"];
+                    readonly "application/json": components["schemas"]["HealthResponse"];
                 };
             };
         };
@@ -1673,6 +1822,40 @@ export interface operations {
             };
         };
     };
+    readonly consistency_check: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Consistency metrics */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ConsistencyResponse"];
+                };
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient role or scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     readonly github_app_health: {
         readonly parameters: {
             readonly query?: never;
@@ -2011,6 +2194,54 @@ export interface operations {
             };
         };
     };
+    readonly post_graph_query: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Repository UUID */
+                readonly repo_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["GraphQueryRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Query results */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["GraphQueryResponse"];
+                };
+            };
+            /** @description Write operators detected in read-only query (cypher_write_denied) */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Neo4j graph store is not configured on this instance */
+            readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     readonly trigger_ingestion: {
         readonly parameters: {
             readonly query?: never;
@@ -2283,6 +2514,58 @@ export interface operations {
             };
             /** @description Repository not found or belongs to another tenant */
             readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly search: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["SearchRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Ranked search results */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Invalid request (query empty or limit out of range) */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or API key lacks read scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Qdrant or Ollama not configured on this instance */
+            readonly 503: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
