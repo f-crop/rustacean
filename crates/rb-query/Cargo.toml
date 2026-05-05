@@ -12,6 +12,8 @@ sqlx.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
 serde.workspace = true
+moka = { workspace = true, features = ["future"] }
+tracing.workspace = true
 
 [lints]
 workspace = true

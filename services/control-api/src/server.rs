@@ -93,6 +93,7 @@ pub async fn run(config: Config) -> Result<()> {
         gh,
         sse_bus: Arc::clone(&sse_bus),
         ingest_producer,
+        module_tree_cache: rb_query::new_module_tree_cache(),
     };
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do

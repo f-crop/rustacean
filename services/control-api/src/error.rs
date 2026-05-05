@@ -68,6 +68,8 @@ pub enum AppError {
     Email(#[from] rb_email::EmailError),
     #[error("internal server error")]
     Internal(#[from] anyhow::Error),
+    #[error("query error: {0}")]
+    Query(#[from] rb_query::QueryError),
 }
 
 impl IntoResponse for AppError {
@@ -183,6 +185,14 @@ impl IntoResponse for AppError {
             }
             AppError::Internal(e) => {
                 tracing::error!(error = %e, "unhandled internal error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "internal server error".to_owned(),
+                )
+            }
+            AppError::Query(e) => {
+                tracing::error!(error = %e, "query error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

@@ -8,3 +8,4 @@ mod pg;
 
 pub use error::QueryError;
 pub use pg::items;
+pub use pg::modules::{ModuleNode, ModuleTreeCache, fetch_module_tree, new_module_tree_cache};

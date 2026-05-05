@@ -3818,10 +3818,12 @@ dependencies = [
 name = "rb-query"
 version = "0.1.0"
 dependencies = [
+ "moka",
  "rb-tenant",
  "serde",
  "sqlx",
  "thiserror 2.0.18",
+ "tracing",
  "uuid",
 ]
 

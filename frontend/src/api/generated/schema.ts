@@ -463,6 +463,27 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/repos/{repo_id}/modules": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Return the crate/module hierarchy for a repository.
+         * @description Tree is derived from `code_symbols.fqn` (split on `::`) via a single SQL
+         *     query. Results are cached in-process for 60 s per `(repo_id, last_ingest_run_id)`.
+         */
+        readonly get: operations["get_module_tree"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/tenants/{id}/members": {
         readonly parameters: {
             readonly query?: never;
@@ -761,6 +782,33 @@ export interface components {
             readonly role: string;
             /** Format: uuid */
             readonly user_id: string;
+        };
+        /** @description A single node in the module/item tree. */
+        readonly ModuleNodeItem: {
+            /** @description Nested child nodes. */
+            readonly children: readonly components["schemas"]["ModuleNodeItem"][];
+            /** @description Fully-qualified name (e.g. `"alloc::vec::Vec"`). */
+            readonly fqn: string;
+            /** @description Symbol kind from `code_symbols.kind` (e.g. `"MOD"`, `"STRUCT"`, `"FN"`). */
+            readonly kind: string;
+            /** @description Leaf segment of the FQN (e.g. `"Vec"` for `alloc::vec::Vec`). */
+            readonly name: string;
+            readonly source?: null | components["schemas"]["NodeSource"];
+        };
+        /** @description Response envelope for `GET /v1/repos/{repo_id}/modules`. */
+        readonly ModuleTreeResponse: {
+            /** Format: uuid */
+            readonly repo_id: string;
+            readonly tree: components["schemas"]["ModuleNodeItem"];
+        };
+        /** @description Source location for a symbol. */
+        readonly NodeSource: {
+            /** Format: int32 */
+            readonly line_end?: number | null;
+            /** Format: int32 */
+            readonly line_start?: number | null;
+            /** @description Relative path within the repository (e.g. `"src/lib.rs"`). */
+            readonly path: string;
         };
         readonly ProbeResponse: {
             readonly status: string;
@@ -1778,6 +1826,50 @@ export interface operations {
                 content?: never;
             };
             /** @description Repository or item not found (not_found) */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_module_tree: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Repository UUID */
+                readonly repo_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Module tree for the repository */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ModuleTreeResponse"];
+                };
+            };
+            /** @description Not authenticated or session expired */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email not verified or insufficient scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Repository not found or belongs to another tenant */
             readonly 404: {
                 headers: {
                     readonly [name: string]: unknown;
