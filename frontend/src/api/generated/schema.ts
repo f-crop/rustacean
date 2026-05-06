@@ -1785,8 +1785,8 @@ export interface operations {
             readonly query: {
                 /** @description GitHub numeric installation ID */
                 readonly installation_id: number;
-                /** @description Opaque state token from install-url */
-                readonly state: string;
+                /** @description Opaque state token from install-url (absent for GitHub-initiated redirects) */
+                readonly state?: string;
                 /** @description install or update */
                 readonly setup_action?: string;
             };

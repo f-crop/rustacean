@@ -445,8 +445,8 @@
           {
             "name": "state",
             "in": "query",
-            "description": "Opaque state token from install-url",
-            "required": true,
+            "description": "Opaque state token from install-url (absent for GitHub-initiated redirects)",
+            "required": false,
             "schema": {
               "type": "string"
             }
