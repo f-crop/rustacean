@@ -61,6 +61,32 @@ fn simple_fixture_syn_line_numbers_populated() {
     }
 }
 
+/// RUSAA-673 regression: multi-line items must have line_end > line_start.
+/// Prior to the fix, all items used the identifier span → line_start == line_end.
+#[test]
+fn simple_fixture_multi_line_items_span_full_body() {
+    let src = fixture("simple.rs");
+    let items = syn_extract(&src).unwrap();
+
+    // Config struct is lines 1-4 in simple.rs (4 lines including closing brace).
+    let config = items.iter().find(|i| i.name == "Config").expect("Config must exist");
+    assert!(
+        config.line_end > config.line_start,
+        "Config struct must span multiple lines (line_start={}, line_end={})",
+        config.line_start,
+        config.line_end
+    );
+
+    // connect fn is lines 6-8 in simple.rs.
+    let connect = items.iter().find(|i| i.name == "connect").expect("connect must exist");
+    assert!(
+        connect.line_end > connect.line_start,
+        "connect fn must span multiple lines (line_start={}, line_end={})",
+        connect.line_start,
+        connect.line_end
+    );
+}
+
 // ── complex.rs corpus ────────────────────────────────────────────────────────
 
 #[test]
