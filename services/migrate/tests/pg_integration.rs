@@ -131,6 +131,41 @@ async fn test_tenant_creates_schema_and_applies() {
 }
 
 #[tokio::test]
+async fn test_multi_statement_migration_applied() {
+    let Some(url) = test_pool_url() else {
+        eprintln!("SKIP test_multi_statement_migration_applied: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let pool = connect(&url).await;
+    drop_schema(&pool, "control").await;
+
+    // Two CREATE TABLE statements in a single migration file — the bug case.
+    let multi_sql =
+        "CREATE TABLE foo_ms (id INT PRIMARY KEY);\nCREATE TABLE bar_ms (id INT PRIMARY KEY);";
+    let repo = make_repo("control", &[("001_multi.sql", multi_sql)]);
+
+    let n = migrate_control(&pool, repo.path())
+        .await
+        .expect("multi-statement migration failed");
+    assert_eq!(n, 1, "one migration file applied");
+
+    for table in &["foo_ms", "bar_ms"] {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM information_schema.tables \
+             WHERE table_schema = 'control' AND table_name = $1)",
+        )
+        .bind(*table)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(exists, "table '{table}' must exist after multi-statement migration");
+    }
+
+    drop_schema(&pool, "control").await;
+}
+
+#[tokio::test]
 async fn test_failed_migration_rolled_back() {
     let Some(url) = test_pool_url() else {
         eprintln!("SKIP test_failed_migration_rolled_back: TEST_DATABASE_URL not set");
