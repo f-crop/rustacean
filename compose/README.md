@@ -34,17 +34,34 @@ version prefix (`003_...`). The next `docker compose up` will pick it up automat
 
 ## Start the stack
 
-```bash
-# Local dev (default ports)
-docker compose -f compose/dev.yml up -d
+Use `scripts/dev-stack-up.sh` — it validates the env schema before starting and refuses to run without an explicit env file:
 
-# mars / Tailscale (remapped ports, see docs/PORT_MAP.md)
-docker compose --env-file compose/tailscale.env \
-  -f compose/dev.yml -f compose/tailscale.yml up -d
+```bash
+# 1. Create your env file from the template (first time only)
+cp compose/dev.env.tpl compose/dev.env
+# Edit compose/dev.env: set RB_BASE_URL to your frontend origin, fill in GH App keys if needed.
+
+# 2. Start the stack
+scripts/dev-stack-up.sh --env-file compose/dev.env -- -d
+
+# mars / Tailscale (remapped ports)
+scripts/dev-stack-up.sh --env-file compose/tailscale.env -- -d
 
 # Infra only — skip control-api (e.g. running it with `cargo run`)
-docker compose -f compose/dev.yml up -d \
+docker compose --env-file compose/dev.env -f compose/dev.yml up -d \
   postgres kafka neo4j qdrant otel-collector tempo prometheus grafana ollama
+```
+
+### Env schema validation
+
+`compose/env.schema.toml` defines all env vars, their types, regex validators, and which services consume them. Run standalone:
+
+```bash
+# Validate any env file against the schema
+compose/scripts/validate-env.sh compose/dev.env
+
+# Validate only vars relevant to a specific service
+compose/scripts/validate-env.sh compose/dev.env --service control-api
 ```
 
 ## Smoke test after `docker compose up -d control-api`

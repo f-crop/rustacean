@@ -7,8 +7,35 @@ use rb_storage_pg::TenantPool;
 mod consumer;
 mod delete;
 
+fn validate_boot_env() -> Result<()> {
+    let mut errors: Vec<String> = Vec::new();
+
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
+    if db_url.is_empty() {
+        errors.push("DATABASE_URL: required but missing".to_owned());
+    } else if !db_url.starts_with("postgres") {
+        errors.push(format!("DATABASE_URL: expected postgres DSN, got {db_url:?}"));
+    }
+
+    let neo4j_password = std::env::var("NEO4J_PASSWORD").unwrap_or_default();
+    if neo4j_password.is_empty() {
+        errors.push("NEO4J_PASSWORD: required but missing".to_owned());
+    }
+
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "tombstoner boot validation failed ({} error(s)):\n{}",
+            errors.len(),
+            errors.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n")
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    validate_boot_env()?;
+
     let _guard = rb_tracing::init("tombstoner")?;
 
     let database_url = std::env::var("DATABASE_URL")

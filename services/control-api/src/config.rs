@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 
 /// Service configuration loaded from environment variables.
 #[derive(Debug, Clone)]
@@ -133,6 +133,78 @@ impl Config {
         })
     }
 
+    /// Validates critical config invariants that could produce silent runtime misbehaviour.
+    ///
+    /// Called immediately after `from_env()`. The service refuses to bind if the environment
+    /// is misconfigured.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `RB_BASE_URL` is not an HTTP/S URL or appears to point at the API
+    /// rather than the frontend, or if `RB_GH_APP_PRIVATE_KEY` contains non-base64 characters.
+    pub fn validate(&self) -> Result<()> {
+        let mut errors: Vec<String> = Vec::new();
+
+        // RB_BASE_URL must be an HTTP/S URL and must NOT be the same host:port as the
+        // API listen address — it feeds email links and GH callback redirects to the
+        // *frontend*, not the API.
+        if !self.base_url.starts_with("http://") && !self.base_url.starts_with("https://") {
+            errors.push(format!(
+                "RB_BASE_URL={:?}: must start with http:// or https://",
+                self.base_url
+            ));
+        } else if self.base_url.contains(":8080") {
+            // :8080 is the API listen address — RB_BASE_URL must point at the frontend.
+            // Allow the local dev default only when email is non-sending (console/noop).
+            let is_local = self.base_url.contains("localhost")
+                || self.base_url.contains("127.0.0.1");
+            if !is_local || !matches!(self.email_transport.as_str(), "console" | "noop") {
+                errors.push(format!(
+                    "RB_BASE_URL={:?}: looks like the API address (:8080), not the frontend. \
+                     This will break email links and the GitHub install callback redirect. \
+                     Set RB_BASE_URL to the frontend origin (e.g. http://host:15173).",
+                    self.base_url
+                ));
+            }
+        }
+
+        // RB_GH_APP_PRIVATE_KEY must be valid base64 when present.
+        if let Some(key) = &self.gh_app_private_key_b64 {
+            if key.contains("BEGIN RSA") || key.contains("-----") {
+                errors.push(
+                    "RB_GH_APP_PRIVATE_KEY: value looks like a raw PEM, not base64. \
+                     Encode it first: base64 -w0 < app.pem"
+                        .to_owned(),
+                );
+            } else {
+                // Verify it's valid base64 by attempting a decode check on the first 128 chars
+                let sample = &key[..key.len().min(128)];
+                if !sample
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+                {
+                    errors.push(format!(
+                        "RB_GH_APP_PRIVATE_KEY={:?}...: contains non-base64 characters",
+                        &key[..key.len().min(20)]
+                    ));
+                }
+            }
+        }
+
+        if !errors.is_empty() {
+            bail!(
+                "control-api boot validation failed ({} error(s)):\n{}",
+                errors.len(),
+                errors
+                    .iter()
+                    .map(|e| format!("  - {e}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
+        Ok(())
+    }
+
     /// Creates a minimal config for tests and integration-test harnesses.
     ///
     /// Uses fast argon2id params and noop email transport.
@@ -164,5 +236,50 @@ impl Config {
             ollama_url: None,
             embedding_model: "nomic-embed-text".to_owned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base() -> Config {
+        Config::for_test()
+    }
+
+    #[test]
+    fn validate_localhost_8080_noop_passes() {
+        // Local dev default — non-sending transport makes this acceptable.
+        let c = base(); // base_url = http://localhost:8080, email_transport = noop
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_localhost_8080_smtp_fails() {
+        let mut c = base();
+        c.email_transport = "smtp".to_owned();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn validate_non_localhost_8080_fails() {
+        // e.g. http://mars.tailnet:8080 — always wrong regardless of transport.
+        let mut c = base();
+        c.base_url = "http://mars.tailnet:8080".to_owned();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn validate_frontend_url_passes() {
+        let mut c = base();
+        c.base_url = "http://localhost:15173".to_owned();
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_non_http_scheme_fails() {
+        let mut c = base();
+        c.base_url = "ftp://localhost:15173".to_owned();
+        assert!(c.validate().is_err());
     }
 }

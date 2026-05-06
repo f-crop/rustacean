@@ -11,8 +11,48 @@ use tokio::task::JoinHandle;
 
 mod consumer;
 
+fn validate_boot_env() -> Result<()> {
+    let mut errors: Vec<String> = Vec::new();
+
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
+    if db_url.is_empty() {
+        errors.push("DATABASE_URL: required but missing".to_owned());
+    } else if !db_url.starts_with("postgres") {
+        errors.push(format!("DATABASE_URL: expected postgres DSN, got {db_url:?}"));
+    }
+
+    // When GITHUB_APP_ID is set, GITHUB_APP_PRIVATE_KEY_PEM is required and must
+    // be a raw PEM block (not base64) — ingest-clone passes it directly to jsonwebtoken.
+    let app_id = std::env::var("GITHUB_APP_ID").unwrap_or_default();
+    if !app_id.is_empty() {
+        let pem = std::env::var("GITHUB_APP_PRIVATE_KEY_PEM").unwrap_or_default();
+        if pem.is_empty() {
+            errors.push(
+                "GITHUB_APP_PRIVATE_KEY_PEM: required when GITHUB_APP_ID is set".to_owned(),
+            );
+        } else if !pem.contains("BEGIN") || !pem.contains("PRIVATE") {
+            errors.push(
+                "GITHUB_APP_PRIVATE_KEY_PEM: missing PEM header ('BEGIN ... PRIVATE KEY'). \
+                 This var takes raw PEM, not base64."
+                    .to_owned(),
+            );
+        }
+    }
+
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "ingest-clone boot validation failed ({} error(s)):\n{}",
+            errors.len(),
+            errors.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n")
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    validate_boot_env()?;
+
     let _guard = rb_tracing::init("ingest-clone")?;
 
     let database_url = std::env::var("DATABASE_URL")

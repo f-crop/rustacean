@@ -6,8 +6,18 @@ use rb_storage_neo4j::TenantGraph;
 mod consumer;
 mod writer;
 
+fn validate_boot_env() -> Result<()> {
+    let neo4j_password = std::env::var("NEO4J_PASSWORD").unwrap_or_default();
+    if neo4j_password.is_empty() {
+        anyhow::bail!("projector-neo4j boot validation failed:\n  - NEO4J_PASSWORD: required but missing");
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    validate_boot_env()?;
+
     let _guard = rb_tracing::init("projector-neo4j")?;
 
     let neo4j_uri = std::env::var("NEO4J_URI")
