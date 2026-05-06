@@ -6,10 +6,12 @@
 #   scripts/dev-stack-watch.sh [REPO_PATH]
 #
 # Environment:
-#   POLL_INTERVAL   Seconds between git fetch polls (default: 60)
-#   REMOTE          Remote name to poll (default: origin)
-#   BRANCH          Branch to track (default: main)
-#   COMPOSE_CMD     Used locally to detect running containers; also passed through to dev-stack-auto-rebuild.sh
+#   POLL_INTERVAL          Seconds between git fetch polls (default: 60)
+#   REMOTE                 Remote name to poll (default: origin)
+#   BRANCH                 Branch to track (default: main)
+#   COMPOSE_CMD            Used locally to detect running containers; also passed through to dev-stack-auto-rebuild.sh
+#   COLD_START_MAX_ATTEMPTS  Max cold-start attempts on startup before exiting for systemd retry (default: 5)
+#   COLD_START_RETRY_DELAY   Initial seconds between cold-start retry attempts; doubles each attempt (default: 30)
 #
 # Logs: journald captures stdout/stderr when run as a systemd service.
 # Rebuild records are written by dev-stack-auto-rebuild.sh to
@@ -64,13 +66,32 @@ fi
 
 echo "[dev-stack-watch] tracking from $LAST_KNOWN_SHA"
 
-# Cold-start check on startup: if the stack is fully stopped, bring it up immediately
-# without waiting for the next commit. This handles the case where the watcher restarts
-# after an outage that also stopped the compose stack.
+# Cold-start on startup: if the stack is fully stopped, bring it up immediately without
+# waiting for the next commit. Retries with exponential backoff so transient failures
+# (e.g. Docker daemon not yet ready) self-heal. Exits non-zero after all attempts so
+# systemd Restart=on-failure can take over rather than leaving the stack down indefinitely.
 if stack_is_cold; then
   echo "[dev-stack-watch] stack is not running — triggering cold start"
-  "$REBUILD_SCRIPT" --cold-start "$LAST_KNOWN_SHA" "$LAST_KNOWN_SHA" || \
-    echo "[dev-stack-watch] cold start failed — see rebuild logs for details" >&2
+  _cs_attempt=1
+  _cs_delay="${COLD_START_RETRY_DELAY:-30}"
+  _cs_max="${COLD_START_MAX_ATTEMPTS:-5}"
+  while [[ $_cs_attempt -le $_cs_max ]]; do
+    if "$REBUILD_SCRIPT" --cold-start "$LAST_KNOWN_SHA" "$LAST_KNOWN_SHA"; then
+      echo "[dev-stack-watch] cold start succeeded on attempt $_cs_attempt"
+      break
+    fi
+    echo "[dev-stack-watch] cold start failed (attempt $_cs_attempt/$_cs_max) — see rebuild logs" >&2
+    if [[ $_cs_attempt -lt $_cs_max ]]; then
+      echo "[dev-stack-watch] retrying in ${_cs_delay}s" >&2
+      sleep "$_cs_delay"
+      _cs_delay=$(( _cs_delay * 2 ))
+    fi
+    _cs_attempt=$(( _cs_attempt + 1 ))
+  done
+  if [[ $_cs_attempt -gt $_cs_max ]]; then
+    echo "[dev-stack-watch] cold start failed after $_cs_max attempts — exiting for systemd restart" >&2
+    exit 1
+  fi
 else
   echo "[dev-stack-watch] stack is running — entering poll loop"
 fi
