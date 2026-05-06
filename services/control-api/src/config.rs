@@ -135,8 +135,13 @@ impl Config {
 
     /// Validates critical config invariants that could produce silent runtime misbehaviour.
     ///
-    /// Called immediately after `from_env()`. Panics with a clear message so the service
-    /// refuses to bind if the environment is misconfigured.
+    /// Called immediately after `from_env()`. The service refuses to bind if the environment
+    /// is misconfigured.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `RB_BASE_URL` is not an HTTP/S URL or appears to point at the API
+    /// rather than the frontend, or if `RB_GH_APP_PRIVATE_KEY` contains non-base64 characters.
     pub fn validate(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
 
