@@ -5,32 +5,13 @@
 //!   `TEST_DATABASE_URL=postgres://rustbrain:rustbrain@localhost:5433/rustbrain` \
 //!     cargo test -p projector-pg
 
+mod common;
+
+use common::{make_pool, new_ctx, setup_tenant, teardown_tenant, test_url};
 use rb_schemas::{
     GraphRelationEvent, ItemKind, ParsedItemEvent, RelationKind,
     SourceFileEvent, TenantId, source_file_event, parsed_item_event,
 };
-use rb_storage_pg::TenantPool;
-use rb_tenant::TenantCtx;
-use sqlx::postgres::PgPoolOptions;
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-fn test_url() -> Option<String> {
-    std::env::var("TEST_DATABASE_URL").ok()
-}
-
-async fn make_pool(url: &str) -> TenantPool {
-    let pg = PgPoolOptions::new()
-        .max_connections(3)
-        .connect(url)
-        .await
-        .expect("connect to test DB");
-    TenantPool::new(pg)
-}
-
-fn new_ctx() -> TenantCtx {
-    TenantCtx::new(TenantId::new())
-}
 
 macro_rules! skip_no_db {
     ($url:ident) => {
@@ -39,71 +20,6 @@ macro_rules! skip_no_db {
             return;
         };
     };
-}
-
-/// Set up a tenant schema with the `code_tables` migration applied.
-async fn setup_tenant(pool: &TenantPool, ctx: &TenantCtx) {
-    pool.create_schema(ctx).await.expect("create schema");
-    let schema = ctx.schema_name();
-
-    // code_files
-    sqlx::query(&format!(
-        r"CREATE TABLE IF NOT EXISTS {schema}.code_files (
-            id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-            repo_id         UUID        NOT NULL,
-            relative_path   TEXT        NOT NULL,
-            sha256          TEXT        NOT NULL,
-            size_bytes      BIGINT      NOT NULL,
-            blob_ref        TEXT,
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-            UNIQUE (repo_id, relative_path)
-        )"
-    ))
-    .execute(pool.control())
-    .await
-    .expect("create code_files");
-
-    // code_symbols
-    sqlx::query(&format!(
-        r"CREATE TABLE IF NOT EXISTS {schema}.code_symbols (
-            id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-            repo_id         UUID        NOT NULL,
-            fqn             TEXT        NOT NULL,
-            kind            TEXT        NOT NULL,
-            source_path     TEXT,
-            line_start      INTEGER,
-            line_end        INTEGER,
-            blob_ref        TEXT,
-            source_text     TEXT,
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-            updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-            UNIQUE (repo_id, fqn)
-        )"
-    ))
-    .execute(pool.control())
-    .await
-    .expect("create code_symbols");
-
-    // code_relations
-    sqlx::query(&format!(
-        r"CREATE TABLE IF NOT EXISTS {schema}.code_relations (
-            id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-            repo_id         UUID        NOT NULL,
-            from_fqn        TEXT        NOT NULL,
-            to_fqn          TEXT        NOT NULL,
-            kind            TEXT        NOT NULL,
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-            UNIQUE (repo_id, from_fqn, to_fqn, kind)
-        )"
-    ))
-    .execute(pool.control())
-    .await
-    .expect("create code_relations");
-}
-
-async fn teardown_tenant(pool: &TenantPool, ctx: &TenantCtx) {
-    let _ = pool.drop_schema(ctx).await;
 }
 
 // ── source file projection ───────────────────────────────────────────────────
@@ -406,9 +322,8 @@ async fn write_parsed_item_with_blob_ref() {
     teardown_tenant(&pool, &ctx).await;
 }
 
-/// Regression test for RUSAA-671: re-ingestion must not overwrite source_text with NULL.
-/// When a second ParsedItemEvent arrives with body=None (no source payload),
-/// the COALESCE in the UPSERT must preserve the original source_text.
+/// Regression for #274: re-ingestion must not overwrite source_text with NULL.
+/// When body=None arrives, COALESCE in the UPSERT must preserve the original source_text.
 #[tokio::test]
 async fn write_parsed_item_reingest_preserves_source_text() {
     skip_no_db!(url);

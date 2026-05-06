@@ -61,7 +61,7 @@ fn simple_fixture_syn_line_numbers_populated() {
     }
 }
 
-/// RUSAA-673 regression: multi-line items must have line_end > line_start.
+/// #275 regression: multi-line items must have line_end > line_start.
 /// Prior to the fix, all items used the identifier span → line_start == line_end.
 #[test]
 fn simple_fixture_multi_line_items_span_full_body() {
@@ -136,7 +136,7 @@ fn bad_syntax_fixture_tree_sitter_recovers_items() {
     );
 }
 
-// ── src_factor.rs corpus (RUSAA-671 regression) ──────────────────────────────
+// ── src_factor.rs corpus (#274 regression) ───────────────────────────────────
 
 #[test]
 fn src_factor_fixture_syn_extracts_all_expected_items() {
@@ -148,7 +148,7 @@ fn src_factor_fixture_syn_extracts_all_expected_items() {
     assert!(names.contains(&"zero_factor"), "expected zero_factor fn");
 }
 
-/// RUSAA-671 regression: ZERO_DECIMAL_PAIR must have line_start ≥ 1 and
+/// #274 regression: ZERO_DECIMAL_PAIR must have line_start ≥ 1 and
 /// the ident must land on a line that contains real source text.
 /// line_start = 0 combined with a file starting with '\n' would cause
 /// item_source_slice to return "", producing body=None and NULL source_text.
@@ -182,7 +182,7 @@ fn src_factor_fixture_const_line_numbers_valid() {
         !line_content.trim().is_empty(),
         "line {} of src_factor.rs (where ZERO_DECIMAL_PAIR ident lands) must not be blank; \
          blank ident line causes item_source_slice to return empty bytes → NULL source_text \
-         in code_symbols after re-ingestion (RUSAA-671)",
+         in code_symbols after re-ingestion (#274)",
         const_item.line_start
     );
 }

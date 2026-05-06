@@ -514,7 +514,7 @@ mod tests {
         assert_eq!(item_source_slice(src, 2, 2), "fn b() {}");
     }
 
-    /// RUSAA-671: line_start=0 on a file that starts with '\n' used to return
+    /// #274: line_start=0 on a file that starts with '\n' used to return
     /// an empty slice, leading to InlinePayload(b"") → body=None after proto
     /// round-trip → NULL source_text in code_symbols on re-ingestion.
     #[test]
