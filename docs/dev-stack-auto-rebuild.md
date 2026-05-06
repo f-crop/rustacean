@@ -1,6 +1,6 @@
 # Dev-stack Auto-rebuild
 
-When a commit lands on `main` that touches a built service (control-api, frontend), the dev-stack on mars automatically rebuilds the affected images and restarts the containers. UAT always runs against `main` HEAD.
+When a commit lands on `main` that touches any built service, the dev-stack on mars automatically rebuilds the affected images and restarts the containers. UAT always runs against `main` HEAD.
 
 ## How it works
 
@@ -15,14 +15,18 @@ Two scripts live in `scripts/`:
 
 The rebuild script maps changed file paths to services:
 
-| Changed path | Service rebuilt |
+| Changed path | Services rebuilt |
 |---|---|
-| `services/control-api/**`, `crates/**`, `Cargo.toml`, `Cargo.lock`, `docker/control-api/**`, `migrations/**`, `proto/**` | `control-api` (+ re-runs `rb-migrations`) |
+| `crates/**`, `Cargo.toml`, `Cargo.lock`, `proto/**` | **All 10 Rust services** (shared dependency change) |
+| `services/<name>/**`, `docker/<name>/**` | That specific service only |
+| `migrations/**` | `control-api` (+ re-runs `rb-migrations`) |
 | `frontend/**`, `docker/frontend/**` | `frontend` |
-| `compose/dev.yml`, `compose/full.yml`, `compose/tailscale.yml`, `compose/tailscale.env`, `compose/scripts/**` | both services |
+| `compose/dev.yml`, `compose/full.yml`, `compose/tailscale.yml`, `compose/tailscale.env`, `compose/scripts/**` | All services |
 | Anything else (docs, `.github/`, governance, …) | **no rebuild** |
 
-Rebuilds are idempotent — re-running is safe. Migrations are always re-run before control-api restarts; they skip already-applied versions.
+The 10 Rust services are: `control-api`, `parse-worker`, `typecheck-worker`, `ingest-graph`, `ingest-clone`, `expand-worker`, `embed-worker`, `projector-pg`, `projector-neo4j`, `tombstoner`.
+
+Rebuilds are idempotent — re-running is safe. Migrations are re-run before control-api restarts; they skip already-applied versions.
 
 ### Health checks
 
@@ -30,6 +34,7 @@ After restart the script waits 15 s then probes:
 
 - **control-api** — `GET http://localhost:${CONTROL_API_HOST_PORT:-8080}/health` → expects HTTP 200
 - **frontend** — `GET http://localhost:${FRONTEND_HOST_PORT:-15173}/` → expects HTTP 200
+- **All other Rust services** — `docker inspect` → expects container running
 
 Results are written to the rebuild log and optionally posted as a GitHub commit status.
 
@@ -69,7 +74,7 @@ $COMPOSE_CMD build
 ```
 
 This tags all 11 custom images locally. Subsequent rebuilds are handled automatically by
-`dev-stack-watch.sh` (control-api and frontend only) or manually for other services.
+`dev-stack-watch.sh` for all services whose source paths change on `main`.
 
 ### 4. Create the systemd service
 
@@ -203,7 +208,7 @@ scripts/dev-stack-auto-rebuild.sh --cold-start                        # builds b
 scripts/dev-stack-auto-rebuild.sh --cold-start <prev_sha> <new_sha>  # with explicit SHA range
 ```
 
-`--cold-start` forces both `control-api` and `frontend` to rebuild, runs migrations, then calls `docker compose up -d` (without `--no-deps`) so databases, queues, and all other infrastructure services start alongside the application containers.
+`--cold-start` forces all 10 Rust services and `frontend` to rebuild, runs migrations, then calls `docker compose up -d` (without `--no-deps`) so databases, queues, and all other infrastructure services start alongside the application containers.
 
 The watcher (`dev-stack-watch.sh`) automatically detects a stopped stack at startup and on each new-commit cycle, and passes `--cold-start` to the rebuild script when needed. The `COMPOSE_CMD` environment variable must be set (or accept the default) for cold-start detection to work correctly.
 
