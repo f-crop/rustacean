@@ -153,12 +153,12 @@ impl Config {
                 "RB_BASE_URL={:?}: must start with http:// or https://",
                 self.base_url
             ));
-        } else if self.base_url.contains(":8080") && !self.base_url.contains("localhost") {
-            // Warn rather than fatal — allows local dev default
         } else if self.base_url.contains(":8080") {
-            // Local default http://localhost:8080 is wrong for anything that sends emails.
-            // It's only acceptable if email transport is console/noop.
-            if !matches!(self.email_transport.as_str(), "console" | "noop") {
+            // :8080 is the API listen address — RB_BASE_URL must point at the frontend.
+            // Allow the local dev default only when email is non-sending (console/noop).
+            let is_local = self.base_url.contains("localhost")
+                || self.base_url.contains("127.0.0.1");
+            if !is_local || !matches!(self.email_transport.as_str(), "console" | "noop") {
                 errors.push(format!(
                     "RB_BASE_URL={:?}: looks like the API address (:8080), not the frontend. \
                      This will break email links and the GitHub install callback redirect. \
@@ -236,5 +236,50 @@ impl Config {
             ollama_url: None,
             embedding_model: "nomic-embed-text".to_owned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base() -> Config {
+        Config::for_test()
+    }
+
+    #[test]
+    fn validate_localhost_8080_noop_passes() {
+        // Local dev default — non-sending transport makes this acceptable.
+        let c = base(); // base_url = http://localhost:8080, email_transport = noop
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_localhost_8080_smtp_fails() {
+        let mut c = base();
+        c.email_transport = "smtp".to_owned();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn validate_non_localhost_8080_fails() {
+        // e.g. http://mars.tailnet:8080 — always wrong regardless of transport.
+        let mut c = base();
+        c.base_url = "http://mars.tailnet:8080".to_owned();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn validate_frontend_url_passes() {
+        let mut c = base();
+        c.base_url = "http://localhost:15173".to_owned();
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_non_http_scheme_fails() {
+        let mut c = base();
+        c.base_url = "ftp://localhost:15173".to_owned();
+        assert!(c.validate().is_err());
     }
 }

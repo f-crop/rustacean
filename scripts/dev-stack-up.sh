@@ -151,8 +151,8 @@ if [[ "${SKIP_CANARY:-0}" != "1" ]] && command -v docker &>/dev/null; then
 
     # Check what value the container would see using env-file interpolation
     CONTAINER_VAL="$(
-      docker compose --env-file "$ENV_FILE" $COMPOSE_FILE_ARGS \
-        run --rm --no-deps --entrypoint sh alpine -c "echo \$$VAR" 2>/dev/null \
+      docker run --rm --env-file "$ENV_FILE" alpine \
+        sh -c "echo \$$VAR" 2>/dev/null \
       || true
     )"
 
