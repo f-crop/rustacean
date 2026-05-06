@@ -10,7 +10,6 @@
 use std::time::Duration;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use opentelemetry::trace::TraceContextExt as _;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{IngestRequest, TenantId};
 use serde::{Deserialize, Serialize};
@@ -131,10 +130,7 @@ pub async fn trigger_ingestion(
 
     // Capture the active OTel trace ID so Grafana/Tempo links work.
     // Returns None when no HTTP middleware has established a trace context.
-    let trace_id: Option<String> = {
-        let span_ctx = opentelemetry::Context::current().span().span_context().clone();
-        span_ctx.is_valid().then(|| span_ctx.trace_id().to_string())
-    };
+    let trace_id = rb_tracing::current_trace_id();
 
     // 3. Build the Kafka envelope before opening the transaction (pure in-memory,
     //    no I/O). This lets us publish to Kafka while still inside the transaction

@@ -2,6 +2,22 @@ mod json_layer;
 
 pub use json_layer::StructuredJsonLayer;
 
+/// Returns the W3C 32-hex trace ID of the currently entered tracing span,
+/// or `None` when no active OpenTelemetry span context is available.
+///
+/// Reads from the current tracing span's extensions via `OpenTelemetrySpanExt`
+/// rather than `opentelemetry::Context::current()`, which is never populated
+/// by `tracing-opentelemetry` 0.29.
+#[must_use]
+pub fn current_trace_id() -> Option<String> {
+    use opentelemetry::trace::TraceContextExt as _;
+    use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+    let otel_ctx = tracing::Span::current().context();
+    let otel_span = otel_ctx.span();
+    let sc = otel_span.span_context();
+    sc.is_valid().then(|| sc.trace_id().to_string())
+}
+
 use opentelemetry::{global, trace::TracerProvider as _};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig as _};

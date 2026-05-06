@@ -2,6 +2,7 @@ use opentelemetry::trace::TraceContextExt as _;
 use serde_json::{Map, Value};
 use std::{fmt, io::Write, sync::Mutex};
 use tracing::{Event, Subscriber};
+use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
 
 // ── Timestamp ────────────────────────────────────────────────────────────────
@@ -143,8 +144,11 @@ where
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let meta = event.metadata();
 
-        // OpenTelemetry span context — valid only when a tracer provider is installed.
-        let otel_ctx = opentelemetry::Context::current();
+        // OpenTelemetry span context — read from the current tracing span's extensions
+        // via OpenTelemetrySpanExt, NOT from opentelemetry::Context::current().
+        // tracing-opentelemetry 0.29 does not call Context::attach() in on_enter,
+        // so the thread-local OTel context is never populated during request handling.
+        let otel_ctx = tracing::Span::current().context();
         let otel_span = otel_ctx.span();
         let sc = otel_span.span_context();
         let (trace_id, span_id) = if sc.is_valid() {
