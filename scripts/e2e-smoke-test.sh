@@ -256,6 +256,100 @@ log "  neo4j node count=${neo4j_count}"
   || fail "expected Neo4j nodes > 0 for repo_id=${REPO_UUID}, got ${neo4j_count}"
 log "Neo4j assertion PASSED (${neo4j_count} nodes)."
 
+# ── API-level seam assertions (RUSAA-676) ─────────────────────────────────────
+#
+# Five checks that verify data flows all the way through to the HTTP layer.
+# These catch bugs that slip past DB-layer checks (e.g. source_preview=1 line,
+# empty callers graph) because they exercise the full service call path.
+
+log "=== API-level seam assertions (RUSAA-676) ==="
+
+# Seam 1: /health reports neo4j and qdrant as "ok".
+# Validates that all stores are reachable after the full pipeline run —
+# a degraded store means subsequent seam assertions would give false results.
+log "[seam 1/5] health endpoint: neo4j and qdrant must report ok..."
+health_resp=$(curl -sf "${API}/health")
+neo4j_health=$(echo "${health_resp}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['stores']['neo4j'])" \
+  2>/dev/null || echo "parse_error")
+qdrant_health=$(echo "${health_resp}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['stores']['qdrant'])" \
+  2>/dev/null || echo "parse_error")
+[ "${neo4j_health}" = "ok" ] \
+  || fail "[seam 1/5] health: neo4j=${neo4j_health}, expected ok"
+[ "${qdrant_health}" = "ok" ] \
+  || fail "[seam 1/5] health: qdrant=${qdrant_health}, expected ok"
+log "[seam 1/5] PASSED (neo4j=${neo4j_health}, qdrant=${qdrant_health})"
+
+# Seam 2: GET /v1/repos/{repo_id}/items/{fqn_b64} returns source_preview with > 1 line.
+# Catches the "source shows 1 line" class of bug where source_text was stored
+# truncated or the typecheck-worker wrote only the signature line.
+log "[seam 2/5] source_preview: multi-line function must return > 1 preview line..."
+preview_fqn=$(psql_q \
+  "SELECT fqn FROM \"${tenant_schema}\".code_symbols
+   WHERE repo_id = '${REPO_UUID}' AND kind = 'FN'
+     AND line_start IS NOT NULL AND line_end IS NOT NULL
+     AND line_end - line_start > 1
+   LIMIT 1;" | tr -d '[:space:]')
+[ -n "${preview_fqn}" ] \
+  || fail "[seam 2/5] no multi-line function (kind=FN, line_end-line_start>1) in code_symbols — fixture may need updating"
+fqn_b64=$(printf '%s' "${preview_fqn}" | base64 -w 0 | tr '+/' '-_' | tr -d '=')
+item_resp=$(curl -sf "${API}/v1/repos/${REPO_UUID}/items/${fqn_b64}" -b "${COOKIE_JAR}")
+preview_lines=$(echo "${item_resp}" \
+  | python3 -c "import sys,json; print(len((json.load(sys.stdin).get('source_preview') or '').splitlines()))" \
+  2>/dev/null || echo "0")
+(( preview_lines > 1 )) \
+  || fail "[seam 2/5] source_preview lines=${preview_lines} for fqn=${preview_fqn}, expected > 1"
+log "[seam 2/5] PASSED (fqn=${preview_fqn}, lines=${preview_lines})"
+
+# Seam 3: POST /v1/search returns at least one result scoped to this repo.
+# Validates the embed-worker → Qdrant → search path end-to-end.
+log "[seam 3/5] search: must return > 0 results for the ingested repo..."
+search_resp=$(curl -sf -X POST "${API}/v1/search" \
+  -H "Content-Type: application/json" \
+  -d "{\"q\":\"fn\",\"filters\":{\"repo_id\":\"${REPO_UUID}\"}}" \
+  -b "${COOKIE_JAR}")
+search_count=$(echo "${search_resp}" \
+  | python3 -c "import sys,json; print(len(json.load(sys.stdin)['results']))" \
+  2>/dev/null || echo "0")
+(( search_count > 0 )) \
+  || fail "[seam 3/5] search returned ${search_count} results for repo_id=${REPO_UUID}, expected > 0"
+log "[seam 3/5] PASSED (results=${search_count})"
+
+# Seam 4: GET /v1/repos/{repo_id}/items/{fqn_b64}/callers returns nodes.
+# Validates the ingest-graph CALLS extraction → Neo4j → traversal API path.
+# First pick a callee FQN that has at least one CALLS edge in Neo4j, then hit the API.
+log "[seam 4/5] callers: a called function must have callers visible via the API..."
+callee_fqn=$(${DC} exec -T neo4j cypher-shell \
+  -u neo4j -p rustbrain123 --format plain \
+  "MATCH ()-[:CALLS]->(b {repo_id: '${REPO_UUID}'}) RETURN b.fqn LIMIT 1;" \
+  2>/dev/null | tail -1 | tr -d '[:space:]"')
+[ -n "${callee_fqn}" ] \
+  || fail "[seam 4/5] no CALLS edges found in Neo4j for repo_id=${REPO_UUID} — CALLS extraction may have failed"
+callee_b64=$(printf '%s' "${callee_fqn}" | base64 -w 0 | tr '+/' '-_' | tr -d '=')
+callers_resp=$(curl -sf "${API}/v1/repos/${REPO_UUID}/items/${callee_b64}/callers" \
+  -b "${COOKIE_JAR}")
+caller_nodes=$(echo "${callers_resp}" \
+  | python3 -c "import sys,json; print(len(json.load(sys.stdin)['nodes']))" \
+  2>/dev/null || echo "0")
+(( caller_nodes > 0 )) \
+  || fail "[seam 4/5] callers endpoint returned ${caller_nodes} nodes for fqn=${callee_fqn}, expected > 0"
+log "[seam 4/5] PASSED (callee=${callee_fqn}, caller_nodes=${caller_nodes})"
+
+# Seam 5: GET /v1/repos/{repo_id}/modules returns a tree with children.
+# Validates the module-tree builder reads code_symbols correctly and the fixture
+# has at least 2 modules (root + at least one child).
+log "[seam 5/5] module tree: must have at least one child module..."
+modules_resp=$(curl -sf "${API}/v1/repos/${REPO_UUID}/modules" -b "${COOKIE_JAR}")
+module_children=$(echo "${modules_resp}" \
+  | python3 -c "import sys,json; print(len(json.load(sys.stdin)['tree']['children']))" \
+  2>/dev/null || echo "0")
+(( module_children > 0 )) \
+  || fail "[seam 5/5] module tree has ${module_children} children for repo_id=${REPO_UUID}, expected > 0"
+log "[seam 5/5] PASSED (module_children=${module_children})"
+
+log "All 5 API-level seam assertions PASSED."
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 log "E2E pipeline smoke test PASSED."
