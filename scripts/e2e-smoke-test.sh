@@ -34,6 +34,10 @@ SMOKE_FAILED=0
 SMOKE_EMAIL="smoke@e2e.test"
 SMOKE_PASS="smoke-password-e2e-123"
 
+# UAT fingerprint output path (RUSAA-696).
+# Populated at end of run; Gate 3 hook (RUSAA-695) requires this file.
+UAT_FINGERPRINT_FILE="${UAT_FINGERPRINT_FILE:-/tmp/uat-fingerprint.json}"
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 log()  { echo "[$(date -u +%H:%M:%S)] [smoke] $*"; }
@@ -341,6 +345,19 @@ log "  stores.neo4j=${neo4j_status}  stores.qdrant=${qdrant_status}"
 [ "${qdrant_status}" = "ok" ] \
   || fail "expected stores.qdrant=ok, got '${qdrant_status}'"
 log "Health assertion PASSED (neo4j=${neo4j_status}, qdrant=${qdrant_status})."
+
+# ── Collect UAT fingerprint (RUSAA-696 — Pillar C) ───────────────────────────
+# Must run before the stack tears down (cleanup trap fires on EXIT).
+# Scopes fingerprint to this ingest run + the tenant resolved above.
+
+log "Collecting UAT fingerprint (RUSAA-696)..."
+FINGERPRINT_INGEST_RUN_ID="${ingest_run_id}" \
+FINGERPRINT_TENANT_SCHEMA="${tenant_schema}" \
+  bash "$(dirname "$0")/uat-fingerprint.sh" \
+    "${COMPOSE_FILE}" "${UAT_FINGERPRINT_FILE}" \
+  || { log "WARN: fingerprint collection failed — Gate 3 will reject this verdict"; }
+
+log "Fingerprint written to ${UAT_FINGERPRINT_FILE}"
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
