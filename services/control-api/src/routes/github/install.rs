@@ -82,7 +82,8 @@ pub async fn github_install_url(
 #[derive(Debug, Deserialize)]
 pub struct CallbackParams {
     pub installation_id: i64,
-    pub state: String,
+    #[serde(default)]
+    pub state: Option<String>,
     #[serde(default)]
     pub setup_action: Option<String>,
 }
@@ -92,7 +93,7 @@ pub struct CallbackParams {
     path = "/v1/github/callback",
     params(
         ("installation_id" = i64, Query, description = "GitHub numeric installation ID"),
-        ("state" = String, Query, description = "Opaque state token from install-url"),
+        ("state" = Option<String>, Query, description = "Opaque state token from install-url (absent for GitHub-initiated redirects)"),
         ("setup_action" = Option<String>, Query, description = "install or update"),
     ),
     responses(
@@ -108,7 +109,19 @@ pub async fn github_callback(
 ) -> Result<impl IntoResponse, AppError> {
     let gh = state.gh.as_ref().ok_or(AppError::GithubAppNotConfigured)?;
 
-    let raw = hex::decode(&params.state).map_err(|_| AppError::InvalidToken)?;
+    let state_hex = match params.state {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            tracing::info!(
+                installation_id = params.installation_id,
+                setup_action = ?params.setup_action,
+                "github callback: no state token (GitHub-initiated redirect), sending to repos"
+            );
+            return Ok(Redirect::to(&format!("{}/repos", state.config.base_url)));
+        }
+    };
+
+    let raw = hex::decode(&state_hex).map_err(|_| AppError::InvalidToken)?;
     let token_hash = rb_github::hash_token(&raw);
     let row: Option<(Uuid, Uuid)> = sqlx::query_as(
         "UPDATE control.github_install_states \
