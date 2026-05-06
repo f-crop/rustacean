@@ -8,6 +8,7 @@ pub use json_layer::StructuredJsonLayer;
 /// Reads from the current tracing span's extensions via `OpenTelemetrySpanExt`
 /// rather than `opentelemetry::Context::current()`, which is never populated
 /// by `tracing-opentelemetry` 0.29.
+#[must_use]
 pub fn current_trace_id() -> Option<String> {
     use opentelemetry::trace::TraceContextExt as _;
     use tracing_opentelemetry::OpenTelemetrySpanExt as _;
