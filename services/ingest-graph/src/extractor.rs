@@ -1,12 +1,12 @@
 //! Relation extraction from [`TypecheckedItemEvent`] payloads.
 //!
-//! Produces [`Relation`] values (`from_fqn`, `to_fqn`, kind) from three sources:
+//! Produces [`Relation`] values (`from_fqn`, `to_fqn`, kind) from four sources:
 //!   1. `resolved_type_signature` — impl blocks and trait supertrait declarations.
 //!   2. `trait_bounds` — bounded-by predicates emitted by typecheck-worker.
 //!   3. Source body (if present) — derive attributes parsed with `syn`.
-//!
-//! Call-graph extraction (CALLS relations) requires full type resolution and is
-//! deferred to a future iteration (ADR-007 §11.6).
+//!   4. Source body (if present) — function call expressions parsed with `syn` (CALLS).
+
+use std::collections::HashSet;
 
 use rb_schemas::RelationKind;
 use syn::visit::Visit;
@@ -37,6 +37,7 @@ pub(crate) fn extract_relations(
     extract_bound_relations(fqn, bounds, &mut out);
     if !body.is_empty() {
         extract_derive_relations(fqn, body, &mut out);
+        extract_call_relations(fqn, body, &mut out);
     }
     out
 }
@@ -190,6 +191,70 @@ impl<'ast> Visit<'ast> for DeriveVisitor {
     }
     fn visit_item_union(&mut self, node: &'ast syn::ItemUnion) {
         self.push_derives(&node.attrs);
+    }
+}
+
+// ── CALLS ──────────────────────────────────────────────────────────────────────
+
+/// Parse `body` with `syn` to find direct function call expressions.
+///
+/// Emits (`fqn`, `callee_fqn`, CALLS) for each unique callee found in the body.
+/// Best-effort: unqualified single-segment calls are resolved to the same module
+/// as the caller (e.g. `bar()` in `src_mod::caller` → `src_mod::bar`).
+/// Calls via `self`, `super`, `crate`, `std`, `core`, or `alloc` are skipped.
+fn extract_call_relations(fqn: &str, body: &str, out: &mut Vec<Relation>) {
+    let file: syn::File = match syn::parse_str(body) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let caller_module = fqn.rsplit_once("::").map_or("", |(m, _)| m).to_owned();
+    let mut visitor = CallVisitor {
+        caller_fqn: fqn.to_owned(),
+        caller_module,
+        relations: Vec::new(),
+        seen: HashSet::new(),
+    };
+    visitor.visit_file(&file);
+    out.extend(visitor.relations);
+}
+
+struct CallVisitor {
+    caller_fqn: String,
+    caller_module: String,
+    relations: Vec<Relation>,
+    seen: HashSet<String>,
+}
+
+impl<'ast> Visit<'ast> for CallVisitor {
+    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
+        if let syn::Expr::Path(path_expr) = node.func.as_ref() {
+            if let Some(first) = path_expr.path.segments.first() {
+                let f = first.ident.to_string();
+                if matches!(f.as_str(), "self" | "super" | "crate" | "std" | "core" | "alloc") {
+                    syn::visit::visit_expr_call(self, node);
+                    return;
+                }
+            }
+            let segs: Vec<String> =
+                path_expr.path.segments.iter().map(|s| s.ident.to_string()).collect();
+            if segs.is_empty() {
+                syn::visit::visit_expr_call(self, node);
+                return;
+            }
+            let callee_fqn = if segs.len() == 1 && !self.caller_module.is_empty() {
+                format!("{}::{}", self.caller_module, segs[0])
+            } else {
+                segs.join("::")
+            };
+            if callee_fqn != self.caller_fqn && self.seen.insert(callee_fqn.clone()) {
+                self.relations.push(Relation {
+                    from_fqn: self.caller_fqn.clone(),
+                    to_fqn: callee_fqn,
+                    kind: RelationKind::Calls,
+                });
+            }
+        }
+        syn::visit::visit_expr_call(self, node);
     }
 }
 
@@ -404,6 +469,73 @@ mod tests {
         );
         assert!(rels.iter().any(|r| r.kind == RelationKind::BoundedBy));
         assert!(rels.iter().any(|r| r.kind == RelationKind::Derives));
+    }
+
+    // ── CALLS relations ───────────────────────────────────────────────────────
+
+    #[test]
+    fn calls_simple_unqualified_resolves_to_same_module() {
+        let body = "fn caller() { bar(); }";
+        let rels = extract_relations("src_mod::caller", "", &[], body);
+        let calls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Calls).collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].from_fqn, "src_mod::caller");
+        assert_eq!(calls[0].to_fqn, "src_mod::bar");
+    }
+
+    #[test]
+    fn calls_qualified_path_preserved() {
+        let body = "fn caller() { other::helper(); }";
+        let rels = extract_relations("src_mod::caller", "", &[], body);
+        let calls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Calls).collect();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].to_fqn, "other::helper");
+    }
+
+    #[test]
+    fn calls_deduplicates_repeated_callee() {
+        let body = "fn caller() { bar(); bar(); bar(); }";
+        let rels = extract_relations("src_mod::caller", "", &[], body);
+        let calls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Calls).collect();
+        assert_eq!(calls.len(), 1, "duplicate callee should be deduplicated");
+    }
+
+    #[test]
+    fn calls_skips_self_receiver() {
+        let body = "fn caller() { self::bar(); }";
+        let rels = extract_relations("src_mod::caller", "", &[], body);
+        let calls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Calls).collect();
+        assert!(calls.is_empty(), "self-prefixed call should be skipped");
+    }
+
+    #[test]
+    fn calls_skips_std_crate_prefix() {
+        let body = "fn caller() { std::mem::drop(x); crate::util::help(); }";
+        let rels = extract_relations("src_mod::caller", "", &[], body);
+        let calls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Calls).collect();
+        assert!(calls.is_empty(), "std/crate-prefixed calls should be skipped");
+    }
+
+    #[test]
+    fn calls_no_self_call() {
+        let body = "fn caller() { caller(); }";
+        let rels = extract_relations("src_mod::caller", "", &[], body);
+        let calls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Calls).collect();
+        assert!(calls.is_empty(), "a function calling itself should not emit a CALLS edge");
+    }
+
+    #[test]
+    fn calls_multiple_distinct_callees() {
+        let body = "fn caller() { foo(); bar(); baz(); }";
+        let rels = extract_relations("src_mod::caller", "", &[], body);
+        let calls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Calls).collect();
+        assert_eq!(calls.len(), 3);
+    }
+
+    #[test]
+    fn calls_invalid_body_does_not_panic() {
+        let rels = extract_relations("src_mod::caller", "", &[], "fn broken( {");
+        let _ = rels;
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

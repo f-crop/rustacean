@@ -178,7 +178,7 @@ async fn emit_done_status(
         error_message: String::new(),
         occurred_at_ms: chrono::Utc::now().timestamp_millis(),
         stage: IngestStage::ProjectNeo4j as i32,
-        stage_seq: 0,
+        stage_seq: 8,
         ingest_run_id: ingest_run_id.to_owned(),
         attempt: 0,
     };
@@ -203,7 +203,7 @@ async fn emit_failed_status(
         error_message: error_message.to_owned(),
         occurred_at_ms: chrono::Utc::now().timestamp_millis(),
         stage: IngestStage::ProjectNeo4j as i32,
-        stage_seq: 0,
+        stage_seq: 8,
         ingest_run_id: ingest_run_id.to_owned(),
         attempt: 1,
     };

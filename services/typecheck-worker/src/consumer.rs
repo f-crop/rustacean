@@ -8,8 +8,7 @@
 //!   3. Walks `*.rs` files and parses each with syn to extract type signatures.
 //!   4. Emits `TypecheckedItemEvent` per item to `rb.typechecked-items.v1`.
 //!      — Files that fail syn parse emit no items and increment the error counter.
-//!   5. Forwards `IngestRequest` to `rb.ingest.graph.commands`.
-//!   6. Emits `IngestStatusEvent{stage:Typecheck, status:Done}` to `rb.projector.events`.
+//!   5. Emits `IngestStatusEvent{stage:Typecheck, status:Done}` to `rb.projector.events`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,14 +23,11 @@ use rb_schemas::{
     typechecked_item_event,
 };
 use sha2::{Digest as _, Sha256};
-use uuid::Uuid;
-
 use crate::helpers::{build_fqn, collect_rs_files, extract_tar_zst};
 use crate::type_extractor::extract_typed_items;
 
 pub const TOPIC_TYPECHECK_COMMANDS: &str = "rb.ingest.typecheck.commands";
 pub const TOPIC_TYPECHECKED_ITEMS: &str = "rb.typechecked-items.v1";
-pub const TOPIC_GRAPH_COMMANDS: &str = "rb.ingest.graph.commands";
 pub const TOPIC_PROJECTOR_EVENTS: &str = "rb.projector.events";
 
 /// Inline threshold: items ≤ 512 KiB are embedded directly.
@@ -40,7 +36,6 @@ const INLINE_MAX_BYTES: usize = 512 * 1024;
 struct TypecheckCtx {
     blob_store: Arc<dyn BlobStore>,
     item_producer: Arc<Producer<TypecheckedItemEvent>>,
-    graph_producer: Arc<Producer<IngestRequest>>,
     status_producer: Arc<Producer<IngestStatusEvent>>,
 }
 
@@ -48,13 +43,11 @@ pub async fn run(
     consumer: Consumer<IngestRequest>,
     blob_store: Arc<dyn BlobStore>,
     item_producer: Arc<Producer<TypecheckedItemEvent>>,
-    graph_producer: Arc<Producer<IngestRequest>>,
     status_producer: Arc<Producer<IngestStatusEvent>>,
 ) {
     let ctx = Arc::new(TypecheckCtx {
         blob_store,
         item_producer,
-        graph_producer,
         status_producer,
     });
 
@@ -211,7 +204,6 @@ async fn process_typecheck(
     counter!("rb_typecheck_worker_items_total").increment(item_count as u64);
     counter!("rb_typecheck_worker_files_total").increment(file_count as u64);
 
-    emit_graph_command(ctx, tenant_id, req, blob_uri).await?;
     emit_done_status(ctx, tenant_id, req).await?;
 
     Ok(())
@@ -305,34 +297,6 @@ async fn emit_typechecked_item(
     Ok(())
 }
 
-async fn emit_graph_command(
-    ctx: &TypecheckCtx,
-    tenant_id: TenantId,
-    req: &IngestRequest,
-    blob_uri: &str,
-) -> Result<()> {
-    let graph_req = IngestRequest {
-        tenant_id: req.tenant_id.clone(),
-        event_id: Uuid::new_v4().to_string(),
-        source: req.source.clone(),
-        payload: req.payload.clone(),
-        created_at_ms: chrono::Utc::now().timestamp_millis(),
-        repo_id: req.repo_id.clone(),
-        ingest_run_id: req.ingest_run_id.clone(),
-        commit_sha: req.commit_sha.clone(),
-        branch: req.branch.clone(),
-    };
-
-    let envelope =
-        rb_kafka::EventEnvelope::new(tenant_id, graph_req).with_blob_ref(blob_uri);
-    let key = format!("{}.{}", req.tenant_id, req.repo_id);
-    ctx.graph_producer
-        .publish(TOPIC_GRAPH_COMMANDS, key.as_bytes(), envelope)
-        .await
-        .context("failed to publish graph command")?;
-    Ok(())
-}
-
 async fn emit_done_status(
     ctx: &TypecheckCtx,
     tenant_id: TenantId,
@@ -398,7 +362,6 @@ mod tests {
         let topics = [
             TOPIC_TYPECHECK_COMMANDS,
             TOPIC_TYPECHECKED_ITEMS,
-            TOPIC_GRAPH_COMMANDS,
             TOPIC_PROJECTOR_EVENTS,
         ];
         let unique: std::collections::HashSet<_> = topics.iter().collect();

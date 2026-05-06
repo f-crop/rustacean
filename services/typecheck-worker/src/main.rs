@@ -20,7 +20,6 @@ async fn main() -> Result<()> {
     cmd_consumer.subscribe(&[consumer::TOPIC_TYPECHECK_COMMANDS])?;
 
     let item_producer = Arc::new(Producer::<TypecheckedItemEvent>::new(&ProducerCfg::default())?);
-    let graph_producer = Arc::new(Producer::<IngestRequest>::new(&ProducerCfg::default())?);
     let status_producer = Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
 
     tracing::info!("typecheck-worker starting");
@@ -29,7 +28,6 @@ async fn main() -> Result<()> {
         cmd_consumer,
         blob_store,
         item_producer,
-        graph_producer,
         status_producer,
     ));
 
