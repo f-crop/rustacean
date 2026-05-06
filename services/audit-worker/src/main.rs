@@ -7,8 +7,30 @@ use tokio::task::JoinHandle;
 mod audit_consumer;
 mod mirror_consumer;
 
+fn validate_boot_env() -> anyhow::Result<()> {
+    let mut errors: Vec<String> = Vec::new();
+
+    let db_url = std::env::var("RB_DATABASE_URL").unwrap_or_default();
+    if db_url.is_empty() {
+        errors.push("RB_DATABASE_URL: required but missing".to_owned());
+    } else if !db_url.starts_with("postgres") {
+        errors.push(format!("RB_DATABASE_URL: expected postgres DSN, got {db_url:?}"));
+    }
+
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "audit-worker boot validation failed ({} error(s)):\n{}",
+            errors.len(),
+            errors.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n")
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    validate_boot_env()?;
+
     let _guard = rb_tracing::init("audit-worker")?;
 
     let database_url = std::env::var("RB_DATABASE_URL")

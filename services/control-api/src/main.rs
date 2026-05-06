@@ -30,6 +30,7 @@ async fn main() -> Result<()> {
         }
         Command::Serve => {
             let config = Config::from_env()?;
+            config.validate()?;
             let _guard = rb_tracing::init(&config.service_name)?;
             control_api::run(config).await
         }

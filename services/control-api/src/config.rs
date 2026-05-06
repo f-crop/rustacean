@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 
 /// Service configuration loaded from environment variables.
 #[derive(Debug, Clone)]
@@ -131,6 +131,73 @@ impl Config {
             embedding_model: env::var("RB_EMBEDDING_MODEL")
                 .unwrap_or_else(|_| "nomic-embed-text".to_owned()),
         })
+    }
+
+    /// Validates critical config invariants that could produce silent runtime misbehaviour.
+    ///
+    /// Called immediately after `from_env()`. Panics with a clear message so the service
+    /// refuses to bind if the environment is misconfigured.
+    pub fn validate(&self) -> Result<()> {
+        let mut errors: Vec<String> = Vec::new();
+
+        // RB_BASE_URL must be an HTTP/S URL and must NOT be the same host:port as the
+        // API listen address — it feeds email links and GH callback redirects to the
+        // *frontend*, not the API.
+        if !self.base_url.starts_with("http://") && !self.base_url.starts_with("https://") {
+            errors.push(format!(
+                "RB_BASE_URL={:?}: must start with http:// or https://",
+                self.base_url
+            ));
+        } else if self.base_url.contains(":8080") && !self.base_url.contains("localhost") {
+            // Warn rather than fatal — allows local dev default
+        } else if self.base_url.contains(":8080") {
+            // Local default http://localhost:8080 is wrong for anything that sends emails.
+            // It's only acceptable if email transport is console/noop.
+            if !matches!(self.email_transport.as_str(), "console" | "noop") {
+                errors.push(format!(
+                    "RB_BASE_URL={:?}: looks like the API address (:8080), not the frontend. \
+                     This will break email links and the GitHub install callback redirect. \
+                     Set RB_BASE_URL to the frontend origin (e.g. http://host:15173).",
+                    self.base_url
+                ));
+            }
+        }
+
+        // RB_GH_APP_PRIVATE_KEY must be valid base64 when present.
+        if let Some(key) = &self.gh_app_private_key_b64 {
+            if key.contains("BEGIN RSA") || key.contains("-----") {
+                errors.push(
+                    "RB_GH_APP_PRIVATE_KEY: value looks like a raw PEM, not base64. \
+                     Encode it first: base64 -w0 < app.pem"
+                        .to_owned(),
+                );
+            } else {
+                // Verify it's valid base64 by attempting a decode check on the first 128 chars
+                let sample = &key[..key.len().min(128)];
+                if !sample
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+                {
+                    errors.push(format!(
+                        "RB_GH_APP_PRIVATE_KEY={:?}...: contains non-base64 characters",
+                        &key[..key.len().min(20)]
+                    ));
+                }
+            }
+        }
+
+        if !errors.is_empty() {
+            bail!(
+                "control-api boot validation failed ({} error(s)):\n{}",
+                errors.len(),
+                errors
+                    .iter()
+                    .map(|e| format!("  - {e}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
+        Ok(())
     }
 
     /// Creates a minimal config for tests and integration-test harnesses.

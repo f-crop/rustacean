@@ -9,8 +9,37 @@ mod consumer;
 mod embedder;
 mod qdrant;
 
+fn validate_boot_env() -> Result<()> {
+    let mut errors: Vec<String> = Vec::new();
+
+    let blob_store = std::env::var("RB_BLOB_STORE").unwrap_or_else(|_| "filesystem".to_owned());
+    if !matches!(blob_store.as_str(), "filesystem" | "s3") {
+        errors.push(format!(
+            "RB_BLOB_STORE={blob_store:?}: must be 'filesystem' or 's3'"
+        ));
+    }
+
+    let dims = std::env::var("RB_EMBEDDING_DIMENSIONS").unwrap_or_else(|_| "768".to_owned());
+    if dims.parse::<u32>().is_err() || dims == "0" {
+        errors.push(format!(
+            "RB_EMBEDDING_DIMENSIONS={dims:?}: must be a positive integer"
+        ));
+    }
+
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "embed-worker boot validation failed ({} error(s)):\n{}",
+            errors.len(),
+            errors.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n")
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    validate_boot_env()?;
+
     let _guard = rb_tracing::init("embed-worker")?;
 
     let ollama_url = std::env::var("RB_OLLAMA_URL")
