@@ -173,29 +173,26 @@ pub async fn github_callback(
     .fetch_optional(&state.pool)
     .await?;
 
-    let installation_uuid = match installation_uuid_opt {
-        Some((uuid,)) => uuid,
-        None => {
-            let owner: Option<Uuid> = sqlx::query_scalar(
-                "SELECT tenant_id FROM control.github_installations \
-                 WHERE github_installation_id = $1",
-            )
-            .bind(params.installation_id)
-            .fetch_optional(&state.pool)
-            .await?;
-            tracing::warn!(
-                requesting_tenant = %tenant_id,
-                owner_tenant = ?owner,
-                installation_id = params.installation_id,
-                "github callback: cross-tenant installation conflict rejected"
-            );
-            // Redirect to the frontend with an error flag so the browser renders
-            // a friendly message rather than exposing the raw JSON 409 body.
-            return Ok(Redirect::to(&format!(
-                "{}/repos?install=conflict",
-                state.config.base_url,
-            )));
-        }
+    let Some((installation_uuid,)) = installation_uuid_opt else {
+        let owner: Option<Uuid> = sqlx::query_scalar(
+            "SELECT tenant_id FROM control.github_installations \
+             WHERE github_installation_id = $1",
+        )
+        .bind(params.installation_id)
+        .fetch_optional(&state.pool)
+        .await?;
+        tracing::warn!(
+            requesting_tenant = %tenant_id,
+            owner_tenant = ?owner,
+            installation_id = params.installation_id,
+            "github callback: cross-tenant installation conflict rejected"
+        );
+        // Redirect to the frontend with an error flag so the browser renders
+        // a friendly message rather than exposing the raw JSON 409 body.
+        return Ok(Redirect::to(&format!(
+            "{}/repos?install=conflict",
+            state.config.base_url,
+        )));
     };
 
     tracing::info!(
