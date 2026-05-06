@@ -100,7 +100,7 @@ pub async fn write_parsed_item(
                line_start = EXCLUDED.line_start,
                line_end = EXCLUDED.line_end,
                blob_ref = EXCLUDED.blob_ref,
-               source_text = EXCLUDED.source_text,
+               source_text = COALESCE(EXCLUDED.source_text, {table}.source_text),
                updated_at = now()"
     ))
     .bind(repo_id)

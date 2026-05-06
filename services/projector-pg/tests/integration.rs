@@ -75,6 +75,7 @@ async fn setup_tenant(pool: &TenantPool, ctx: &TenantCtx) {
             line_start      INTEGER,
             line_end        INTEGER,
             blob_ref        TEXT,
+            source_text     TEXT,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
             UNIQUE (repo_id, fqn)
@@ -401,6 +402,83 @@ async fn write_parsed_item_with_blob_ref() {
     .unwrap()
     .flatten();
     assert_eq!(blob.as_deref(), Some("rb-blob://ast-json"));
+
+    teardown_tenant(&pool, &ctx).await;
+}
+
+/// Regression test for RUSAA-671: re-ingestion must not overwrite source_text with NULL.
+/// When a second ParsedItemEvent arrives with body=None (no source payload),
+/// the COALESCE in the UPSERT must preserve the original source_text.
+#[tokio::test]
+async fn write_parsed_item_reingest_preserves_source_text() {
+    skip_no_db!(url);
+    let pool = make_pool(&url).await;
+    let ctx = new_ctx();
+    setup_tenant(&pool, &ctx).await;
+
+    let tid = *ctx.tenant_id();
+    let repo_id = uuid::Uuid::new_v4();
+
+    // First ingestion: symbol with inline source_text payload.
+    let ev_first = ParsedItemEvent {
+        ingest_run_id: "run-1".to_string(),
+        tenant_id: tid.to_string(),
+        repo_id: repo_id.to_string(),
+        fqn: "src_factor::ZERO_DECIMAL_PAIR".to_string(),
+        kind: ItemKind::Const as i32,
+        source_path: "src/factor.rs".to_string(),
+        line_start: 3,
+        line_end: 3,
+        emitted_at_ms: 0,
+        body: Some(parsed_item_event::Body::InlinePayload(
+            b"pub const ZERO_DECIMAL_PAIR: (Decimal, Decimal) = (Decimal::ZERO, Decimal::ZERO);"
+                .to_vec(),
+        )),
+    };
+    projector_pg::write_parsed_item(&pool, &ctx, &tid, &ev_first)
+        .await
+        .expect("first ingestion");
+
+    let source_text_after_first: Option<String> = sqlx::query_scalar(&format!(
+        "SELECT source_text FROM {}.code_symbols WHERE repo_id = $1 AND fqn = $2",
+        ctx.schema_name()
+    ))
+    .bind(repo_id)
+    .bind("src_factor::ZERO_DECIMAL_PAIR")
+    .fetch_one(pool.control())
+    .await
+    .unwrap();
+    assert!(
+        source_text_after_first.is_some(),
+        "source_text must be set after first ingestion"
+    );
+
+    // Re-ingestion: same symbol but body=None (simulates the parse-worker edge case
+    // where item_source_slice returns empty bytes and the proto oneof decodes as None).
+    let ev_reingest = ParsedItemEvent {
+        ingest_run_id: "run-2".to_string(),
+        line_start: 3,
+        line_end: 3,
+        body: None,
+        ..ev_first.clone()
+    };
+    projector_pg::write_parsed_item(&pool, &ctx, &tid, &ev_reingest)
+        .await
+        .expect("re-ingestion");
+
+    let source_text_after_reingest: Option<String> = sqlx::query_scalar(&format!(
+        "SELECT source_text FROM {}.code_symbols WHERE repo_id = $1 AND fqn = $2",
+        ctx.schema_name()
+    ))
+    .bind(repo_id)
+    .bind("src_factor::ZERO_DECIMAL_PAIR")
+    .fetch_one(pool.control())
+    .await
+    .unwrap();
+    assert_eq!(
+        source_text_after_reingest, source_text_after_first,
+        "re-ingestion with body=None must not overwrite source_text with NULL"
+    );
 
     teardown_tenant(&pool, &ctx).await;
 }

@@ -110,11 +110,62 @@ fn bad_syntax_fixture_tree_sitter_recovers_items() {
     );
 }
 
+// ── src_factor.rs corpus (RUSAA-671 regression) ──────────────────────────────
+
+#[test]
+fn src_factor_fixture_syn_extracts_all_expected_items() {
+    let src = fixture("src_factor.rs");
+    let items = syn_extract(&src).expect("src_factor.rs must parse cleanly");
+    let names: Vec<_> = items.iter().map(|i| i.name.as_str()).collect();
+    assert!(names.contains(&"ZERO_DECIMAL_PAIR"), "expected ZERO_DECIMAL_PAIR const");
+    assert!(names.contains(&"Factor"), "expected Factor struct");
+    assert!(names.contains(&"zero_factor"), "expected zero_factor fn");
+}
+
+/// RUSAA-671 regression: ZERO_DECIMAL_PAIR must have line_start ≥ 1 and
+/// the ident must land on a line that contains real source text.
+/// line_start = 0 combined with a file starting with '\n' would cause
+/// item_source_slice to return "", producing body=None and NULL source_text.
+#[test]
+fn src_factor_fixture_const_line_numbers_valid() {
+    let src = fixture("src_factor.rs");
+    let items = syn_extract(&src).expect("src_factor.rs must parse cleanly");
+
+    let const_item = items
+        .iter()
+        .find(|i| i.name == "ZERO_DECIMAL_PAIR")
+        .expect("ZERO_DECIMAL_PAIR must be extracted");
+
+    assert_eq!(const_item.kind, rb_parse_syn::Kind::Const);
+    assert!(
+        const_item.line_start >= 1,
+        "ZERO_DECIMAL_PAIR line_start must be ≥1, got {}",
+        const_item.line_start
+    );
+    assert!(
+        const_item.line_end >= const_item.line_start,
+        "line_end must be ≥ line_start for ZERO_DECIMAL_PAIR"
+    );
+
+    // Verify the ident line in the fixture actually contains source text (not blank).
+    let line_content: &str = src
+        .lines()
+        .nth((const_item.line_start as usize).saturating_sub(1))
+        .unwrap_or("");
+    assert!(
+        !line_content.trim().is_empty(),
+        "line {} of src_factor.rs (where ZERO_DECIMAL_PAIR ident lands) must not be blank; \
+         blank ident line causes item_source_slice to return empty bytes → NULL source_text \
+         in code_symbols after re-ingestion (RUSAA-671)",
+        const_item.line_start
+    );
+}
+
 // ── Round-trip: all fixtures parseable ───────────────────────────────────────
 
 #[test]
 fn all_fixtures_produce_at_least_one_item_via_combined_strategy() {
-    for fixture_name in &["simple.rs", "complex.rs", "bad_syntax.rs"] {
+    for fixture_name in &["simple.rs", "complex.rs", "bad_syntax.rs", "src_factor.rs"] {
         let src = fixture(fixture_name);
         let count = match syn_extract(&src) {
             Ok(items) => items.len(),
