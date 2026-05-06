@@ -48,6 +48,8 @@ pub enum AppError {
     EmailNotVerified,
     #[error("GitHub App is not configured on this instance")]
     GithubAppNotConfigured,
+    #[error("this GitHub installation is already linked to a different tenant")]
+    GithubInstallationConflict,
     #[error("repository is not accessible via the given installation")]
     RepoNotAccessible,
     #[error("repository is already connected to this tenant")]
@@ -127,6 +129,11 @@ impl IntoResponse for AppError {
             AppError::GithubAppNotConfigured => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "github_app_not_configured",
+                self.to_string(),
+            ),
+            AppError::GithubInstallationConflict => (
+                StatusCode::CONFLICT,
+                "github_installation_conflict",
                 self.to_string(),
             ),
             AppError::RepoNotAccessible => (

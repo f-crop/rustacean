@@ -88,6 +88,13 @@ function ReposPageInner({ tenantId }: ReposPageInnerProps): JSX.Element {
           : "App installed. Pick a repo to connect.",
       );
       window.history.replaceState(null, "", routes.repos);
+    } else if (!installHandledRef.current && search.install === "conflict") {
+      installHandledRef.current = true;
+      toast.error(
+        "This GitHub account is already installed by another workspace. " +
+        "Please contact your administrator or re-install the GitHub App on a different account.",
+      );
+      window.history.replaceState(null, "", routes.repos);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -362,6 +369,45 @@ function InstallStep(): JSX.Element {
 // Step 2 — Pick repo from available list (with field-level validation)
 // ---------------------------------------------------------------------------
 
+function AvailableReposError({ error }: { readonly error: unknown }): JSX.Element {
+  const installUrl = useGithubInstallUrl();
+  const status = (error as { status?: number } | null)?.status;
+
+  const handleReinstall = async () => {
+    try {
+      const result = await installUrl.mutateAsync();
+      window.location.assign(result.url);
+    } catch (err) {
+      toast.error(formatApiError(err, "Could not generate install link."));
+    }
+  };
+
+  if (status === 404) {
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-sm text-destructive">
+          This GitHub installation is not accessible from your workspace. It may be linked to a
+          different account. Re-install the GitHub App to connect repositories for this workspace.
+        </p>
+        <button
+          type="button"
+          disabled={installUrl.isPending}
+          onClick={handleReinstall}
+          className="self-start rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {installUrl.isPending ? "Generating link…" : "Re-install GitHub App →"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-sm text-destructive">
+      {formatApiError(error, "Could not load repositories.")}
+    </p>
+  );
+}
+
 interface PickRepoStepProps {
   readonly tenantId: string;
   readonly installationUuid: string;
@@ -422,9 +468,7 @@ function PickRepoStep({
       ) : available.isLoading ? (
         <p className="text-sm text-muted-foreground">Loading available repos…</p>
       ) : available.isError ? (
-        <p className="text-sm text-destructive">
-          {formatApiError(available.error, "Could not load repositories.")}
-        </p>
+        <AvailableReposError error={available.error} />
       ) : !available.data || available.data.repositories.length === 0 ? (
         <p className="text-sm text-muted-foreground">No repositories accessible.</p>
       ) : (

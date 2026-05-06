@@ -146,7 +146,11 @@ pub async fn github_callback(
         AppError::Internal(anyhow::anyhow!("failed to fetch GitHub installation"))
     })?;
 
-    let (installation_uuid,): (Uuid,) = sqlx::query_as(
+    // Guard against cross-tenant hijack: only allow the upsert when the
+    // existing row (if any) belongs to the same tenant. The WHERE clause on
+    // DO UPDATE makes the statement a no-op when another tenant owns the row,
+    // returning None instead of the UUID.
+    let installation_uuid_opt: Option<(Uuid,)> = sqlx::query_as(
         "INSERT INTO control.github_installations \
          (id, tenant_id, github_installation_id, account_login, account_type, account_id) \
          VALUES ($1, $2, $3, $4, $5, $6) \
@@ -157,6 +161,7 @@ pub async fn github_callback(
            account_id    = EXCLUDED.account_id, \
            deleted_at    = NULL, \
            suspended_at  = NULL \
+         WHERE github_installations.tenant_id = EXCLUDED.tenant_id \
          RETURNING id",
     )
     .bind(Uuid::new_v4())
@@ -165,8 +170,30 @@ pub async fn github_callback(
     .bind(&info.account.login)
     .bind(&info.account.kind)
     .bind(info.account.id)
-    .fetch_one(&state.pool)
+    .fetch_optional(&state.pool)
     .await?;
+
+    let Some((installation_uuid,)) = installation_uuid_opt else {
+        let owner: Option<Uuid> = sqlx::query_scalar(
+            "SELECT tenant_id FROM control.github_installations \
+             WHERE github_installation_id = $1",
+        )
+        .bind(params.installation_id)
+        .fetch_optional(&state.pool)
+        .await?;
+        tracing::warn!(
+            requesting_tenant = %tenant_id,
+            owner_tenant = ?owner,
+            installation_id = params.installation_id,
+            "github callback: cross-tenant installation conflict rejected"
+        );
+        // Redirect to the frontend with an error flag so the browser renders
+        // a friendly message rather than exposing the raw JSON 409 body.
+        return Ok(Redirect::to(&format!(
+            "{}/repos?install=conflict",
+            state.config.base_url,
+        )));
+    };
 
     tracing::info!(
         tenant_id = %tenant_id,
@@ -214,5 +241,104 @@ mod tests {
     #[test]
     fn state_token_invalid_hex_is_rejected() {
         assert!(hex::decode("not-valid-hex!").is_err());
+    }
+
+    #[test]
+    fn github_installation_conflict_is_409() {
+        use crate::error::AppError;
+        use axum::response::IntoResponse as _;
+        let resp = AppError::GithubInstallationConflict.into_response();
+        assert_eq!(resp.status(), axum::http::StatusCode::CONFLICT);
+    }
+
+    /// Validates the SQL upsert guard: same-tenant re-install succeeds,
+    /// cross-tenant attempt returns None (no RETURNING row).
+    ///
+    /// Skipped automatically when `RB_DATABASE_URL` is not set.
+    #[tokio::test]
+    async fn upsert_guard_rejects_cross_tenant_owner() {
+        let db_url = match std::env::var("RB_DATABASE_URL") {
+            Ok(u) => u,
+            Err(_) => return,
+        };
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("connect");
+
+        let tenant_a = Uuid::new_v4();
+        let tenant_b = Uuid::new_v4();
+        let github_installation_id: i64 = rand::random::<i32>().abs() as i64 + 1_000_000;
+
+        // Seed tenant_a owning this installation.
+        sqlx::query(
+            "INSERT INTO control.github_installations \
+             (id, tenant_id, github_installation_id, account_login, account_type, account_id) \
+             VALUES ($1, $2, $3, 'test-login', 'Organization', 9999)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(tenant_a)
+        .bind(github_installation_id)
+        .execute(&pool)
+        .await
+        .expect("seed installation");
+
+        // Attempt upsert from tenant_b — should return None (conflict guard).
+        let result: Option<(Uuid,)> = sqlx::query_as(
+            "INSERT INTO control.github_installations \
+             (id, tenant_id, github_installation_id, account_login, account_type, account_id) \
+             VALUES ($1, $2, $3, 'test-login', 'Organization', 9999) \
+             ON CONFLICT (github_installation_id) \
+             DO UPDATE SET \
+               account_login = EXCLUDED.account_login, \
+               account_type  = EXCLUDED.account_type, \
+               account_id    = EXCLUDED.account_id, \
+               deleted_at    = NULL, \
+               suspended_at  = NULL \
+             WHERE github_installations.tenant_id = EXCLUDED.tenant_id \
+             RETURNING id",
+        )
+        .bind(Uuid::new_v4())
+        .bind(tenant_b)
+        .bind(github_installation_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("upsert query");
+
+        assert!(result.is_none(), "cross-tenant upsert must be blocked by WHERE guard");
+
+        // Same-tenant re-install should succeed.
+        let same_tenant_result: Option<(Uuid,)> = sqlx::query_as(
+            "INSERT INTO control.github_installations \
+             (id, tenant_id, github_installation_id, account_login, account_type, account_id) \
+             VALUES ($1, $2, $3, 'updated-login', 'Organization', 9999) \
+             ON CONFLICT (github_installation_id) \
+             DO UPDATE SET \
+               account_login = EXCLUDED.account_login, \
+               account_type  = EXCLUDED.account_type, \
+               account_id    = EXCLUDED.account_id, \
+               deleted_at    = NULL, \
+               suspended_at  = NULL \
+             WHERE github_installations.tenant_id = EXCLUDED.tenant_id \
+             RETURNING id",
+        )
+        .bind(Uuid::new_v4())
+        .bind(tenant_a)
+        .bind(github_installation_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("same-tenant upsert query");
+
+        assert!(same_tenant_result.is_some(), "same-tenant re-install must succeed");
+
+        // Cleanup.
+        sqlx::query(
+            "DELETE FROM control.github_installations WHERE github_installation_id = $1",
+        )
+        .bind(github_installation_id)
+        .execute(&pool)
+        .await
+        .ok();
     }
 }
