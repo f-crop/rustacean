@@ -14,7 +14,7 @@ impl Extractor for HttpHeaderExtractor<'_> {
     }
 }
 
-/// Tower middleware that opens an OTel HTTP server span for every inbound request.
+/// Tower middleware that opens an `OTel` HTTP server span for every inbound request.
 ///
 /// Extracts `traceparent`/`tracestate` W3C headers for distributed trace propagation,
 /// mirroring the pattern in `rb-kafka/src/consumer.rs` consume-span construction.
