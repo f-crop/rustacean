@@ -82,7 +82,7 @@ const resetPasswordRoute = createRoute({
 });
 
 const reposSearchSchema = z.object({
-  install: z.enum(["success"]).optional(),
+  install: z.enum(["success", "conflict"]).optional(),
   installation_uuid: z.uuid().optional(),
   account_login: z.string().optional(),
 });
