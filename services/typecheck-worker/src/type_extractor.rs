@@ -7,6 +7,7 @@
 //! iteration (ADR-007 §11.6).
 
 use proc_macro2::LineColumn;
+use syn::spanned::Spanned as _;
 use syn::visit::Visit;
 
 /// Type information extracted from a single Rust item.
@@ -57,7 +58,7 @@ impl<'ast> Visit<'ast> for TypeVisitor {
         let name = node.sig.ident.to_string();
         let sig = fmt_fn_sig(&node.sig);
         let bounds = extract_bounds(&node.sig.generics);
-        self.push(name, node.sig.ident.span(), sig, bounds);
+        self.push(name, node.span(), sig, bounds);
     }
 
     fn visit_item_struct(&mut self, node: &'ast syn::ItemStruct) {
@@ -65,7 +66,7 @@ impl<'ast> Visit<'ast> for TypeVisitor {
         let generics = fmt_generics_params(&node.generics);
         let sig = format!("struct {name}{generics}");
         let bounds = extract_bounds(&node.generics);
-        self.push(name, node.ident.span(), sig, bounds);
+        self.push(name, node.span(), sig, bounds);
     }
 
     fn visit_item_enum(&mut self, node: &'ast syn::ItemEnum) {
@@ -73,7 +74,7 @@ impl<'ast> Visit<'ast> for TypeVisitor {
         let generics = fmt_generics_params(&node.generics);
         let sig = format!("enum {name}{generics}");
         let bounds = extract_bounds(&node.generics);
-        self.push(name, node.ident.span(), sig, bounds);
+        self.push(name, node.span(), sig, bounds);
     }
 
     fn visit_item_trait(&mut self, node: &'ast syn::ItemTrait) {
@@ -87,7 +88,7 @@ impl<'ast> Visit<'ast> for TypeVisitor {
         };
         let sig = format!("trait {name}{generics}{supertraits}");
         let bounds = extract_bounds(&node.generics);
-        self.push(name, node.ident.span(), sig, bounds);
+        self.push(name, node.span(), sig, bounds);
     }
 
     fn visit_item_impl(&mut self, node: &'ast syn::ItemImpl) {
@@ -104,14 +105,14 @@ impl<'ast> Visit<'ast> for TypeVisitor {
             (n, s)
         };
         let bounds = extract_bounds(&node.generics);
-        self.push(name, node.impl_token.span, sig, bounds);
+        self.push(name, node.span(), sig, bounds);
     }
 
     fn visit_item_const(&mut self, node: &'ast syn::ItemConst) {
         let name = node.ident.to_string();
         let ty = fmt_type(&node.ty);
         let sig = format!("const {name}: {ty}");
-        self.push(name, node.ident.span(), sig, vec![]);
+        self.push(name, node.span(), sig, vec![]);
     }
 
     fn visit_item_type(&mut self, node: &'ast syn::ItemType) {
@@ -120,7 +121,7 @@ impl<'ast> Visit<'ast> for TypeVisitor {
         let ty = fmt_type(&node.ty);
         let sig = format!("type {name}{generics} = {ty}");
         let bounds = extract_bounds(&node.generics);
-        self.push(name, node.ident.span(), sig, bounds);
+        self.push(name, node.span(), sig, bounds);
     }
 
     fn visit_item_static(&mut self, node: &'ast syn::ItemStatic) {
@@ -132,13 +133,13 @@ impl<'ast> Visit<'ast> for TypeVisitor {
             ""
         };
         let sig = format!("static {mutability}{name}: {ty}");
-        self.push(name, node.ident.span(), sig, vec![]);
+        self.push(name, node.span(), sig, vec![]);
     }
 
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
         let name = node.ident.to_string();
         let sig = format!("mod {name}");
-        self.push(name, node.ident.span(), sig, vec![]);
+        self.push(name, node.span(), sig, vec![]);
         // Do not recurse into inline mod bodies — callers handle nested files.
     }
 
@@ -146,7 +147,7 @@ impl<'ast> Visit<'ast> for TypeVisitor {
         if let Some(ident) = &node.ident {
             let name = ident.to_string();
             let sig = format!("macro_rules! {name}");
-            self.push(name, ident.span(), sig, vec![]);
+            self.push(name, node.span(), sig, vec![]);
         }
     }
 }
@@ -509,6 +510,60 @@ mod tests {
         let items = extract_typed_items(src);
         assert_eq!(items[0].line_start, 1);
         assert_eq!(items[1].line_start, 2);
+    }
+
+    #[test]
+    fn item_fn_span_covers_full_body() {
+        // The fix: node.span() covers all lines; node.sig.ident.span() would give line_start==line_end.
+        let src = "pub fn foo() {\n    let x = 1;\n    x\n}";
+        let items = extract_typed_items(src);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "foo");
+        assert!(
+            items[0].line_end > items[0].line_start,
+            "multi-line fn: line_end ({}) must be > line_start ({})",
+            items[0].line_end,
+            items[0].line_start,
+        );
+    }
+
+    #[test]
+    fn item_struct_span_covers_full_body() {
+        let src = "pub struct Foo {\n    pub x: i32,\n    pub y: i32,\n}";
+        let items = extract_typed_items(src);
+        assert_eq!(items[0].name, "Foo");
+        assert!(
+            items[0].line_end > items[0].line_start,
+            "multi-line struct: line_end ({}) must be > line_start ({})",
+            items[0].line_end,
+            items[0].line_start,
+        );
+    }
+
+    #[test]
+    fn item_impl_span_covers_full_body() {
+        let src = "impl Foo {\n    pub fn new() -> Self {\n        Foo {}\n    }\n}";
+        let items = extract_typed_items(src);
+        let impl_item = items.iter().find(|i| i.name == "impl Foo").expect("impl Foo not found");
+        assert!(
+            impl_item.line_end > impl_item.line_start,
+            "multi-line impl: line_end ({}) must be > line_start ({})",
+            impl_item.line_end,
+            impl_item.line_start,
+        );
+    }
+
+    #[test]
+    fn async_fn_span_covers_full_body() {
+        let src = "pub async fn handle(\n    req: Request,\n) -> Response {\n    todo!()\n}";
+        let items = extract_typed_items(src);
+        assert_eq!(items[0].name, "handle");
+        assert!(
+            items[0].line_end > items[0].line_start,
+            "multi-line async fn: line_end ({}) must be > line_start ({})",
+            items[0].line_end,
+            items[0].line_start,
+        );
     }
 
     #[test]
