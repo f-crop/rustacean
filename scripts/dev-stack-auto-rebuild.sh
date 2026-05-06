@@ -140,12 +140,19 @@ fi
 
 # -- Detect changed paths (skipped in cold-start mode) -----------------------
 
-REBUILD_CONTROL_API=false
+ALL_RUST_SERVICES=(
+  control-api parse-worker typecheck-worker ingest-graph ingest-clone
+  expand-worker embed-worker projector-pg projector-neo4j tombstoner
+)
+declare -A REBUILD_SERVICE
 REBUILD_FRONTEND=false
+
+mark_rust_service() { REBUILD_SERVICE["$1"]=true; }
+mark_all_rust()    { for svc in "${ALL_RUST_SERVICES[@]}"; do mark_rust_service "$svc"; done; }
 
 if [[ "$COLD_START" == "true" ]]; then
   echo "[dev-stack-auto-rebuild] cold start — forcing rebuild of all services"
-  REBUILD_CONTROL_API=true
+  mark_all_rust
   REBUILD_FRONTEND=true
 else
   CHANGED_FILES="$(git diff --name-only "$PREV_SHA" "$NEW_SHA" 2>/dev/null || true)"
@@ -158,20 +165,39 @@ else
 
   while IFS= read -r f; do
     case "$f" in
-      # control-api source: Rust crates, Dockerfiles, migrations, proto
-      services/control-api/*|crates/*|Cargo.toml|Cargo.lock|docker/control-api/*|migrations/*|proto/*)
-        REBUILD_CONTROL_API=true ;;
-      # frontend source
+      crates/*|Cargo.toml|Cargo.lock|proto/*)
+        mark_all_rust ;;
+      migrations/*)
+        mark_rust_service control-api ;;
+      services/control-api/*|docker/control-api/*)
+        mark_rust_service control-api ;;
+      services/parse-worker/*|docker/parse-worker/*)
+        mark_rust_service parse-worker ;;
+      services/typecheck-worker/*|docker/typecheck-worker/*)
+        mark_rust_service typecheck-worker ;;
+      services/ingest-graph/*|docker/ingest-graph/*)
+        mark_rust_service ingest-graph ;;
+      services/ingest-clone/*|docker/ingest-clone/*)
+        mark_rust_service ingest-clone ;;
+      services/expand-worker/*|docker/expand-worker/*)
+        mark_rust_service expand-worker ;;
+      services/embed-worker/*|docker/embed-worker/*)
+        mark_rust_service embed-worker ;;
+      services/projector-pg/*|docker/projector-pg/*)
+        mark_rust_service projector-pg ;;
+      services/projector-neo4j/*|docker/projector-neo4j/*)
+        mark_rust_service projector-neo4j ;;
+      services/tombstoner/*|docker/tombstoner/*)
+        mark_rust_service tombstoner ;;
       frontend/*|docker/frontend/*)
         REBUILD_FRONTEND=true ;;
-      # compose config changes affect all built services
       compose/dev.yml|compose/full.yml|compose/tailscale.yml|compose/tailscale.env|compose/scripts/*)
-        REBUILD_CONTROL_API=true
+        mark_all_rust
         REBUILD_FRONTEND=true ;;
     esac
   done <<< "$CHANGED_FILES"
 
-  if [[ "$REBUILD_CONTROL_API" == "false" && "$REBUILD_FRONTEND" == "false" ]]; then
+  if [[ "${#REBUILD_SERVICE[@]}" -eq 0 && "$REBUILD_FRONTEND" == "false" ]]; then
     echo "[dev-stack-auto-rebuild] no service paths changed — skipping"
     log_record "skipped" "" "[]" "no service paths changed"
     exit 0
@@ -186,16 +212,17 @@ COMPOSE_CMD="${COMPOSE_CMD:-docker compose -f $REPO_ROOT/compose/dev.yml}"
 
 post_gh_status "pending" "Dev-stack rebuild in progress"
 
-if [[ "$REBUILD_CONTROL_API" == "true" ]]; then
-  echo "[dev-stack-auto-rebuild] building control-api..."
-  if ! $COMPOSE_CMD build control-api 2>&1; then
-    echo "[dev-stack-auto-rebuild] control-api build FAILED"
-    log_record "build_failed" "" '["control-api"]' "control-api build error"
-    post_gh_status "failure" "control-api build failed"
+for svc in "${ALL_RUST_SERVICES[@]}"; do
+  [[ "${REBUILD_SERVICE[$svc]:-}" == "true" ]] || continue
+  echo "[dev-stack-auto-rebuild] building $svc..."
+  if ! $COMPOSE_CMD build "$svc" 2>&1; then
+    echo "[dev-stack-auto-rebuild] $svc build FAILED"
+    log_record "build_failed" "" "[\"$svc\"]" "$svc build error"
+    post_gh_status "failure" "$svc build failed"
     exit 1
   fi
-  SERVICES_REBUILT+=(control-api)
-fi
+  SERVICES_REBUILT+=("$svc")
+done
 
 if [[ "$REBUILD_FRONTEND" == "true" ]]; then
   echo "[dev-stack-auto-rebuild] building frontend..."
@@ -210,49 +237,40 @@ fi
 
 # -- Restart -----------------------------------------------------------------
 
+REBUILT_JSON="$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")"
+
 if [[ "$COLD_START" == "true" ]]; then
-  # Cold start: run migrations then bring up the entire stack (infra + app services).
-  # --no-deps is intentionally omitted so dependencies (postgres, neo4j, qdrant, etc.) start too.
   echo "[dev-stack-auto-rebuild] cold start: running migrations..."
   if ! $COMPOSE_CMD up --force-recreate rb-migrations 2>&1; then
     echo "[dev-stack-auto-rebuild] rb-migrations FAILED"
-    log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "cold start migrations failed"
+    log_record "restart_failed" "" "$REBUILT_JSON" "cold start migrations failed"
     post_gh_status "failure" "Cold start rb-migrations failed"
     exit 1
   fi
   echo "[dev-stack-auto-rebuild] cold start: bringing up full stack..."
   if ! $COMPOSE_CMD up -d 2>&1; then
     echo "[dev-stack-auto-rebuild] full stack up FAILED"
-    log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "cold start compose up -d error"
+    log_record "restart_failed" "" "$REBUILT_JSON" "cold start compose up -d error"
     post_gh_status "failure" "Cold start compose up -d failed"
     exit 1
   fi
 else
-  if [[ "$REBUILD_CONTROL_API" == "true" ]]; then
+  if [[ "${REBUILD_SERVICE[control-api]:-}" == "true" ]]; then
     echo "[dev-stack-auto-rebuild] re-running migrations..."
-    # Blocks until rb-migrations exits (restart: "no"). Idempotent — skips applied versions.
     if ! $COMPOSE_CMD up --force-recreate rb-migrations 2>&1; then
       echo "[dev-stack-auto-rebuild] rb-migrations FAILED"
-      log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "migrations failed"
+      log_record "restart_failed" "" "$REBUILT_JSON" "migrations failed"
       post_gh_status "failure" "rb-migrations failed"
-      exit 1
-    fi
-
-    echo "[dev-stack-auto-rebuild] restarting control-api..."
-    if ! $COMPOSE_CMD up -d --no-deps --force-recreate control-api 2>&1; then
-      echo "[dev-stack-auto-rebuild] control-api restart FAILED"
-      log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "control-api compose up error"
-      post_gh_status "failure" "control-api restart failed"
       exit 1
     fi
   fi
 
-  if [[ "$REBUILD_FRONTEND" == "true" ]]; then
-    echo "[dev-stack-auto-rebuild] restarting frontend..."
-    if ! $COMPOSE_CMD up -d --no-deps --force-recreate frontend 2>&1; then
-      echo "[dev-stack-auto-rebuild] frontend restart FAILED"
-      log_record "restart_failed" "" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")" "frontend compose up error"
-      post_gh_status "failure" "frontend restart failed"
+  if [[ "${#SERVICES_REBUILT[@]}" -gt 0 ]]; then
+    echo "[dev-stack-auto-rebuild] restarting: ${SERVICES_REBUILT[*]}"
+    if ! $COMPOSE_CMD up -d --no-deps --force-recreate "${SERVICES_REBUILT[@]}" 2>&1; then
+      echo "[dev-stack-auto-rebuild] restart FAILED for: ${SERVICES_REBUILT[*]}"
+      log_record "restart_failed" "" "$REBUILT_JSON" "compose up error"
+      post_gh_status "failure" "Restart failed: ${SERVICES_REBUILT[*]}"
       exit 1
     fi
   fi
@@ -266,7 +284,7 @@ sleep 15
 HEALTH_OK=true
 HEALTH_DETAIL=""
 
-if [[ "$REBUILD_CONTROL_API" == "true" ]]; then
+if [[ "${REBUILD_SERVICE[control-api]:-}" == "true" ]]; then
   PORT="${CONTROL_API_HOST_PORT:-8080}"
   HTTP_CODE="$(curl -s -o /tmp/rb-health-check.json -w "%{http_code}" \
     --max-time 10 "http://localhost:${PORT}/health" 2>/dev/null || echo "000")"
@@ -292,7 +310,18 @@ if [[ "$REBUILD_FRONTEND" == "true" ]]; then
   fi
 fi
 
-REBUILT_JSON="$(python3 -c "import json,sys; print(json.dumps(sys.argv[1].split()))" "${SERVICES_REBUILT[*]}")"
+for svc in "${SERVICES_REBUILT[@]}"; do
+  [[ "$svc" == "control-api" || "$svc" == "frontend" ]] && continue
+  RUNNING="$(docker inspect --format '{{.State.Running}}' "rustbrain-dev-${svc}-1" 2>/dev/null || echo "false")"
+  if [[ "$RUNNING" == "true" ]]; then
+    HEALTH_DETAIL="${HEALTH_DETAIL}${svc}=ok "
+  else
+    HEALTH_OK=false
+    HEALTH_DETAIL="${HEALTH_DETAIL}${svc}=FAIL(not-running) "
+    echo "[dev-stack-auto-rebuild] $svc health check failed: container not running"
+  fi
+done
+
 HEALTH_DETAIL="${HEALTH_DETAIL% }"  # trim trailing space
 
 if [[ "$HEALTH_OK" == "true" ]]; then
