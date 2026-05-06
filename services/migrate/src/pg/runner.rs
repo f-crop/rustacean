@@ -199,20 +199,30 @@ fn apply_migration<'c>(
 
     Box::pin(async move {
         sqlx::query(&begin_tx).execute(&mut *conn).await?;
-        // SET LOCAL is transaction-scoped; lets migration SQL omit schema prefix.
-        sqlx::query(&set_search_path).execute(&mut *conn).await?;
-        // sqlx::query does not support multi-statement strings, so split on ';'
-        // while respecting string literals, identifiers, and comments.
-        for stmt in split_statements(&file_sql) {
-            sqlx::query(stmt).execute(&mut *conn).await?;
+
+        let result: Result<(), MigrateError> = async {
+            // SET LOCAL is transaction-scoped; lets migration SQL omit schema prefix.
+            sqlx::query(&set_search_path).execute(&mut *conn).await?;
+            // sqlx::query does not support multi-statement strings, so split on ';'
+            // while respecting string literals, identifiers, and comments.
+            for stmt in split_statements(&file_sql) {
+                sqlx::query(stmt).execute(&mut *conn).await?;
+            }
+            sqlx::query(&insert_sql)
+                .bind(version)
+                .bind(&description)
+                .bind(&checksum)
+                .execute(&mut *conn)
+                .await?;
+            sqlx::query("COMMIT").execute(&mut *conn).await?;
+            Ok(())
         }
-        sqlx::query(&insert_sql)
-            .bind(version)
-            .bind(&description)
-            .bind(&checksum)
-            .execute(&mut *conn)
-            .await?;
-        sqlx::query("COMMIT").execute(&mut *conn).await?;
+        .await;
+
+        if let Err(e) = result {
+            sqlx::query("ROLLBACK").execute(&mut *conn).await.ok();
+            return Err(e);
+        }
         Ok(())
     })
 }
