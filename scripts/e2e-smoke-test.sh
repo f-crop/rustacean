@@ -256,6 +256,92 @@ log "  neo4j node count=${neo4j_count}"
   || fail "expected Neo4j nodes > 0 for repo_id=${REPO_UUID}, got ${neo4j_count}"
 log "Neo4j assertion PASSED (${neo4j_count} nodes)."
 
+# ── API seam assertions (RUSAA-676) ───────────────────────────────────────────
+# These run after pipeline succeeds and assert the API layer returns correct
+# data for the ingested repo — catching data-flow bugs that the DB assertions
+# above cannot see (e.g. "source shows 1 line", "graph relationships empty").
+
+# Helper: URL-safe base64 encode without padding (RFC 4648 §5).
+b64url() { printf '%s' "$1" | base64 -w0 | tr '+/' '-_' | tr -d '='; }
+
+# ── Discover a function FQN from Postgres ────────────────────────────────────
+log "Discovering function FQN from code_symbols..."
+ITEM_FQN=$(psql_q \
+  "SELECT fqn FROM \"${tenant_schema}\".code_symbols
+   WHERE repo_id = '${REPO_UUID}' AND kind IN ('Function','Method')
+   AND source_path IS NOT NULL LIMIT 1;" | tr -d '[:space:]')
+[ -n "${ITEM_FQN}" ] \
+  || fail "could not find any Function/Method FQN in code_symbols for repo ${REPO_UUID}"
+ITEM_FQN_B64=$(b64url "${ITEM_FQN}")
+log "  item_fqn=${ITEM_FQN}"
+
+# ── Assertion A: source preview has multiple lines ────────────────────────────
+log "Asserting source preview (GET /v1/repos/.../items/...)..."
+preview_resp=$(curl -sf -b "${COOKIE_JAR}" \
+  "${API}/v1/repos/${REPO_UUID}/items/${ITEM_FQN_B64}")
+preview_lines=$(echo "${preview_resp}" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(len((d.get('source_preview') or '').split('\n')))")
+log "  source_preview line count=${preview_lines}"
+(( preview_lines > 1 )) \
+  || fail "expected source_preview > 1 line for ${ITEM_FQN}, got ${preview_lines}"
+log "Source preview assertion PASSED (${preview_lines} lines)."
+
+# ── Assertion B: search returns results ──────────────────────────────────────
+log "Asserting search (POST /v1/search)..."
+search_resp=$(curl -sf -b "${COOKIE_JAR}" -X POST "${API}/v1/search" \
+  -H "Content-Type: application/json" \
+  -d "{\"q\":\"fn\",\"filters\":{\"repo_id\":\"${REPO_UUID}\"}}")
+result_count=$(echo "${search_resp}" \
+  | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('results', [])))")
+log "  search result count=${result_count}"
+(( result_count > 0 )) \
+  || fail "expected search results > 0 for repo ${REPO_UUID}, got ${result_count}"
+log "Search assertion PASSED (${result_count} results)."
+
+# ── Discover a callee FQN (function with incoming CALLS edges) ────────────────
+log "Discovering callee FQN from Neo4j for callers assertion..."
+CALLEE_FQN=$(neo4j_q \
+  "MATCH ()-[:CALLS]->(n {repo_id: '${REPO_UUID}'}) RETURN n.fqn LIMIT 1;")
+[ -n "${CALLEE_FQN}" ] \
+  || fail "no CALLS relationships in Neo4j for repo_id=${REPO_UUID} — fixture may lack call relationships"
+CALLEE_FQN_B64=$(b64url "${CALLEE_FQN}")
+log "  callee_fqn=${CALLEE_FQN}"
+
+# ── Assertion C: callers graph has nodes ──────────────────────────────────────
+log "Asserting callers graph (GET /v1/repos/.../items/.../callers)..."
+callers_resp=$(curl -sf -b "${COOKIE_JAR}" \
+  "${API}/v1/repos/${REPO_UUID}/items/${CALLEE_FQN_B64}/callers")
+callers_count=$(echo "${callers_resp}" \
+  | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('nodes', [])))")
+log "  callers node count=${callers_count}"
+(( callers_count > 0 )) \
+  || fail "expected callers nodes > 0 for ${CALLEE_FQN}, got ${callers_count}"
+log "Callers graph assertion PASSED (${callers_count} callers)."
+
+# ── Assertion D: module tree has children ─────────────────────────────────────
+log "Asserting module tree (GET /v1/repos/.../modules)..."
+modules_resp=$(curl -sf -b "${COOKIE_JAR}" "${API}/v1/repos/${REPO_UUID}/modules")
+children_count=$(echo "${modules_resp}" \
+  | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('tree',{}).get('children', [])))")
+log "  module tree children count=${children_count}"
+(( children_count > 0 )) \
+  || fail "expected module tree children > 0, got ${children_count}"
+log "Module tree assertion PASSED (${children_count} modules)."
+
+# ── Assertion E: health endpoint reports all stores OK ───────────────────────
+log "Asserting health endpoint (GET /health)..."
+health_resp=$(curl -sf "${API}/health")
+neo4j_status=$(echo "${health_resp}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin).get('stores',{}).get('neo4j',''))")
+qdrant_status=$(echo "${health_resp}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin).get('stores',{}).get('qdrant',''))")
+log "  stores.neo4j=${neo4j_status}  stores.qdrant=${qdrant_status}"
+[ "${neo4j_status}" = "ok" ] \
+  || fail "expected stores.neo4j=ok, got '${neo4j_status}'"
+[ "${qdrant_status}" = "ok" ] \
+  || fail "expected stores.qdrant=ok, got '${qdrant_status}'"
+log "Health assertion PASSED (neo4j=${neo4j_status}, qdrant=${qdrant_status})."
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 log "E2E pipeline smoke test PASSED."
