@@ -171,7 +171,7 @@ fn build_inner_stream(
                     Ok(env) if matches_session(&env.data, s.session_id) => {
                         return Some((Ok(env.to_axum_event()), s));
                     }
-                    Ok(_) => continue,
+                    Ok(_) => {}
 
                     Err(RecvError::Lagged(n)) => {
                         metrics::counter!("rb_sse_dropped_total", "reason" => "lagged").increment(n);
