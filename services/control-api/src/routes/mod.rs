@@ -6,6 +6,7 @@ pub mod auth_verify;
 pub mod github;
 pub mod health;
 pub mod ingest;
+pub mod mcp;
 pub mod me;
 pub mod query;
 pub mod repos;
@@ -13,6 +14,7 @@ pub mod tenants;
 
 use axum::{Router, routing::{delete, get, post, put}};
 
+use crate::routes::mcp::mcp_handler;
 use crate::routes::{
     api_keys::{create_api_key, list_api_keys, revoke_api_key},
     audit::list_audit_events,
@@ -85,5 +87,6 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/ingest/events", get(events_stream))
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
+        .route("/mcp", post(mcp_handler))
         .with_state(state)
 }

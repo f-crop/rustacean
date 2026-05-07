@@ -12,4 +12,4 @@ pub use error::AppError;
 pub use openapi::ApiDoc;
 pub use routes::build;
 pub use server::run;
-pub use state::{AppState, KafkaConsistencyState};
+pub use state::{AppState, KafkaConsistencyState, McpSessionStore};

@@ -24,6 +24,7 @@ members = [
     "services/typecheck-worker",
     "services/ingest-graph",
     "crates/rb-query",
+    "crates/rb-mcp",
     "crates/rb-audit-cli",
     "crates/rb-storage-neo4j",
     "crates/rb-storage-qdrant",

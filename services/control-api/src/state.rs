@@ -3,6 +3,9 @@ use std::sync::{
     atomic::{AtomicI64, AtomicU64},
 };
 
+use dashmap::DashMap;
+use uuid::Uuid;
+
 use rb_auth::{LoginRateLimiter, PasswordHasher};
 use rb_email::EmailSender;
 use rb_github::GhApp;
@@ -15,6 +18,40 @@ use rb_storage_qdrant::TenantVectorStore;
 use sqlx::PgPool;
 
 use crate::config::Config;
+
+// ---------------------------------------------------------------------------
+// MCP session store (ADR-009 §1 — in-process, Phase 1)
+// ---------------------------------------------------------------------------
+
+/// In-memory table of active MCP sessions.
+///
+/// Keyed by the opaque session UUID returned in `Mcp-Session-Id`.  The value
+/// is the `tenant_id` that was bound at `initialize` time and is IMMUTABLE.
+/// Sessions are never evicted in Phase 1 (Phase 2 adds idle-timeout reaping).
+#[derive(Clone, Default)]
+pub struct McpSessionStore(Arc<DashMap<Uuid, Uuid>>);
+
+impl McpSessionStore {
+    pub fn new() -> Self {
+        Self(Arc::new(DashMap::new()))
+    }
+
+    /// Create a new session bound to `tenant_id` and return its ID.
+    pub fn create(&self, tenant_id: Uuid) -> Uuid {
+        let session_id = Uuid::new_v4();
+        self.0.insert(session_id, tenant_id);
+        session_id
+    }
+
+    /// Return the `tenant_id` for `session_id`, or `None` if not found.
+    pub fn tenant_id(&self, session_id: &Uuid) -> Option<Uuid> {
+        self.0.get(session_id).map(|r| *r)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Kafka consistency state
+// ---------------------------------------------------------------------------
 
 /// Shared in-memory Kafka consistency state, updated by `ingest_consumer` on
 /// each consumed message and read by `GET /v1/health/consistency` (REQ-DP-07).
@@ -75,4 +112,6 @@ pub struct AppState {
     pub neo4j_uri: Option<String>,
     /// Kafka consistency state updated by `ingest_consumer` on each consumed message.
     pub kafka_consistency: Arc<KafkaConsistencyState>,
+    /// In-process MCP session table (ADR-009 Phase 1).
+    pub mcp_sessions: McpSessionStore,
 }

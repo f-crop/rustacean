@@ -114,6 +114,7 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         http_client: reqwest::Client::new(),
         neo4j_uri: None,
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
+        mcp_sessions: control_api::McpSessionStore::new(),
     }
 }
 
@@ -135,6 +136,7 @@ fn state_without_gh() -> AppState {
         http_client: reqwest::Client::new(),
         neo4j_uri: None,
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
+        mcp_sessions: control_api::McpSessionStore::new(),
     }
 }
 

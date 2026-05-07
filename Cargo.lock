@@ -1060,6 +1060,7 @@ dependencies = [
  "base64",
  "chrono",
  "clap",
+ "dashmap",
  "hex",
  "hmac 0.12.1",
  "http-body-util",
@@ -1072,6 +1073,7 @@ dependencies = [
  "rb-email",
  "rb-github",
  "rb-kafka",
+ "rb-mcp",
  "rb-query",
  "rb-schemas",
  "rb-secrets",
@@ -3797,6 +3799,17 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-opentelemetry",
+ "uuid",
+]
+
+[[package]]
+name = "rb-mcp"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
  "uuid",
 ]
 
