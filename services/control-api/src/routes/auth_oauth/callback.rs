@@ -5,14 +5,20 @@
 //!   1. Validates the `state` param against the `rb_pkce_state` cookie.
 //!   2. Exchanges the `code` for access/refresh tokens via Anthropic's token endpoint.
 //!   3. Upserts the encrypted tokens into `agents.oauth_tokens`.
-//!   4. Redirects the browser to the configured frontend URL.
+//!   4. Redirects the browser to the post-OAuth URI stored in the PKCE cookie, or the
+//!      default integrations page when none was supplied.
+//!
+//! Cookie format (set by `start.rs`):
+//!   `{state}:{code_verifier}`                     — no custom redirect
+//!   `{state}:{code_verifier}:{b64_redirect_uri}`  — custom redirect (base64url, no pad)
 
 use axum::{
     extract::{Query, State},
     response::{IntoResponse, Redirect},
 };
-use serde::Deserialize;
 use axum_extra::extract::CookieJar;
+use base64::Engine as _;
+use serde::Deserialize;
 
 use crate::{
     error::AppError,
@@ -66,15 +72,26 @@ pub async fn claude_oauth_callback(
         return Err(AppError::InvalidToken);
     }
 
-    // Validate state + extract code_verifier from cookie.
+    // Validate state + extract code_verifier (and optional post-oauth redirect) from cookie.
     let pkce_cookie = cookies
         .get(PKCE_STATE_COOKIE)
         .map(|c| c.value().to_owned())
         .ok_or(AppError::InvalidToken)?;
 
-    let (cookie_state, code_verifier) = pkce_cookie
-        .split_once(':')
-        .ok_or(AppError::InvalidToken)?;
+    // Cookie format: "{state}:{code_verifier}" or "{state}:{code_verifier}:{b64_redirect}"
+    // splitn(3) keeps the third segment intact regardless of colons inside the redirect.
+    let parts: Vec<&str> = pkce_cookie.splitn(3, ':').collect();
+    let (cookie_state, code_verifier, post_oauth_redirect) = match parts.as_slice() {
+        [s, cv, b64] => {
+            let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(b64)
+                .map_err(|_| AppError::InvalidToken)?;
+            let uri = String::from_utf8(decoded).map_err(|_| AppError::InvalidToken)?;
+            (*s, *cv, Some(uri))
+        }
+        [s, cv] => (*s, *cv, None),
+        _ => return Err(AppError::InvalidToken),
+    };
 
     if cookie_state != query.state {
         tracing::warn!("PKCE state mismatch");
@@ -165,7 +182,12 @@ pub async fn claude_oauth_callback(
         "claude_code OAuth token stored"
     );
 
-    // Redirect to frontend.
-    let frontend_url = format!("{}/settings/integrations?oauth=claude&status=success", state.config.base_url);
-    Ok(Redirect::temporary(&frontend_url))
+    // Redirect to the caller-supplied URI or the default integrations page.
+    let destination = post_oauth_redirect.unwrap_or_else(|| {
+        format!(
+            "{}/settings/integrations?oauth=claude&status=success",
+            state.config.base_url
+        )
+    });
+    Ok(Redirect::temporary(&destination))
 }
