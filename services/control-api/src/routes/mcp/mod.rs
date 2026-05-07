@@ -26,9 +26,10 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use rb_mcp::{
-    InitializeParams, InitializeResult, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse,
+    InitializeParams, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse,
     MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND, SESSION_NOT_FOUND, TENANT_DRIFT,
-    TOOL_NOT_FOUND, ToolCallParams, ToolsListResult, UNAUTHORIZED_MCP, phase1_tools,
+    TOOL_NOT_FOUND, UNAUTHORIZED_MCP,
+    protocol::{InitializeResult, ToolCallParams, ToolsListResult, phase1_tools},
 };
 use uuid::Uuid;
 
@@ -37,33 +38,24 @@ use crate::{
     state::AppState,
 };
 
-/// `POST /mcp` — Model Context Protocol JSON-RPC 2.0 endpoint (ADR-009 Phase 1).
-///
-/// Accepts a JSON-RPC 2.0 request body and returns a JSON-RPC 2.0 response.
-/// Notifications (requests without an `id` field) return HTTP 202 with no body.
-/// All error paths return HTTP 200 with a JSON-RPC error object (spec-compliant).
-#[utoipa::path(
-    post,
-    path = "/mcp",
-    request_body(
-        content = serde_json::Value,
-        description = "JSON-RPC 2.0 request or notification",
-        content_type = "application/json"
-    ),
-    responses(
-        (status = 200, description = "JSON-RPC 2.0 response (for requests)"),
-        (status = 202, description = "Notification accepted — no body (notifications/initialized)"),
-        (status = 401, description = "Bearer token missing or invalid"),
-    ),
-    tag = "mcp"
-)]
-pub async fn mcp_handler(
-    State(state): State<AppState>,
-    auth: AuthContext,
-    headers: HeaderMap,
-    body: axum::body::Bytes,
-) -> Response {
-    dispatch(&state, auth, headers, body).await.unwrap_or_else(|e| e)
+// Re-export for route registration in routes/mod.rs.
+pub use handler::mcp_handler;
+
+mod handler {
+    use super::*;
+
+    /// `POST /mcp` — public Axum handler.
+    ///
+    /// Delegates to the inner dispatcher; both success and error paths return
+    /// a fully-formed `Response` (see module docs on why we don't use `AppError`).
+    pub async fn mcp_handler(
+        State(state): State<AppState>,
+        auth: AuthContext,
+        headers: HeaderMap,
+        body: axum::body::Bytes,
+    ) -> Response {
+        dispatch(&state, auth, headers, body).await.unwrap_or_else(|e| e)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -92,12 +84,12 @@ async fn dispatch(
     }
 
     match rpc.method.as_str() {
-        "initialize" => handle_initialize(state, auth, rpc),
+        "initialize" => handle_initialize(state, auth, rpc).await,
         "notifications/initialized" => {
             Ok((StatusCode::ACCEPTED, "").into_response())
         }
         "ping" => Ok(rpc_ok(rpc.id, serde_json::json!({}))),
-        "tools/list" => handle_tools_list(state, auth, &headers, rpc),
+        "tools/list" => handle_tools_list(state, auth, headers, rpc).await,
         "tools/call" => handle_tools_call(state, auth, headers, rpc).await,
         _ => Err(rpc_err(rpc.id, METHOD_NOT_FOUND, "method not found")),
     }
@@ -107,14 +99,13 @@ async fn dispatch(
 // initialize
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::result_large_err)]
-fn handle_initialize(
+async fn handle_initialize(
     state: &AppState,
     auth: AuthContext,
     rpc: JsonRpcRequest,
 ) -> McpResult {
     let tenant_id = require_auth_tenant(auth)
-        .map_err(|()| rpc_err(rpc.id.clone(), UNAUTHORIZED_MCP, "authentication required"))?;
+        .map_err(|_| rpc_err(rpc.id.clone(), UNAUTHORIZED_MCP, "authentication required"))?;
 
     if let Some(params) = &rpc.params {
         if let Ok(p) = serde_json::from_value::<InitializeParams>(params.clone()) {
@@ -150,14 +141,13 @@ fn handle_initialize(
 // tools/list
 // ---------------------------------------------------------------------------
 
-#[allow(clippy::result_large_err)]
-fn handle_tools_list(
+async fn handle_tools_list(
     state: &AppState,
     auth: AuthContext,
-    headers: &HeaderMap,
+    headers: HeaderMap,
     rpc: JsonRpcRequest,
 ) -> McpResult {
-    validate_session(state, auth, headers, rpc.id.clone())?;
+    validate_session(state, auth, &headers, rpc.id.clone())?;
     let result = serde_json::to_value(ToolsListResult { tools: phase1_tools() })
         .unwrap_or(serde_json::json!({}));
     Ok(rpc_ok(rpc.id, result))
@@ -211,7 +201,7 @@ async fn handle_tools_call(
                 tenant_id = %session_tenant_id,
                 "MCP tool call failed: {e:?}"
             );
-            (rb_mcp::ToolCallResult::error(format!("{e:?}")), "error")
+            (rb_mcp::protocol::ToolCallResult::error(format!("{e:?}")), "error")
         }
     };
 
@@ -246,7 +236,6 @@ fn require_auth_tenant(auth: AuthContext) -> Result<Uuid, ()> {
 ///
 /// Returns `(session_tenant_id, actor_user_id)` on success, or
 /// `Err(Response)` with a JSON-RPC error body on failure.
-#[allow(clippy::result_large_err)]
 fn validate_session(
     state: &AppState,
     auth: AuthContext,

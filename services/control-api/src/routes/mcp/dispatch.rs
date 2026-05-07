@@ -36,8 +36,9 @@ pub(super) async fn dispatch_search_items(
 
     let limit = args
         .get("limit")
-        .and_then(serde_json::Value::as_u64)
-        .map_or(DEFAULT_SEARCH_LIMIT, |n| u32::try_from(n).unwrap_or(MAX_SEARCH_LIMIT))
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32)
+        .unwrap_or(DEFAULT_SEARCH_LIMIT)
         .clamp(1, MAX_SEARCH_LIMIT);
 
     let repo_id_filter: Option<Uuid> = args

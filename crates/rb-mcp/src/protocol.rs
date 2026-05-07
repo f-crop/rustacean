@@ -40,7 +40,6 @@ pub struct InitializeResult {
 }
 
 impl InitializeResult {
-    #[must_use]
     pub fn new() -> Self {
         Self {
             protocol_version: MCP_PROTOCOL_VERSION,
@@ -97,8 +96,7 @@ pub struct ToolDefinition {
     pub input_schema: serde_json::Value,
 }
 
-/// Returns the Phase 1 tool catalogue (`search_items` + `get_item`).
-#[must_use]
+/// Returns the Phase 1 tool catalogue (search_items + get_item).
 pub fn phase1_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {

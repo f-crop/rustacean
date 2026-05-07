@@ -25,7 +25,6 @@ members = [
     "services/ingest-graph",
     "crates/rb-query",
     "crates/rb-mcp",
-    "crates/rb-agent-runtime",
     "crates/rb-audit-cli",
     "crates/rb-storage-neo4j",
     "crates/rb-storage-qdrant",
@@ -103,8 +102,6 @@ jsonwebtoken = "9"
 reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
 base64 = "0.22"
 hmac = "0.12"
-hkdf = "0.12"
-aes-gcm = "0.10"
 subtle = "2"
 moka = { version = "0.12", features = ["future"] }
 hex = "0.4"
