@@ -3,6 +3,7 @@
 pub mod callback;
 pub mod delete;
 pub mod start;
+pub mod token_store;
 
 pub use callback::claude_oauth_callback;
 pub use delete::claude_oauth_delete;
