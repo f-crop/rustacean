@@ -105,7 +105,6 @@ pub enum SessionEvent {
 
 impl SessionEvent {
     /// Returns the string event-type discriminant stored in `agents.agent_events.event_type`.
-    #[must_use]
     pub fn event_type(&self) -> &'static str {
         match self {
             SessionEvent::Created(_)    => "session.created",
@@ -139,7 +138,6 @@ pub struct EventEnvelope {
 }
 
 impl EventEnvelope {
-    #[must_use]
     pub fn new(session_id: Uuid, tenant_id: Uuid, sequence: i64, event: &SessionEvent) -> Self {
         Self {
             id: Uuid::new_v4(),

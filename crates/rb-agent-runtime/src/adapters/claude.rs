@@ -199,7 +199,7 @@ impl AgentRuntime for ClaudeCodeRuntime {
             }
 
             let api_resp: AnthropicResponse = resp.json().await?;
-            total_tokens += i64::from(api_resp.usage.input_tokens + api_resp.usage.output_tokens);
+            total_tokens += (api_resp.usage.input_tokens + api_resp.usage.output_tokens) as i64;
 
             let mut assistant_blocks: Vec<ContentBlock> = vec![];
             let mut tool_uses: Vec<(String, String, serde_json::Value)> = vec![];
@@ -230,7 +230,7 @@ impl AgentRuntime for ClaudeCodeRuntime {
                         tool_uses.push((id.clone(), name.clone(), input.clone()));
                         assistant_blocks.push(block.clone());
                     }
-                    ContentBlock::ToolResult { .. } => {}
+                    _ => {}
                 }
             }
 
@@ -253,7 +253,7 @@ impl AgentRuntime for ClaudeCodeRuntime {
                     Ok(v) => (v.to_string(), false),
                     Err(e) => (e, true),
                 };
-                let duration_ms = u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let duration_ms = t0.elapsed().as_millis() as u64;
 
                 on_event(SessionEvent::ToolResult(ToolResultPayload {
                     tool_use_id: tool_use_id.clone(),
@@ -276,7 +276,7 @@ impl AgentRuntime for ClaudeCodeRuntime {
         }
 
         self.cancel_map.remove(&ctx.session_id);
-        let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let duration_ms = start.elapsed().as_millis() as u64;
 
         on_event(SessionEvent::Completed(SessionCompletedPayload {
             tokens_used: total_tokens,

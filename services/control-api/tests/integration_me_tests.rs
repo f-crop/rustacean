@@ -67,6 +67,10 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         qdrant_url: None,
         ollama_url: None,
         embedding_model: "nomic-embed-text".to_owned(),
+            claude_oauth_client_id: None,
+            litellm_url: None,
+            litellm_open_code_key: None,
+            litellm_pi_key: None,
     };
     let state = AppState {
         pool: pool.clone(),
@@ -85,6 +89,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         neo4j_uri: None,
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
+        agent_registry: control_api::AgentRegistry::new(),
     };
     Some((state, pool))
 }
