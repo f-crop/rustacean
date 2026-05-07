@@ -351,22 +351,29 @@ reconcile_env() {
   # ── (c) Migration head vs running DB applied migrations ──────────────────
   log "  Dimension (c): declared migration head vs applied migrations in DB..."
   local dim_c_drift=()
-  for schema_dir in control tenant; do
-    local declared_hash
-    declared_hash=$(get_declared_migration_hash "$schema_dir")
-    local applied
-    applied=$(get_applied_migrations "$compose_file" 2>/dev/null | grep -i "$schema_dir" || true)
-    # Count declared migrations
-    local declared_count
-    declared_count=$(ls "$REPO_ROOT/migrations/$schema_dir/" 2>/dev/null | wc -l | tr -d ' ')
-    local applied_count
-    applied_count=$(echo "$applied" | grep -c . || echo "0")
-    if [ "$applied_count" -lt "$declared_count" ]; then
-      local unapplied=$(( declared_count - applied_count ))
-      dim_c_drift+=("  [c] $schema_dir: $unapplied unapplied migration(s) (declared=$declared_count, applied=$applied_count)")
-    fi
-    log "    $schema_dir: declared=$declared_count applied=$applied_count"
-  done
+  # Test DB connectivity and table existence before proceeding
+  local db_check_output
+  db_check_output=$(docker compose -f "$compose_file" exec -T postgres \
+    psql -U "$DB_USER" -d "$DB_NAME" -t -A \
+    -c "SELECT 1 FROM _sqlx_migrations LIMIT 1;" 2>&1) || true
+  if echo "$db_check_output" | grep -qi "does not exist\|no such table\|ERROR"; then
+    warn "  Dimension (c): _sqlx_migrations not found in $DB_NAME — skipping migration check"
+  else
+    for schema_dir in control tenant; do
+      local applied
+      applied=$(get_applied_migrations "$compose_file" 2>/dev/null | grep -i "$schema_dir" || true)
+      local declared_count
+      declared_count=$(ls "$REPO_ROOT/migrations/$schema_dir/" 2>/dev/null | wc -l | tr -d ' ')
+      local applied_count
+      applied_count=$(echo "$applied" | grep -c . || true)
+      applied_count="${applied_count:-0}"
+      if [ "$applied_count" -lt "$declared_count" ]; then
+        local unapplied=$(( declared_count - applied_count ))
+        dim_c_drift+=("  [c] $schema_dir: $unapplied unapplied migration(s) (declared=$declared_count, applied=$applied_count)")
+      fi
+      log "    $schema_dir: declared=$declared_count applied=$applied_count"
+    done
+  fi
   if [ ${#dim_c_drift[@]} -gt 0 ]; then
     drift_lines+=("### (c) Migration Head vs Applied Migrations")
     drift_lines+=("${dim_c_drift[@]}")
@@ -562,12 +569,12 @@ $report_body" '{body: $body}')" > /dev/null
 
   # Drift-on-closed-issue policy: for any done issue that shows drift in dim (d),
   # append a drift-detected comment without re-opening
-  handle_closed_issue_drift_policy "$env" "${drift_lines[@]+"${drift_lines[@]}"}" "$TIMESTAMP"
+  handle_closed_issue_drift_policy "$env" "$TIMESTAMP" "${drift_lines[@]+"${drift_lines[@]}"}"
 }
 
 handle_closed_issue_drift_policy() {
-  local env="$1" timestamp="$3"
-  shift; shift; shift
+  local env="$1" timestamp="$2"
+  shift; shift
   local drift_lines=("$@")
 
   # Extract done-issue identifiers from dim (d) drift lines
