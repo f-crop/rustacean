@@ -69,13 +69,32 @@ pub struct Config {
     /// `RB_CLAUDE_OAUTH_CLIENT_ID` — Anthropic OAuth client ID for PKCE flow.
     /// Optional; `/v1/auth/oauth/claude/start` returns 503 when absent.
     pub claude_oauth_client_id: Option<String>,
-    /// `RB_LITELLM_URL` — LiteLLM in-cluster proxy base URL.
+    /// `RB_LITELLM_URL` — `LiteLLM` in-cluster proxy base URL.
     /// Optional; `open_code` and `pi` runtimes return 503 when absent.
     pub litellm_url: Option<String>,
     /// `RB_LITELLM_OPEN_CODE_KEY` — Virtual key for the `open_code` runtime.
     pub litellm_open_code_key: Option<String>,
     /// `RB_LITELLM_PI_KEY` — Virtual key for the `pi` runtime.
     pub litellm_pi_key: Option<String>,
+
+    // --- OAuth token encryption / KMS key rotation (RUSAA-862) ---
+    /// `RB_OAUTH_ENCRYPT_KEY` — hex-encoded 32-byte AES-256 master key for
+    /// encrypting `oauth_tokens.access_token` / `refresh_token` at rest.
+    /// When absent, tokens are stored as plaintext (development only).
+    pub oauth_encrypt_key: Option<String>,
+    /// `RB_OAUTH_ENCRYPT_KEY_ID` — logical KMS key label written to
+    /// `oauth_tokens.encryption_key_id`.  Defaults to `"oauth-claude-v1"`.
+    pub oauth_encrypt_key_id: String,
+    /// `RB_OAUTH_ENCRYPT_KEY_PREV` — hex-encoded 32-byte previous AES-256 key.
+    /// Required during a rotation window to decrypt rows from the retired key.
+    pub oauth_encrypt_key_prev: Option<String>,
+    /// `RB_OAUTH_ENCRYPT_KEY_PREV_ID` — key id label for the previous key
+    /// (e.g. `"oauth-claude-v0"`).  Defaults to `"none"` (plaintext / unset).
+    pub oauth_encrypt_key_prev_id: String,
+    /// `RB_OAUTH_ROTATE_KEYS_ON_BOOT` — when `"true"`, the key-rotation sweep
+    /// runs at startup.  Safe to enable during a planned rotation window;
+    /// no-op when the table is already fully on the current key.
+    pub oauth_rotate_keys_on_boot: bool,
 }
 
 impl Config {
@@ -145,6 +164,7 @@ impl Config {
             claude_oauth_client_id: env::var("RB_CLAUDE_OAUTH_CLIENT_ID")
                 .ok()
                 .filter(|s| !s.is_empty()),
+
             litellm_url: env::var("RB_LITELLM_URL").ok().filter(|s| !s.is_empty()),
             litellm_open_code_key: env::var("RB_LITELLM_OPEN_CODE_KEY")
                 .ok()
@@ -152,6 +172,18 @@ impl Config {
             litellm_pi_key: env::var("RB_LITELLM_PI_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            oauth_encrypt_key: env::var("RB_OAUTH_ENCRYPT_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            oauth_encrypt_key_id: env::var("RB_OAUTH_ENCRYPT_KEY_ID")
+                .unwrap_or_else(|_| "oauth-claude-v1".to_owned()),
+            oauth_encrypt_key_prev: env::var("RB_OAUTH_ENCRYPT_KEY_PREV")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            oauth_encrypt_key_prev_id: env::var("RB_OAUTH_ENCRYPT_KEY_PREV_ID")
+                .unwrap_or_else(|_| "none".to_owned()),
+            oauth_rotate_keys_on_boot: env::var("RB_OAUTH_ROTATE_KEYS_ON_BOOT")
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
         })
     }
 
@@ -261,6 +293,11 @@ impl Config {
             litellm_url: None,
             litellm_open_code_key: None,
             litellm_pi_key: None,
+            oauth_encrypt_key: None,
+            oauth_encrypt_key_id: "oauth-claude-v1".to_owned(),
+            oauth_encrypt_key_prev: None,
+            oauth_encrypt_key_prev_id: "none".to_owned(),
+            oauth_rotate_keys_on_boot: false,
         }
     }
 }

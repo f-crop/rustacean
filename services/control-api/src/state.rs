@@ -3,6 +3,8 @@ use std::sync::{
     atomic::{AtomicI64, AtomicU64, Ordering},
 };
 
+use crate::crypto::token_cipher::OauthTokenCipher;
+
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use rb_auth::{LoginRateLimiter, PasswordHasher};
@@ -128,6 +130,7 @@ impl AgentRegistry {
     }
 
     /// Try to acquire a slot.  Returns `None` if at the process cap.
+    #[must_use]
     pub fn try_acquire(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
         self.semaphore.try_acquire().ok()
     }
@@ -138,16 +141,19 @@ impl AgentRegistry {
     }
 
     /// Remove a completed/failed session.
+    #[must_use]
     pub fn remove(&self, session_id: &Uuid) -> Option<SessionHandle> {
         self.sessions.remove(session_id).map(|(_, h)| h)
     }
 
     /// Return a clone of the handle for the given session, if active.
+    #[must_use]
     pub fn get(&self, session_id: &Uuid) -> Option<SessionHandle> {
         self.sessions.get(session_id).map(|r| r.clone())
     }
 
     /// Number of currently active sessions in this process.
+    #[must_use]
     pub fn active_count(&self) -> usize {
         self.sessions.len()
     }
@@ -158,6 +164,7 @@ impl AgentRegistry {
     }
 
     /// Total tokens consumed across all live sessions since process start.
+    #[must_use]
     pub fn global_tokens_used(&self) -> i64 {
         self.global_tokens_used.load(Ordering::Relaxed)
     }
@@ -211,4 +218,10 @@ pub struct AppState {
     pub mcp_sessions: McpSessionStore,
     /// In-process agent session registry (ADR-009 Phase 1).
     pub agent_registry: AgentRegistry,
+    /// AES-256-GCM cipher for OAuth token encryption (RUSAA-862).
+    /// `None` when `RB_OAUTH_ENCRYPT_KEY` is not configured (development only).
+    pub token_cipher: Option<Arc<OauthTokenCipher>>,
+    /// Previous-key cipher used during a rotation window.
+    /// `None` when `RB_OAUTH_ENCRYPT_KEY_PREV` is not configured.
+    pub token_cipher_prev: Option<Arc<OauthTokenCipher>>,
 }
