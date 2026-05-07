@@ -63,7 +63,7 @@ pub struct RunOutcome {
 // AgentRuntime trait
 // ---------------------------------------------------------------------------
 
-/// Adapter interface for an LLM runtime (Claude, OpenCode, Pi).
+/// Adapter interface for an LLM runtime (Claude, `OpenCode`, Pi).
 ///
 /// Each adapter connects to a different LLM provider; all share the same
 /// event emission and tool-dispatch contract.
@@ -74,7 +74,7 @@ pub trait AgentRuntime: Send + Sync + 'static {
 
     /// Run the agent session until completion, cancellation, or budget exhaustion.
     ///
-    /// Emits `SessionEvent`s via `on_event` (written to DB + EventBus by caller)
+    /// Emits `SessionEvent`s via `on_event` (written to DB + `EventBus` by caller)
     /// and calls tools via `dispatch`.
     async fn run(
         &self,
