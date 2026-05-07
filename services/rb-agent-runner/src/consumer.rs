@@ -1,5 +1,5 @@
-use rb_kafka::{Consumer, Producer, ProducerCfg};
-use rb_schemas::{AgentCommand, AgentEvent, AgentEventType, AgentSessionStatus, SystemEventData};
+use rb_kafka::{Consumer, Producer};
+use rb_schemas::{AgentCommand, AgentEvent, AgentEventType, AgentSessionStatus};
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -84,10 +84,10 @@ async fn handle_command(
                 &tenant_id,
                 &session_id,
                 AgentEventType::System,
-                &SystemEventData {
-                    message: "Session started".to_string(),
-                    status: AgentSessionStatus::Running,
-                },
+                serde_json::json!({
+                    "message": "Session started",
+                    "status": AgentSessionStatus::Running as i32
+                }),
                 cmd.traceparent.clone(),
             )
             .await?;
@@ -110,10 +110,10 @@ async fn handle_command(
                 &tenant_id,
                 &session_id,
                 AgentEventType::System,
-                &SystemEventData {
-                    message: "Session terminated".to_string(),
-                    status: AgentSessionStatus::Terminated,
-                },
+                serde_json::json!({
+                    "message": "Session terminated",
+                    "status": AgentSessionStatus::Terminated as i32
+                }),
                 cmd.traceparent.clone(),
             )
             .await?;
@@ -158,12 +158,12 @@ async fn update_session_status(
     Ok(())
 }
 
-async fn emit_event<E: serde::Serialize>(
+async fn emit_event(
     ctx: &ConsumerContext,
     tenant_id: &Uuid,
     session_id: &Uuid,
     event_type: AgentEventType,
-    data: &E,
+    data: serde_json::Value,
     traceparent: String,
 ) -> Result<(), AdapterError> {
     let event = AgentEvent {
@@ -171,18 +171,18 @@ async fn emit_event<E: serde::Serialize>(
         event_id: Uuid::new_v4().to_string(),
         session_id: session_id.to_string(),
         event_type: event_type as i32,
-        event_data_json: serde_json::to_string(data).map_err(|e| AdapterError::JsonParse(e))?,
+        event_data_json: serde_json::to_string(&data).map_err(|e| AdapterError::JsonParse(e))?,
         occurred_at_ms: chrono::Utc::now().timestamp_millis(),
         trace_id: if traceparent.is_empty() {
-            None
+            String::new()
         } else {
-            traceparent.split('-').next().map(|s| s.to_string())
+            traceparent.split('-').next().unwrap_or("").to_string()
         },
-        span_id: None,
+        span_id: String::new(),
     };
 
     ctx.event_producer
-        .send(
+        .publish(
             TOPIC_AGENT_EVENTS,
             tenant_id.to_string().as_bytes(),
             &event,

@@ -244,6 +244,19 @@ pub fn require_scope<'a>(auth: &'a AuthContext, required: &Scope) -> Result<&'a 
 // Session-check helpers
 // ---------------------------------------------------------------------------
 
+/// Require any active session (verified or unverified).
+///
+/// - `Session(info)` → `Ok(info)` (regardless of email verification)
+/// - `ExpiredSession` → `SessionExpired` (401, `session_expired`)
+/// - `ApiKey` / `Anonymous` → `Unauthorized` (401)
+pub fn require_session(auth: &AuthContext) -> Result<SessionInfo, AppError> {
+    match auth {
+        AuthContext::Session(info) => Ok(info.clone()),
+        AuthContext::ExpiredSession => Err(AppError::SessionExpired),
+        AuthContext::ApiKey(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
+    }
+}
+
 /// Require an active session whose user has a verified email.
 ///
 /// - `Session(info)` with `email_verified == true` → `Ok(info)`

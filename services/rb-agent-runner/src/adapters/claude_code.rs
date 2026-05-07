@@ -1,15 +1,18 @@
 use async_trait::async_trait;
 use std::path::Path;
 use tokio::io::AsyncWriteExt;
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 
 use crate::adapter::{AdapterError, AdapterResult, ProcessHandle, RuntimeAdapter};
+use crate::config::AdapterConfig;
 
-pub struct ClaudeCodeAdapter;
+pub struct ClaudeCodeAdapter {
+    config: AdapterConfig,
+}
 
 impl ClaudeCodeAdapter {
-    pub fn new() -> Self {
-        Self
+    pub fn new(config: AdapterConfig) -> Self {
+        Self { config }
     }
 }
 
@@ -25,12 +28,20 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
         input_prompt: &str,
         _api_key: Option<&str>,
     ) -> AdapterResult<ProcessHandle> {
-        let mut child = Command::new("claude")
-            .arg("--jsonl")
+        let env_vars = self.config.env_vars_for_runtime(rb_schemas::AgentRuntime::ClaudeCode);
+
+        let mut cmd = Command::new("claude");
+        cmd.arg("--jsonl")
             .current_dir(workspace_path)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+
+        let mut child = cmd
             .spawn()
             .map_err(|e| AdapterError::SpawnFailed(format!("Failed to spawn claude: {}", e)))?;
 

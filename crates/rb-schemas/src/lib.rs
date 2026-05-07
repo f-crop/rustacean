@@ -12,6 +12,14 @@ pub use ingest::{
     expanded_file_event, parsed_item_event, source_file_event, typechecked_item_event,
 };
 
+// Agent execution types from agent.proto
+pub use ingest::{
+    AgentCommand, AgentEvent, AgentEventType, AgentRuntime, AgentSessionStatus,
+    SessionStart, SessionTerminate, SessionInput,
+    SystemEventData, StdoutEventData, StderrEventData, ToolCallEventData, ToolResultEventData,
+    agent_command,
+};
+
 /// Newtype over [`Uuid`] representing a tenant identifier.
 /// Prost-generated event types are re-exported from this crate (see [`IngestRequest`] etc.).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

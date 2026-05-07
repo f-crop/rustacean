@@ -15,7 +15,7 @@ pub use session::McpSessionStore;
 pub use protocol::{
     ClientInfo, InitializeParams, InitializeResult, ServerCapabilities, ServerInfo,
     ToolCallParams, ToolCallResult, ToolContent, ToolDefinition, ToolsCapability,
-    ToolsListResult, MCP_PROTOCOL_VERSION, phase1_tools,
+    ToolsListResult, MCP_PROTOCOL_VERSION, phase1_tools, phase2_tools,
 };
 pub use types::{
     JsonRpcError, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse,

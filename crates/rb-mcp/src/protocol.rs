@@ -155,6 +155,175 @@ pub fn phase1_tools() -> Vec<ToolDefinition> {
     ]
 }
 
+/// Returns the Phase 2 tool catalogue (all 6 tools for REQ-MC-01).
+#[must_use]
+#[allow(clippy::too_many_lines)]
+pub fn phase2_tools() -> Vec<ToolDefinition> {
+    vec![
+        ToolDefinition {
+            name: "search_items".to_owned(),
+            description: "Semantic search over code symbols in the repository graph. \
+                          Returns ranked fully-qualified names matching the natural-language query."
+                .to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural-language or code search query"
+                    },
+                    "repo_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Optional: restrict search to this repository UUID"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 50,
+                        "description": "Max results to return (default 10, max 50)"
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "get_item".to_owned(),
+            description: "Fetch a code symbol by its fully-qualified name (FQN) within a \
+                          repository. Returns metadata, source location, and inline source text."
+                .to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Repository UUID"
+                    },
+                    "fqn": {
+                        "type": "string",
+                        "description": "Fully-qualified name of the code symbol"
+                    }
+                },
+                "required": ["repo_id", "fqn"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "get_callers".to_owned(),
+            description: "Find all functions that call the specified function. \
+                          Returns callers with traversal depth and provenance."
+                .to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Repository UUID"
+                    },
+                    "fqn": {
+                        "type": "string",
+                        "description": "Fully-qualified name of the function"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "Traversal depth (default 3)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200,
+                        "description": "Max results (default 50)"
+                    }
+                },
+                "required": ["repo_id", "fqn"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "get_callees".to_owned(),
+            description: "Find all functions called by the specified function. \
+                          Returns callees with traversal depth and provenance."
+                .to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Repository UUID"
+                    },
+                    "fqn": {
+                        "type": "string",
+                        "description": "Fully-qualified name of the function"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "description": "Traversal depth (default 3)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200,
+                        "description": "Max results (default 50)"
+                    }
+                },
+                "required": ["repo_id", "fqn"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "get_trait_impls".to_owned(),
+            description: "Find all implementations of a trait. \
+                          Returns both direct and blanket implementations."
+                .to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "repo_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Repository UUID"
+                    },
+                    "fqn": {
+                        "type": "string",
+                        "description": "Fully-qualified name of the trait"
+                    }
+                },
+                "required": ["repo_id", "fqn"],
+                "additionalProperties": false
+            }),
+        },
+        ToolDefinition {
+            name: "run_query".to_owned(),
+            description: "Execute a read-only Cypher query against the graph database."
+                .to_owned(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Cypher query to execute"
+                    },
+                    "repo_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Optional: restrict query to this repository"
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+        },
+    ]
+}
+
 // ---------------------------------------------------------------------------
 // tools/call
 // ---------------------------------------------------------------------------

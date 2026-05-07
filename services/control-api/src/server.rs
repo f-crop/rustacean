@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicI64, AtomicU64},
+};
 
 use anyhow::{Context as _, Result};
 use axum::routing::get;
@@ -8,6 +11,7 @@ use rb_auth::{LoginRateLimiter, PasswordHasher};
 use rb_email::{SmtpConfig, from_transport};
 use rb_github::{GhApp, Secret};
 use rb_kafka::{ConsumerCfg, Producer, ProducerCfg};
+use rb_schemas::AgentCommand;
 use rb_sse::{EventBus, SseConfig};
 use rb_storage_neo4j::TenantGraph;
 use rb_storage_qdrant::TenantVectorStore;
@@ -19,6 +23,7 @@ use tower_http::{
 };
 
 use crate::{
+    agent_consumer,
     config::Config,
     crypto::OauthTokenCipher,
     ingest_consumer,
@@ -85,6 +90,7 @@ pub async fn run(config: Config) -> Result<()> {
     };
     let ingest_producer = build_producer(Producer::new(&producer_cfg), "ingest_producer");
     let tombstone_producer = build_producer(Producer::new(&producer_cfg), "tombstone_producer");
+    let agent_producer = build_producer(Producer::new(&producer_cfg), "agent_producer");
 
     // Connect to Neo4j.  Failure is non-fatal — graph endpoints degrade to 503.
     let graph = if let (Some(uri), Some(password)) =
@@ -144,6 +150,7 @@ pub async fn run(config: Config) -> Result<()> {
         sse_bus: Arc::clone(&sse_bus),
         ingest_producer,
         tombstone_producer,
+        agent_producer,
         module_tree_cache: rb_query::new_module_tree_cache(),
         graph,
         qdrant,
@@ -181,9 +188,26 @@ pub async fn run(config: Config) -> Result<()> {
     // not prevent the HTTP server from starting — the SSE endpoint degrades
     // gracefully when Kafka is unavailable (no events; long-poll returns empty).
     let consumer_cfg = ConsumerCfg::new("control-api-sse");
-    match ingest_consumer::spawn(&consumer_cfg, sse_bus, Arc::new(state.pool.clone()), kafka_consistency) {
+    match ingest_consumer::spawn(&consumer_cfg, Arc::clone(&sse_bus), Arc::new(state.pool.clone()), kafka_consistency) {
         Ok(_handle) => tracing::info!("ingest_consumer started"),
         Err(e) => tracing::warn!("ingest_consumer failed to start (Kafka unavailable?): {e}"),
+    }
+
+    let agent_consumer_cfg = ConsumerCfg::new("control-api-agent-events");
+    let agent_last_event_at_ms = Arc::new(AtomicI64::new(0));
+    let agent_lag_records = Arc::new(AtomicU64::new(0));
+    let agent_registry_arc = Arc::new(state.agent_registry.clone());
+    
+    match agent_consumer::spawn(
+        &agent_consumer_cfg,
+        sse_bus,
+        Arc::new(state.pool.clone()),
+        agent_registry_arc,
+        agent_last_event_at_ms,
+        agent_lag_records,
+    ) {
+        Ok(_handle) => tracing::info!("agent_consumer started"),
+        Err(e) => tracing::warn!("agent_consumer failed to start (Kafka unavailable?): {e}"),
     }
 
     let cors = CorsLayer::new()

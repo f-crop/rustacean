@@ -82,6 +82,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
+        agent_producer: None,
         token_cipher: None,
         token_cipher_prev: None,
     };

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::path::Path;
 use thiserror::Error;
-use tokio::process::{Child, Command};
+use tokio::process::Child;
 
 #[derive(Error, Debug)]
 pub enum AdapterError {

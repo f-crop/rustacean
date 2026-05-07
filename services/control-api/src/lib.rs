@@ -1,3 +1,4 @@
+mod agent_consumer;
 mod agents;
 mod config;
 mod crypto;

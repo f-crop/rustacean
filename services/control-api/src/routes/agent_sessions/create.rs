@@ -1,9 +1,7 @@
 use axum::{extract::State, Json};
-use rb_kafka::Producer;
+use rb_kafka::EventEnvelope;
 use rb_schemas::{AgentCommand, AgentRuntime, SessionStart};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
@@ -13,7 +11,6 @@ use crate::{
 };
 
 const MAX_INPUT_PROMPT_LENGTH: usize = 1000;
-const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
 
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionRequest {
@@ -52,10 +49,11 @@ pub async fn create_session(
     let session_id = Uuid::new_v4();
     let workspace_path = format!("/data/workspaces/{}/{}", tenant_id, session_id);
 
+    let span_id = Uuid::new_v4();
     let traceparent = format!(
         "00-{:032x}-{:016x}-01",
         session_id.as_u128(),
-        Uuid::new_v4().as_u64_le()
+        span_id.as_u128() & 0xffffffffffffffff
     );
 
     let mut tx = state.pool.begin().await.map_err(AppError::Database)?;
@@ -78,14 +76,15 @@ pub async fn create_session(
     .map_err(AppError::Database)?;
 
     let api_key = format!("rb_session_{}_{}", tenant_id, Uuid::new_v4());
+    let command_event_id = Uuid::new_v4();
 
     let command = AgentCommand {
         tenant_id: tenant_id.to_string(),
-        event_id: Uuid::new_v4().to_string(),
+        event_id: command_event_id.to_string(),
         session_id: session_id.to_string(),
         runtime: runtime as i32,
         input_prompt,
-        workspace_path,
+        workspace_path: workspace_path.clone(),
         created_at_ms: chrono::Utc::now().timestamp_millis(),
         traceparent: traceparent.clone(),
         command: Some(rb_schemas::agent_command::Command::Start(SessionStart {
@@ -93,13 +92,20 @@ pub async fn create_session(
         })),
     };
 
+    let envelope = EventEnvelope::new(tenant_id.into(), command)
+        .with_event_id(command_event_id)
+        .with_trace_context(rb_kafka::TraceContext {
+            traceparent: traceparent.clone(),
+            tracestate: String::new(),
+        });
+
     let producer = state
-        .ingest_producer
+        .agent_producer
         .as_ref()
         .ok_or(AppError::KafkaNotConfigured)?;
 
     producer
-        .send(TOPIC_AGENT_COMMANDS, session_id.to_string().as_bytes(), &command)
+        .publish("rb.agent.commands", session_id.to_string().as_bytes(), envelope)
         .await
         .map_err(AppError::KafkaPublish)?;
 

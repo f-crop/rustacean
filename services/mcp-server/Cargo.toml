@@ -1,0 +1,49 @@
+[package]
+name = "mcp-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "mcp-server"
+path = "src/main.rs"
+
+[dependencies]
+rb-auth = { path = "../../crates/rb-auth", version = "0.1.0" }
+rb-mcp = { path = "../../crates/rb-mcp", version = "0.1.0" }
+rb-query = { path = "../../crates/rb-query", version = "0.1.0" }
+rb-schemas = { path = "../../crates/rb-schemas", version = "0.1.0" }
+rb-storage-neo4j = { path = "../../crates/rb-storage-neo4j", version = "0.1.0" }
+rb-storage-qdrant = { path = "../../crates/rb-storage-qdrant", version = "0.1.0" }
+rb-storage-pg = { path = "../../crates/rb-storage-pg", version = "0.1.0" }
+rb-tenant = { path = "../../crates/rb-tenant", version = "0.1.0" }
+rb-tracing = { path = "../../crates/rb-tracing", version = "0.1.0" }
+async-trait.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+dashmap.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+reqwest.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+http-body-util = "0.1"
+
+[lints]
+workspace = true

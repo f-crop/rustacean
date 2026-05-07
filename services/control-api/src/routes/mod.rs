@@ -1,4 +1,4 @@
-pub mod agents;
+pub mod agent_sessions;
 pub mod api_keys;
 pub mod audit;
 pub mod auth;

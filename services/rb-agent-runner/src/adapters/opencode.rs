@@ -3,12 +3,15 @@ use std::path::Path;
 use tokio::process::{Child, Command};
 
 use crate::adapter::{AdapterError, AdapterResult, ProcessHandle, RuntimeAdapter};
+use crate::config::AdapterConfig;
 
-pub struct OpencodeAdapter;
+pub struct OpencodeAdapter {
+    config: AdapterConfig,
+}
 
 impl OpencodeAdapter {
-    pub fn new() -> Self {
-        Self
+    pub fn new(config: AdapterConfig) -> Self {
+        Self { config }
     }
 }
 
@@ -24,13 +27,21 @@ impl RuntimeAdapter for OpencodeAdapter {
         input_prompt: &str,
         _api_key: Option<&str>,
     ) -> AdapterResult<ProcessHandle> {
-        let mut child = Command::new("opencode")
-            .arg("run")
+        let env_vars = self.config.env_vars_for_runtime(rb_schemas::AgentRuntime::Opencode);
+
+        let mut cmd = Command::new("opencode");
+        cmd.arg("run")
             .arg(input_prompt)
             .current_dir(workspace_path)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+
+        let mut child = cmd
             .spawn()
             .map_err(|e| AdapterError::SpawnFailed(format!("Failed to spawn opencode: {}", e)))?;
 

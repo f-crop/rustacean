@@ -1,6 +1,7 @@
-use crate::adapter::{create_adapter, AdapterError, ProcessHandle, RuntimeAdapter};
+use crate::adapter::{AdapterError, ProcessHandle, RuntimeAdapter};
+use crate::adapters::create_adapter;
 use crate::workspace::WorkspaceManager;
-use rb_schemas::{AgentCommand, AgentEvent, AgentEventType, AgentSessionStatus, SessionInput, SessionStart, SessionTerminate};
+use rb_schemas::{AgentCommand, AgentSessionStatus, SessionInput, SessionStart, SessionTerminate};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,7 +48,7 @@ impl SessionManager {
         let session = Session {
             id: session_id,
             tenant_id,
-            runtime: cmd.runtime,
+            runtime: rb_schemas::AgentRuntime::try_from(cmd.runtime).unwrap_or(rb_schemas::AgentRuntime::Unspecified),
             workspace_path,
             status: AgentSessionStatus::Pending,
             process_handle: None,
@@ -115,11 +116,6 @@ impl SessionManager {
         session.status = AgentSessionStatus::Terminated;
 
         Ok(())
-    }
-
-    pub async fn get_session(&self, session_id: Uuid) -> Option<impl std::ops::Deref<Target = Session> + '_> {
-        let sessions = self.sessions.read().await;
-        sessions.get(&session_id).map(|s| s)
     }
 
     pub async fn remove_session(&self, session_id: Uuid) -> Option<Session> {

@@ -2,12 +2,16 @@ use async_trait::async_trait;
 use std::path::Path;
 
 use crate::adapter::{AdapterError, AdapterResult, ProcessHandle, RuntimeAdapter};
+use crate::config::AdapterConfig;
 
-pub struct PiAdapter;
+pub struct PiAdapter {
+    #[allow(dead_code)]
+    config: AdapterConfig,
+}
 
 impl PiAdapter {
-    pub fn new() -> Self {
-        Self
+    pub fn new(config: AdapterConfig) -> Self {
+        Self { config }
     }
 }
 

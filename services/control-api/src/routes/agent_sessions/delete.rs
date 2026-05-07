@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use rb_kafka::Producer;
+use rb_kafka::EventEnvelope;
 use rb_schemas::{AgentCommand, SessionTerminate};
 use uuid::Uuid;
 
@@ -11,8 +11,6 @@ use crate::{
     middleware::auth::{require_session, AuthContext},
     state::AppState,
 };
-
-const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
 
 pub async fn delete_session(
     auth: AuthContext,
@@ -49,13 +47,15 @@ pub async fn delete_session(
         })),
     };
 
+    let envelope = EventEnvelope::new(tenant_id.into(), command);
+
     let producer = state
-        .ingest_producer
+        .agent_producer
         .as_ref()
         .ok_or(AppError::KafkaNotConfigured)?;
 
     producer
-        .send(TOPIC_AGENT_COMMANDS, session_id.to_string().as_bytes(), &command)
+        .publish("rb.agent.commands", session_id.to_string().as_bytes(), envelope)
         .await
         .map_err(AppError::KafkaPublish)?;
 

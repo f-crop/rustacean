@@ -13,7 +13,7 @@ use rb_email::EmailSender;
 use rb_github::GhApp;
 use rb_kafka::Producer;
 use rb_query::ModuleTreeCache;
-use rb_schemas::{IngestRequest, Tombstone};
+use rb_schemas::{AgentCommand, IngestRequest, Tombstone};
 use rb_sse::EventBus;
 use rb_storage_neo4j::TenantGraph;
 use rb_storage_qdrant::TenantVectorStore;
@@ -199,6 +199,9 @@ pub struct AppState {
     /// Kafka producer for `rb.tombstones.v1`. `None` when Kafka is not reachable;
     /// `DELETE /v1/tenants/{id}` returns 503 in that case (REQ-TN-04).
     pub tombstone_producer: Option<Arc<Producer<Tombstone>>>,
+    /// Kafka producer for `rb.agent.commands`. `None` when Kafka is not reachable;
+    /// agent session endpoints return 503 in that case (ADR-009).
+    pub agent_producer: Option<Arc<Producer<AgentCommand>>>,
     /// 60-second in-process cache for `GET /v1/repos/{id}/modules` (ADR-008 §3.6 / AC3).
     /// Keyed by `(repo_id, last_succeeded_ingest_run_id)`.
     pub module_tree_cache: ModuleTreeCache,

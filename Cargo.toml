@@ -17,6 +17,7 @@ members = [
     "crates/rb-parse-tree-sitter",
     "services/migrate",
     "services/control-api",
+    "services/rb-agent-runner",
     "services/audit-worker",
     "services/ingest-clone",
     "services/expand-worker",
@@ -33,6 +34,7 @@ members = [
     "services/projector-neo4j",
     "services/tombstoner",
     "services/embed-worker",
+    "services/mcp-server",
 ]
 
 [workspace.package]
