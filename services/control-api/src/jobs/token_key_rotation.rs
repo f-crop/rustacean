@@ -121,6 +121,7 @@ pub async fn rotate_oauth_token_keys(
     total_ok
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn reencrypt_row(
     id: Uuid,
     user_id: Uuid,

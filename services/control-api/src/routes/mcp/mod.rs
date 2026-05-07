@@ -92,12 +92,12 @@ async fn dispatch(
     }
 
     match rpc.method.as_str() {
-        "initialize" => handle_initialize(state, auth, rpc).await,
+        "initialize" => handle_initialize(state, auth, rpc),
         "notifications/initialized" => {
             Ok((StatusCode::ACCEPTED, "").into_response())
         }
         "ping" => Ok(rpc_ok(rpc.id, serde_json::json!({}))),
-        "tools/list" => handle_tools_list(state, auth, headers, rpc).await,
+        "tools/list" => handle_tools_list(state, auth, &headers, rpc),
         "tools/call" => handle_tools_call(state, auth, headers, rpc).await,
         _ => Err(rpc_err(rpc.id, METHOD_NOT_FOUND, "method not found")),
     }
@@ -107,13 +107,14 @@ async fn dispatch(
 // initialize
 // ---------------------------------------------------------------------------
 
-async fn handle_initialize(
+#[allow(clippy::result_large_err)]
+fn handle_initialize(
     state: &AppState,
     auth: AuthContext,
     rpc: JsonRpcRequest,
 ) -> McpResult {
     let tenant_id = require_auth_tenant(auth)
-        .map_err(|_| rpc_err(rpc.id.clone(), UNAUTHORIZED_MCP, "authentication required"))?;
+        .map_err(|()| rpc_err(rpc.id.clone(), UNAUTHORIZED_MCP, "authentication required"))?;
 
     if let Some(params) = &rpc.params {
         if let Ok(p) = serde_json::from_value::<InitializeParams>(params.clone()) {
@@ -149,13 +150,14 @@ async fn handle_initialize(
 // tools/list
 // ---------------------------------------------------------------------------
 
-async fn handle_tools_list(
+#[allow(clippy::result_large_err)]
+fn handle_tools_list(
     state: &AppState,
     auth: AuthContext,
-    headers: HeaderMap,
+    headers: &HeaderMap,
     rpc: JsonRpcRequest,
 ) -> McpResult {
-    validate_session(state, auth, &headers, rpc.id.clone())?;
+    validate_session(state, auth, headers, rpc.id.clone())?;
     let result = serde_json::to_value(ToolsListResult { tools: phase1_tools() })
         .unwrap_or(serde_json::json!({}));
     Ok(rpc_ok(rpc.id, result))
@@ -244,6 +246,7 @@ fn require_auth_tenant(auth: AuthContext) -> Result<Uuid, ()> {
 ///
 /// Returns `(session_tenant_id, actor_user_id)` on success, or
 /// `Err(Response)` with a JSON-RPC error body on failure.
+#[allow(clippy::result_large_err)]
 fn validate_session(
     state: &AppState,
     auth: AuthContext,

@@ -117,7 +117,7 @@ pub async fn create_session(
         return Err(AppError::InvalidInput);
     }
 
-    let _permit = state
+    let permit = state
         .agent_registry
         .try_acquire()
         .ok_or(AppError::SessionCapExceeded)?;
@@ -131,12 +131,12 @@ pub async fn create_session(
 
     // Dynamic query — agents schema not in sqlx offline cache yet (ADR-009 Phase 1).
     sqlx::query(
-        r#"
+        r"
         INSERT INTO agents.agent_sessions
             (id, tenant_id, user_id, runtime_kind, model, system_prompt,
              status, token_budget, tokens_used, input_prompt_preview, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, 0, $8, $9)
-        "#,
+        ",
     )
     .bind(session_id)
     .bind(session.tenant_id)
@@ -179,7 +179,7 @@ pub async fn create_session(
         created_at: now,
     };
 
-    drop(_permit);
+    drop(permit);
     Ok((StatusCode::ACCEPTED, Json(resp)))
 }
 
