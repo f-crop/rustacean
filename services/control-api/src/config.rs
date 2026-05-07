@@ -70,12 +70,10 @@ pub struct Config {
     /// Optional; `/v1/auth/oauth/claude/start` returns 503 when absent.
     pub claude_oauth_client_id: Option<String>,
     /// `RB_LITELLM_URL` — `LiteLLM` in-cluster proxy base URL.
-    /// Optional; `open_code` and `pi` runtimes return 503 when absent.
+    /// Optional; `open_code` runtime returns 503 when absent.
     pub litellm_url: Option<String>,
     /// `RB_LITELLM_OPEN_CODE_KEY` — Virtual key for the `open_code` runtime.
     pub litellm_open_code_key: Option<String>,
-    /// `RB_LITELLM_PI_KEY` — Virtual key for the `pi` runtime.
-    pub litellm_pi_key: Option<String>,
 
     // --- OAuth token encryption / KMS key rotation (RUSAA-862) ---
     /// `RB_OAUTH_ENCRYPT_KEY` — hex-encoded 32-byte AES-256 master key for
@@ -167,9 +165,6 @@ impl Config {
 
             litellm_url: env::var("RB_LITELLM_URL").ok().filter(|s| !s.is_empty()),
             litellm_open_code_key: env::var("RB_LITELLM_OPEN_CODE_KEY")
-                .ok()
-                .filter(|s| !s.is_empty()),
-            litellm_pi_key: env::var("RB_LITELLM_PI_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),
             oauth_encrypt_key: env::var("RB_OAUTH_ENCRYPT_KEY")
@@ -292,7 +287,6 @@ impl Config {
             claude_oauth_client_id: None,
             litellm_url: None,
             litellm_open_code_key: None,
-            litellm_pi_key: None,
             oauth_encrypt_key: None,
             oauth_encrypt_key_id: "oauth-claude-v1".to_owned(),
             oauth_encrypt_key_prev: None,

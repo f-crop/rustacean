@@ -100,7 +100,7 @@ pub async fn create_session(
 ) -> Result<impl IntoResponse, AppError> {
     let session = require_verified_session(auth)?;
 
-    if !matches!(req.runtime_kind.as_str(), "claude_code" | "open_code" | "pi") {
+    if !matches!(req.runtime_kind.as_str(), "claude_code" | "open_code") {
         return Err(AppError::InvalidInput);
     }
 
@@ -198,15 +198,15 @@ mod tests {
 
     #[test]
     fn valid_runtime_kinds() {
-        for k in &["claude_code", "open_code", "pi"] {
-            assert!(matches!(*k, "claude_code" | "open_code" | "pi"));
+        for k in &["claude_code", "open_code"] {
+            assert!(matches!(*k, "claude_code" | "open_code"));
         }
     }
 
     #[test]
     fn invalid_runtime_kind_detected() {
         let k = "unknown";
-        assert!(!matches!(k, "claude_code" | "open_code" | "pi"));
+        assert!(!matches!(k, "claude_code" | "open_code"));
     }
 
     // --- Prompt preview tests (RUSAA-859) ---

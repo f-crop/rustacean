@@ -2,4 +2,4 @@ pub mod claude;
 pub mod litellm;
 
 pub use claude::ClaudeCodeRuntime;
-pub use litellm::{OpenCodeRuntime, PiRuntime};
+pub use litellm::OpenCodeRuntime;

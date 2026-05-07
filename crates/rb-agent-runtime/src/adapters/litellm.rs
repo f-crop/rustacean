@@ -1,8 +1,7 @@
-//! `LiteLLM` adapter — `OpenCodeRuntime` and `PiRuntime` (ADR-009 §6.3).
+//! `LiteLLM` adapter — `OpenCodeRuntime` (ADR-009 §6.3).
 //!
-//! Both use the `LiteLLM` in-cluster proxy which exposes an OpenAI-compatible
-//! `/chat/completions` endpoint.  The only difference is the virtual key and
-//! model name used per runtime kind.
+//! Uses the `LiteLLM` in-cluster proxy which exposes an OpenAI-compatible
+//! `/chat/completions` endpoint with a per-tenant virtual key.
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -271,38 +270,4 @@ impl AgentRuntime for OpenCodeRuntime {
     }
 }
 
-// ---------------------------------------------------------------------------
-// PiRuntime
-// ---------------------------------------------------------------------------
 
-pub struct PiRuntime(LiteLlmRuntime);
-
-impl PiRuntime {
-    #[must_use]
-    pub fn new(http: reqwest::Client, base_url: String, virtual_key: String) -> Self {
-        Self(LiteLlmRuntime {
-            kind: "pi",
-            http,
-            base_url,
-            virtual_key,
-        })
-    }
-}
-
-#[async_trait]
-impl AgentRuntime for PiRuntime {
-    fn kind(&self) -> &'static str { "pi" }
-
-    async fn run(
-        &self,
-        ctx: SessionContext,
-        dispatch: &dyn ToolDispatch,
-        on_event: &(dyn Fn(SessionEvent) + Send + Sync),
-    ) -> Result<RunOutcome, RuntimeError> {
-        self.0.run_inner(ctx, dispatch, on_event).await
-    }
-
-    async fn cancel(&self, _session_id: Uuid) -> Result<(), RuntimeError> {
-        Ok(())
-    }
-}

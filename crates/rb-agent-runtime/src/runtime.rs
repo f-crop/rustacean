@@ -63,7 +63,7 @@ pub struct RunOutcome {
 // AgentRuntime trait
 // ---------------------------------------------------------------------------
 
-/// Adapter interface for an LLM runtime (Claude, `OpenCode`, Pi).
+/// Adapter interface for an LLM runtime (Claude Code, OpenCode).
 ///
 /// Each adapter connects to a different LLM provider; all share the same
 /// event emission and tool-dispatch contract.

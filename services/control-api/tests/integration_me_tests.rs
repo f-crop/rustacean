@@ -70,7 +70,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
             claude_oauth_client_id: None,
             litellm_url: None,
             litellm_open_code_key: None,
-            litellm_pi_key: None,
+
             oauth_encrypt_key: None,
             oauth_encrypt_key_id: "oauth-claude-v1".to_owned(),
             oauth_encrypt_key_prev: None,

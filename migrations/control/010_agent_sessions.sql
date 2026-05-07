@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS agents.agent_sessions (
     id              UUID        NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       UUID        NOT NULL,
     user_id         UUID        NOT NULL,
-    runtime_kind    TEXT        NOT NULL,  -- 'claude_code' | 'open_code' | 'pi'
+    runtime_kind    TEXT        NOT NULL,  -- 'claude_code' | 'open_code'
     model           TEXT        NOT NULL,
     system_prompt   TEXT        NOT NULL DEFAULT '',
     status          TEXT        NOT NULL DEFAULT 'created',
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS agents.agent_sessions (
     failed_at       TIMESTAMPTZ,
     failure_reason  TEXT,
     CONSTRAINT agent_sessions_runtime_kind_check
-        CHECK (runtime_kind IN ('claude_code', 'open_code', 'pi')),
+        CHECK (runtime_kind IN ('claude_code', 'open_code')),
     CONSTRAINT agent_sessions_status_check
         CHECK (status IN ('created', 'starting', 'running', 'paused', 'completed', 'failed', 'cancelled')),
     CONSTRAINT agent_sessions_token_budget_positive CHECK (token_budget > 0)
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS agents.oauth_tokens (
     id              UUID        NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       UUID        NOT NULL,
     user_id         UUID        NOT NULL,
-    provider        TEXT        NOT NULL,  -- 'claude_code' | 'open_code' | 'pi'
+    provider        TEXT        NOT NULL,  -- 'claude_code' | 'open_code'
     -- Tokens stored as hex-encoded AES-256-GCM ciphertext (key = RB_OAUTH_ENCRYPT_KEY).
     access_token    TEXT        NOT NULL,
     refresh_token   TEXT,
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS agents.oauth_tokens (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT oauth_tokens_provider_check
-        CHECK (provider IN ('claude_code', 'open_code', 'pi')),
+        CHECK (provider IN ('claude_code', 'open_code')),
     -- One active token per (tenant, user, provider).
     CONSTRAINT oauth_tokens_tenant_user_provider_uidx
         UNIQUE (tenant_id, user_id, provider)

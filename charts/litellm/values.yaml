@@ -34,10 +34,6 @@ config:
       litellm_params:
         model: "openai/gpt-4o"
         api_key: "os.environ/OPENAI_API_KEY"
-    - model_name: "pi"
-      litellm_params:
-        model: "pi/pi-4"
-        api_key: "os.environ/PI_API_KEY"
   general_settings:
     master_key: "os.environ/LITELLM_MASTER_KEY"
     database_url: "os.environ/DATABASE_URL"
