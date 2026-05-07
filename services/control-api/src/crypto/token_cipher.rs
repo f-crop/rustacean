@@ -2,7 +2,7 @@
 //!
 //! Design (ADR-009 §7.5):
 //! - Master key loaded from `RB_OAUTH_ENCRYPT_KEY` (hex-encoded 32 bytes).
-//! - Per-user subkey derived via HKDF-SHA-256(ikm=master, salt=`user_id`, info=`key_id`).
+//! - Per-user subkey derived via HKDF-SHA-256(ikm=master, salt=user_id, info=key_id).
 //! - Ciphertext format: `"v1:<base64(12-byte-nonce || aes-gcm-ciphertext)>"`.
 //!   The `v1:` prefix allows future format migrations and identifies legacy
 //!   plaintext rows (no prefix) for the rotation sweep.
@@ -78,14 +78,12 @@ impl OauthTokenCipher {
     }
 
     /// The KMS key id label for this cipher instance.
-    #[must_use]
     pub fn key_id(&self) -> &str {
         &self.key_id
     }
 
     /// Returns `true` if `value` was produced by [`encrypt`][Self::encrypt]
     /// (starts with `"v1:"`).  Values without this prefix are legacy plaintext.
-    #[must_use]
     pub fn is_encrypted(value: &str) -> bool {
         value.starts_with("v1:")
     }
@@ -98,10 +96,6 @@ impl OauthTokenCipher {
     /// # Errors
     ///
     /// Returns [`CipherError::DecryptFailed`] on the unlikely AEAD failure path.
-    ///
-    /// # Panics
-    ///
-    /// Never panics in practice — the derived 32-byte subkey always satisfies `Aes256Gcm`'s key size.
     pub fn encrypt(&self, plaintext: &str, user_id: Uuid) -> Result<String, CipherError> {
         let subkey = self.derive_subkey(user_id);
         let cipher = Aes256Gcm::new_from_slice(&subkey).expect("32-byte key always valid");
@@ -133,11 +127,7 @@ impl OauthTokenCipher {
     /// - [`CipherError::InvalidFormat`] — value does not start with `"v1:"` or
     ///   the base64 / blob length is invalid.
     /// - [`CipherError::DecryptFailed`] — AEAD tag verification failed (wrong
-    ///   key, wrong `user_id`, or corrupted ciphertext).
-    ///
-    /// # Panics
-    ///
-    /// Never panics in practice — the derived 32-byte subkey always satisfies `Aes256Gcm`'s key size.
+    ///   key, wrong user_id, or corrupted ciphertext).
     pub fn decrypt(&self, encoded: &str, user_id: Uuid) -> Result<String, CipherError> {
         let b64 = encoded.strip_prefix("v1:").ok_or(CipherError::InvalidFormat)?;
         let blob = base64::engine::general_purpose::STANDARD
@@ -159,7 +149,7 @@ impl OauthTokenCipher {
         String::from_utf8(plaintext_bytes).map_err(|_| CipherError::InvalidFormat)
     }
 
-    /// HKDF-SHA-256(ikm=`master_key`, salt=`user_id_bytes`, info=`key_id_bytes`) → 32-byte subkey.
+    /// HKDF-SHA-256(ikm=master_key, salt=user_id_bytes, info=key_id_bytes) → 32-byte subkey.
     ///
     /// Binding the subkey to `user_id` means a leaked column value is useless
     /// without both the master key and the specific user's UUID.

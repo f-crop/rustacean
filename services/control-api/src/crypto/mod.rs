@@ -1,2 +1,1 @@
-mod token_cipher;
-pub use token_cipher::OauthTokenCipher;
+pub mod token_cipher;

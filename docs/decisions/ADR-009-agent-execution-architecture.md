@@ -798,6 +798,79 @@ Each has a working assumption that lets the wave ship without the answer.
 - New `docs/deployment.md` § "LiteLLM" — Helm values, secret wiring, scaling guidance, the failure-mode matrix from §6.4 reproduced for ops.
 - Updated `README.md` — one-paragraph description of agent execution + the three runtimes; pointer here.
 
+### 13.1 OAuth KMS key rotation runbook (RUSAA-862)
+
+**Cadence:** Rotate `oauth-claude-v1` every **90 days** (calendar reminder: `RB_OAUTH_ENCRYPT_KEY_ID`
+rotations align with Q1/Q2/Q3/Q4 starts).  A compromised key affects all stored OAuth refresh tokens
+until the next rotation.
+
+**Encryption scheme:**
+- Algorithm: AES-256-GCM with a freshly generated 96-bit nonce per encryption call.
+- Key derivation: HKDF-SHA-256(IKM=master_key, salt=user_id, info=key_id) → per-user 32-byte subkey.
+  Even a leaked ciphertext blob is useless without both the master key and the user's UUID.
+- Ciphertext format in `oauth_tokens.access_token` / `refresh_token`:
+  `"v1:<base64(12-byte-nonce || aes-gcm-ciphertext)>"`.
+  Plaintext rows (pre-migration or dev-mode) contain no `v1:` prefix.
+- Key version tracked in `oauth_tokens.encryption_key_id` column (migration 012).
+
+**Step-by-step rotation procedure:**
+
+1. **Generate new key material**
+
+   ```bash
+   openssl rand -hex 32   # → new 64-char hex key, e.g. "a1b2c3..."
+   ```
+
+2. **Update secrets** (Kubernetes Secret or `rb-secrets` store):
+
+   | Env var | Value |
+   |---------|-------|
+   | `RB_OAUTH_ENCRYPT_KEY` | `<new 64-char hex key>` |
+   | `RB_OAUTH_ENCRYPT_KEY_ID` | `oauth-claude-v2` (or next version label) |
+   | `RB_OAUTH_ENCRYPT_KEY_PREV` | `<old hex key>` |
+   | `RB_OAUTH_ENCRYPT_KEY_PREV_ID` | `oauth-claude-v1` (the outgoing label) |
+   | `RB_OAUTH_ROTATE_KEYS_ON_BOOT` | `true` |
+
+3. **Deploy the new control-api pod(s).**  On startup, the service:
+   - Logs `OAuth token cipher initialised key_id=oauth-claude-v2`.
+   - Spawns the background rotation sweep which queries
+     `SELECT … FROM agents.oauth_tokens WHERE encryption_key_id != 'oauth-claude-v2'`
+     in batches of 50 rows, re-encrypting each row with the new key.
+   - Emits `oauth_key_rotation_rows_rotated_total` and `oauth_key_rotation_rows_failed_total`
+     Prometheus counters as the sweep progresses.
+   - Logs `token_key_rotation: sweep finished ok=N errors=0` when complete.
+
+4. **Verify** that all rows are on the new key:
+
+   ```sql
+   -- Should return exactly one row with the new key id and errors=0.
+   SELECT encryption_key_id, COUNT(*) AS n
+   FROM agents.oauth_tokens
+   GROUP BY 1
+   ORDER BY 1;
+   ```
+
+   Also check Prometheus: `oauth_key_rotation_rows_failed_total` should be 0.
+
+5. **Remove the previous key** once verification passes:
+   - Unset `RB_OAUTH_ENCRYPT_KEY_PREV`, `RB_OAUTH_ENCRYPT_KEY_PREV_ID`,
+     and `RB_OAUTH_ROTATE_KEYS_ON_BOOT` from the secrets store.
+   - Redeploy.  The service will log `RB_OAUTH_ENCRYPT_KEY_PREV is not set` at
+     startup (informational only).
+
+6. **Archive the retired key** in the organisation's key escrow with a
+   destruction date of `today + 180 days` (double the rotation period, to allow
+   incident-driven rollback).
+
+**Rollback (key compromise):**
+- Immediately set `RB_OAUTH_ENCRYPT_KEY` to a freshly generated key and `RB_OAUTH_ROTATE_KEYS_ON_BOOT=true`.
+- Treat the previous key as compromised: revoke all Claude OAuth tokens affected via
+  `DELETE /v1/auth/oauth/claude` per user (or bulk DELETE on `agents.oauth_tokens`) so
+  that sessions using the old access token fail at the next refresh rather than silently
+  continuing.
+- Rotate LiteLLM virtual keys as a precaution (admin endpoint `POST /v1/auth/litellm/rotate`).
+- File a P0 incident; follow the Security Incident Response runbook.
+
 ---
 
 ## 14. Acceptance criteria (mirrors RUSAA-719)
