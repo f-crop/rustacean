@@ -26,10 +26,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use rb_mcp::{
-    InitializeParams, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse,
+    InitializeParams, InitializeResult, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse,
     MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND, SESSION_NOT_FOUND, TENANT_DRIFT,
-    TOOL_NOT_FOUND, UNAUTHORIZED_MCP,
-    protocol::{InitializeResult, ToolCallParams, ToolsListResult, phase1_tools},
+    TOOL_NOT_FOUND, ToolCallParams, ToolsListResult, UNAUTHORIZED_MCP, phase1_tools,
 };
 use uuid::Uuid;
 
@@ -210,7 +209,7 @@ async fn handle_tools_call(
                 tenant_id = %session_tenant_id,
                 "MCP tool call failed: {e:?}"
             );
-            (rb_mcp::protocol::ToolCallResult::error(format!("{e:?}")), "error")
+            (rb_mcp::ToolCallResult::error(format!("{e:?}")), "error")
         }
     };
 
