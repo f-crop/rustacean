@@ -1,6 +1,6 @@
-//! LiteLLM adapter — `OpenCodeRuntime` and `PiRuntime` (ADR-009 §6.3).
+//! `LiteLLM` adapter — `OpenCodeRuntime` and `PiRuntime` (ADR-009 §6.3).
 //!
-//! Both use the LiteLLM in-cluster proxy which exposes an OpenAI-compatible
+//! Both use the `LiteLLM` in-cluster proxy which exposes an OpenAI-compatible
 //! `/chat/completions` endpoint.  The only difference is the virtual key and
 //! model name used per runtime kind.
 
@@ -87,6 +87,7 @@ struct LiteLlmRuntime {
 }
 
 impl LiteLlmRuntime {
+    #[allow(clippy::too_many_lines)]
     async fn run_inner(
         &self,
         ctx: SessionContext,
@@ -160,7 +161,7 @@ impl LiteLlmRuntime {
 
             let api_resp: ChatResponse = resp.json().await?;
             if let Some(usage) = &api_resp.usage {
-                total_tokens += usage.total_tokens as i64;
+                total_tokens += i64::from(usage.total_tokens);
             }
 
             let choice = api_resp.choices.into_iter().next().ok_or_else(|| {
@@ -203,7 +204,7 @@ impl LiteLlmRuntime {
                         Ok(v) => (v.to_string(), false),
                         Err(e) => (e, true),
                     };
-                let duration_ms = t0.elapsed().as_millis() as u64;
+                let duration_ms = u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
 
                 on_event(SessionEvent::ToolResult(ToolResultPayload {
                     tool_use_id: call.id.clone(),
@@ -221,7 +222,7 @@ impl LiteLlmRuntime {
             }
         }
 
-        let duration_ms = start.elapsed().as_millis() as u64;
+        let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
         on_event(SessionEvent::Completed(SessionCompletedPayload {
             tokens_used: total_tokens,
             duration_ms,
@@ -241,6 +242,7 @@ impl LiteLlmRuntime {
 pub struct OpenCodeRuntime(LiteLlmRuntime);
 
 impl OpenCodeRuntime {
+    #[must_use]
     pub fn new(http: reqwest::Client, base_url: String, virtual_key: String) -> Self {
         Self(LiteLlmRuntime {
             kind: "open_code",
@@ -276,6 +278,7 @@ impl AgentRuntime for OpenCodeRuntime {
 pub struct PiRuntime(LiteLlmRuntime);
 
 impl PiRuntime {
+    #[must_use]
     pub fn new(http: reqwest::Client, base_url: String, virtual_key: String) -> Self {
         Self(LiteLlmRuntime {
             kind: "pi",

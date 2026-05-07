@@ -11,7 +11,7 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use rb_agent_runtime::{adapters::claude::TokenStore, error::RuntimeError};
+use rb_agent_runtime::{TokenStore, RuntimeError};
 
 const ANTHROPIC_TOKEN_URL: &str = "https://claude.ai/oauth/token";
 
