@@ -5,20 +5,14 @@
 //!   1. Validates the `state` param against the `rb_pkce_state` cookie.
 //!   2. Exchanges the `code` for access/refresh tokens via Anthropic's token endpoint.
 //!   3. Upserts the encrypted tokens into `agents.oauth_tokens`.
-//!   4. Redirects the browser to the post-OAuth URI stored in the PKCE cookie, or the
-//!      default integrations page when none was supplied.
-//!
-//! Cookie format (set by `start.rs`):
-//!   `{state}:{code_verifier}`                     — no custom redirect
-//!   `{state}:{code_verifier}:{b64_redirect_uri}`  — custom redirect (base64url, no pad)
+//!   4. Redirects the browser to the configured frontend URL.
 
 use axum::{
     extract::{Query, State},
     response::{IntoResponse, Redirect},
 };
-use axum_extra::extract::CookieJar;
-use base64::Engine as _;
 use serde::Deserialize;
+use axum_extra::extract::CookieJar;
 
 use crate::{
     error::AppError,
@@ -72,26 +66,15 @@ pub async fn claude_oauth_callback(
         return Err(AppError::InvalidToken);
     }
 
-    // Validate state + extract code_verifier (and optional post-oauth redirect) from cookie.
+    // Validate state + extract code_verifier from cookie.
     let pkce_cookie = cookies
         .get(PKCE_STATE_COOKIE)
         .map(|c| c.value().to_owned())
         .ok_or(AppError::InvalidToken)?;
 
-    // Cookie format: "{state}:{code_verifier}" or "{state}:{code_verifier}:{b64_redirect}"
-    // splitn(3) keeps the third segment intact regardless of colons inside the redirect.
-    let parts: Vec<&str> = pkce_cookie.splitn(3, ':').collect();
-    let (cookie_state, code_verifier, post_oauth_redirect) = match parts.as_slice() {
-        [s, cv, b64] => {
-            let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(b64)
-                .map_err(|_| AppError::InvalidToken)?;
-            let uri = String::from_utf8(decoded).map_err(|_| AppError::InvalidToken)?;
-            (*s, *cv, Some(uri))
-        }
-        [s, cv] => (*s, *cv, None),
-        _ => return Err(AppError::InvalidToken),
-    };
+    let (cookie_state, code_verifier) = pkce_cookie
+        .split_once(':')
+        .ok_or(AppError::InvalidToken)?;
 
     if cookie_state != query.state {
         tracing::warn!("PKCE state mismatch");
@@ -106,57 +89,17 @@ pub async fn claude_oauth_callback(
 
     let redirect_uri = format!("{}/v1/auth/oauth/claude/callback", state.config.base_url);
 
-    let token_resp = exchange_code_for_tokens(
-        &state.http_client,
-        client_id,
-        query.code.as_str(),
-        redirect_uri.as_str(),
-        code_verifier,
-    )
-    .await?;
-
-    let expires_at = token_resp
-        .expires_in
-        .map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs));
-    let scopes: Vec<String> = token_resp
-        .scope
-        .as_deref()
-        .map(|s| s.split_whitespace().map(String::from).collect())
-        .unwrap_or_default();
-
-    encrypt_and_upsert_tokens(&state, session.tenant_id, session.user_id, &token_resp, expires_at, &scopes).await?;
-
-    tracing::info!(
-        tenant_id = %session.tenant_id,
-        user_id = %session.user_id,
-        "claude_code OAuth token stored"
-    );
-
-    let destination = post_oauth_redirect.unwrap_or_else(|| {
-        format!(
-            "{}/settings/integrations?oauth=claude&status=success",
-            state.config.base_url
-        )
-    });
-    Ok(Redirect::temporary(&destination))
-}
-
-async fn exchange_code_for_tokens(
-    http: &reqwest::Client,
-    client_id: &str,
-    code: &str,
-    redirect_uri: &str,
-    code_verifier: &str,
-) -> Result<TokenResponse, AppError> {
+    // Exchange code for tokens.
     let params = [
         ("grant_type", "authorization_code"),
-        ("code", code),
-        ("redirect_uri", redirect_uri),
+        ("code", query.code.as_str()),
+        ("redirect_uri", redirect_uri.as_str()),
         ("client_id", client_id),
         ("code_verifier", code_verifier),
     ];
 
-    let resp = http
+    let resp = state
+        .http_client
         .post(ANTHROPIC_TOKEN_URL)
         .form(&params)
         .send()
@@ -173,69 +116,42 @@ async fn exchange_code_for_tokens(
         return Err(AppError::InvalidToken);
     }
 
-    resp.json().await.map_err(|e| {
+    let token_resp: TokenResponse = resp.json().await.map_err(|e| {
         tracing::error!("failed to parse Anthropic token response: {e}");
         AppError::Internal(anyhow::anyhow!("internal error"))
-    })
-}
+    })?;
 
-async fn encrypt_and_upsert_tokens(
-    state: &AppState,
-    tenant_id: uuid::Uuid,
-    user_id: uuid::Uuid,
-    token_resp: &TokenResponse,
-    expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    scopes: &[String],
-) -> Result<(), AppError> {
-    let (stored_access, stored_refresh, key_id) = match state.token_cipher.as_deref() {
-        Some(cipher) => {
-            let enc_access = cipher
-                .encrypt(&token_resp.access_token, user_id)
-                .map_err(|e| {
-                    tracing::error!("failed to encrypt OAuth access_token: {e}");
-                    AppError::Internal(anyhow::anyhow!("internal error"))
-                })?;
-            let enc_refresh = token_resp
-                .refresh_token
-                .as_deref()
-                .map(|rt| cipher.encrypt(rt, user_id))
-                .transpose()
-                .map_err(|e| {
-                    tracing::error!("failed to encrypt OAuth refresh_token: {e}");
-                    AppError::Internal(anyhow::anyhow!("internal error"))
-                })?;
-            (enc_access, enc_refresh, cipher.key_id().to_owned())
-        }
-        None => (
-            token_resp.access_token.clone(),
-            token_resp.refresh_token.clone(),
-            "none".to_owned(),
-        ),
-    };
+    let expires_at = token_resp.expires_in.map(|secs| {
+        chrono::Utc::now() + chrono::Duration::seconds(secs)
+    });
 
+    let scopes: Vec<String> = token_resp
+        .scope
+        .map(|s| s.split_whitespace().map(String::from).collect())
+        .unwrap_or_default();
+
+    // Upsert into agents.oauth_tokens (ON CONFLICT tenant+user+provider → UPDATE).
+    // Dynamic query — agents schema not in sqlx offline cache yet.
     sqlx::query(
-        r"
+        r#"
         INSERT INTO agents.oauth_tokens
-            (tenant_id, user_id, provider, access_token, refresh_token,
-             expires_at, scopes, encryption_key_id, updated_at)
-        VALUES ($1, $2, 'claude_code', $3, $4, $5, $6, $7, now())
+            (tenant_id, user_id, provider, access_token, refresh_token, expires_at, scopes, updated_at)
+        VALUES ($1, $2, 'claude_code', $3, $4, $5, $6, now())
         ON CONFLICT (tenant_id, user_id, provider)
         DO UPDATE SET
-            access_token      = EXCLUDED.access_token,
-            refresh_token     = EXCLUDED.refresh_token,
-            expires_at        = EXCLUDED.expires_at,
-            scopes            = EXCLUDED.scopes,
-            encryption_key_id = EXCLUDED.encryption_key_id,
-            updated_at        = now()
-        ",
+            access_token  = EXCLUDED.access_token,
+            refresh_token = EXCLUDED.refresh_token,
+            expires_at    = EXCLUDED.expires_at,
+            scopes        = EXCLUDED.scopes,
+            updated_at    = now()
+        "#,
     )
-    .bind(tenant_id)
-    .bind(user_id)
-    .bind(&stored_access)
-    .bind(&stored_refresh)
+    .bind(session.tenant_id)
+    .bind(session.user_id)
+    .bind(&token_resp.access_token)
+    .bind(&token_resp.refresh_token)
     .bind(expires_at)
-    .bind(scopes)
-    .bind(&key_id)
+    .bind(&scopes)
     .execute(&state.pool)
     .await
     .map_err(|e| {
@@ -243,5 +159,13 @@ async fn encrypt_and_upsert_tokens(
         AppError::Internal(anyhow::anyhow!("internal error"))
     })?;
 
-    Ok(())
+    tracing::info!(
+        tenant_id = %session.tenant_id,
+        user_id = %session.user_id,
+        "claude_code OAuth token stored"
+    );
+
+    // Redirect to frontend.
+    let frontend_url = format!("{}/settings/integrations?oauth=claude&status=success", state.config.base_url);
+    Ok(Redirect::temporary(&frontend_url))
 }

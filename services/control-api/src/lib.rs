@@ -1,3 +1,4 @@
+mod agents;
 mod config;
 mod error;
 mod ingest_consumer;
@@ -12,4 +13,4 @@ pub use error::AppError;
 pub use openapi::ApiDoc;
 pub use routes::build;
 pub use server::run;
-pub use state::{AppState, KafkaConsistencyState, McpSessionStore};
+pub use state::{AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore};

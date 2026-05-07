@@ -1,7 +1,8 @@
-//! `LiteLLM` adapter — `OpenCodeRuntime` (ADR-009 §6.3).
+//! LiteLLM adapter — `OpenCodeRuntime` and `PiRuntime` (ADR-009 §6.3).
 //!
-//! Uses the `LiteLLM` in-cluster proxy which exposes an OpenAI-compatible
-//! `/chat/completions` endpoint with a per-tenant virtual key.
+//! Both use the LiteLLM in-cluster proxy which exposes an OpenAI-compatible
+//! `/chat/completions` endpoint.  The only difference is the virtual key and
+//! model name used per runtime kind.
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -86,7 +87,6 @@ struct LiteLlmRuntime {
 }
 
 impl LiteLlmRuntime {
-    #[allow(clippy::too_many_lines)]
     async fn run_inner(
         &self,
         ctx: SessionContext,
@@ -160,7 +160,7 @@ impl LiteLlmRuntime {
 
             let api_resp: ChatResponse = resp.json().await?;
             if let Some(usage) = &api_resp.usage {
-                total_tokens += i64::from(usage.total_tokens);
+                total_tokens += usage.total_tokens as i64;
             }
 
             let choice = api_resp.choices.into_iter().next().ok_or_else(|| {
@@ -203,7 +203,7 @@ impl LiteLlmRuntime {
                         Ok(v) => (v.to_string(), false),
                         Err(e) => (e, true),
                     };
-                let duration_ms = u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let duration_ms = t0.elapsed().as_millis() as u64;
 
                 on_event(SessionEvent::ToolResult(ToolResultPayload {
                     tool_use_id: call.id.clone(),
@@ -221,7 +221,7 @@ impl LiteLlmRuntime {
             }
         }
 
-        let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let duration_ms = start.elapsed().as_millis() as u64;
         on_event(SessionEvent::Completed(SessionCompletedPayload {
             tokens_used: total_tokens,
             duration_ms,
@@ -241,7 +241,6 @@ impl LiteLlmRuntime {
 pub struct OpenCodeRuntime(LiteLlmRuntime);
 
 impl OpenCodeRuntime {
-    #[must_use]
     pub fn new(http: reqwest::Client, base_url: String, virtual_key: String) -> Self {
         Self(LiteLlmRuntime {
             kind: "open_code",
@@ -270,4 +269,37 @@ impl AgentRuntime for OpenCodeRuntime {
     }
 }
 
+// ---------------------------------------------------------------------------
+// PiRuntime
+// ---------------------------------------------------------------------------
 
+pub struct PiRuntime(LiteLlmRuntime);
+
+impl PiRuntime {
+    pub fn new(http: reqwest::Client, base_url: String, virtual_key: String) -> Self {
+        Self(LiteLlmRuntime {
+            kind: "pi",
+            http,
+            base_url,
+            virtual_key,
+        })
+    }
+}
+
+#[async_trait]
+impl AgentRuntime for PiRuntime {
+    fn kind(&self) -> &'static str { "pi" }
+
+    async fn run(
+        &self,
+        ctx: SessionContext,
+        dispatch: &dyn ToolDispatch,
+        on_event: &(dyn Fn(SessionEvent) + Send + Sync),
+    ) -> Result<RunOutcome, RuntimeError> {
+        self.0.run_inner(ctx, dispatch, on_event).await
+    }
+
+    async fn cancel(&self, _session_id: Uuid) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+}

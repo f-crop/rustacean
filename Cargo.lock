@@ -1055,6 +1055,7 @@ name = "control-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.8.9",
  "axum-extra",
  "base64",
@@ -1069,6 +1070,7 @@ dependencies = [
  "migrate",
  "opentelemetry",
  "rand 0.9.4",
+ "rb-agent-runtime",
  "rb-auth",
  "rb-email",
  "rb-github",
@@ -3674,6 +3676,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "rb-agent-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
