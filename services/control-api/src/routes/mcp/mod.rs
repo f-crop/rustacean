@@ -38,24 +38,33 @@ use crate::{
     state::AppState,
 };
 
-// Re-export for route registration in routes/mod.rs.
-pub use handler::mcp_handler;
-
-mod handler {
-    use super::*;
-
-    /// `POST /mcp` — public Axum handler.
-    ///
-    /// Delegates to the inner dispatcher; both success and error paths return
-    /// a fully-formed `Response` (see module docs on why we don't use `AppError`).
-    pub async fn mcp_handler(
-        State(state): State<AppState>,
-        auth: AuthContext,
-        headers: HeaderMap,
-        body: axum::body::Bytes,
-    ) -> Response {
-        dispatch(&state, auth, headers, body).await.unwrap_or_else(|e| e)
-    }
+/// `POST /mcp` — Model Context Protocol JSON-RPC 2.0 endpoint (ADR-009 Phase 1).
+///
+/// Accepts a JSON-RPC 2.0 request body and returns a JSON-RPC 2.0 response.
+/// Notifications (requests without an `id` field) return HTTP 202 with no body.
+/// All error paths return HTTP 200 with a JSON-RPC error object (spec-compliant).
+#[utoipa::path(
+    post,
+    path = "/mcp",
+    request_body(
+        content = serde_json::Value,
+        description = "JSON-RPC 2.0 request or notification",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "JSON-RPC 2.0 response (for requests)"),
+        (status = 202, description = "Notification accepted — no body (notifications/initialized)"),
+        (status = 401, description = "Bearer token missing or invalid"),
+    ),
+    tag = "mcp"
+)]
+pub async fn mcp_handler(
+    State(state): State<AppState>,
+    auth: AuthContext,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    dispatch(&state, auth, headers, body).await.unwrap_or_else(|e| e)
 }
 
 // ---------------------------------------------------------------------------
