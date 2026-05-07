@@ -25,6 +25,7 @@ members = [
     "services/ingest-graph",
     "crates/rb-query",
     "crates/rb-mcp",
+    "crates/rb-agent-runtime",
     "crates/rb-audit-cli",
     "crates/rb-storage-neo4j",
     "crates/rb-storage-qdrant",

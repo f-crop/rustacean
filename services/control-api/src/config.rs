@@ -64,6 +64,18 @@ pub struct Config {
     /// `RB_EMBEDDING_MODEL` — Ollama model used to embed search queries.
     /// Must match the model used by `embed-worker`. Defaults to `nomic-embed-text`.
     pub embedding_model: String,
+
+    // --- Agent runtime / OAuth (ADR-009 Phase 1) ---
+    /// `RB_CLAUDE_OAUTH_CLIENT_ID` — Anthropic OAuth client ID for PKCE flow.
+    /// Optional; `/v1/auth/oauth/claude/start` returns 503 when absent.
+    pub claude_oauth_client_id: Option<String>,
+    /// `RB_LITELLM_URL` — LiteLLM in-cluster proxy base URL.
+    /// Optional; `open_code` and `pi` runtimes return 503 when absent.
+    pub litellm_url: Option<String>,
+    /// `RB_LITELLM_OPEN_CODE_KEY` — Virtual key for the `open_code` runtime.
+    pub litellm_open_code_key: Option<String>,
+    /// `RB_LITELLM_PI_KEY` — Virtual key for the `pi` runtime.
+    pub litellm_pi_key: Option<String>,
 }
 
 impl Config {
@@ -130,6 +142,16 @@ impl Config {
             ollama_url: env::var("RB_OLLAMA_URL").ok().filter(|s| !s.is_empty()),
             embedding_model: env::var("RB_EMBEDDING_MODEL")
                 .unwrap_or_else(|_| "nomic-embed-text".to_owned()),
+            claude_oauth_client_id: env::var("RB_CLAUDE_OAUTH_CLIENT_ID")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            litellm_url: env::var("RB_LITELLM_URL").ok().filter(|s| !s.is_empty()),
+            litellm_open_code_key: env::var("RB_LITELLM_OPEN_CODE_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            litellm_pi_key: env::var("RB_LITELLM_PI_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
         })
     }
 
@@ -235,6 +257,10 @@ impl Config {
             qdrant_url: None,
             ollama_url: None,
             embedding_model: "nomic-embed-text".to_owned(),
+            claude_oauth_client_id: None,
+            litellm_url: None,
+            litellm_open_code_key: None,
+            litellm_pi_key: None,
         }
     }
 }

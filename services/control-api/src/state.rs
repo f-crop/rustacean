@@ -1,8 +1,10 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicI64, AtomicU64},
+    atomic::{AtomicI64, AtomicU64, Ordering},
 };
 
+use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use rb_auth::{LoginRateLimiter, PasswordHasher};
 pub use rb_mcp::McpSessionStore;
 use rb_email::EmailSender;
@@ -14,6 +16,8 @@ use rb_sse::EventBus;
 use rb_storage_neo4j::TenantGraph;
 use rb_storage_qdrant::TenantVectorStore;
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 use crate::config::Config;
 
@@ -45,6 +49,129 @@ impl Default for KafkaConsistencyState {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// AgentRegistry — ADR-009 Phase 1
+// ---------------------------------------------------------------------------
+
+/// Per-process concurrency limit for active agent sessions (ADR-009 §3.2).
+pub const MAX_ACTIVE_SESSIONS_PER_PROCESS: usize = 200;
+
+/// Live-session entry tracked in the in-memory registry.
+#[derive(Debug, Clone)]
+pub struct SessionHandle {
+    pub session_id: Uuid,
+    pub tenant_id: Uuid,
+    pub user_id: Uuid,
+    pub runtime_kind: String,
+    pub token_budget: i64,
+    pub tokens_used: Arc<AtomicI64>,
+    pub status: Arc<tokio::sync::RwLock<String>>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl SessionHandle {
+    pub fn new(
+        session_id: Uuid,
+        tenant_id: Uuid,
+        user_id: Uuid,
+        runtime_kind: String,
+        token_budget: i64,
+    ) -> Self {
+        Self {
+            session_id,
+            tenant_id,
+            user_id,
+            runtime_kind,
+            token_budget,
+            tokens_used: Arc::new(AtomicI64::new(0)),
+            status: Arc::new(tokio::sync::RwLock::new("created".to_owned())),
+            created_at: Utc::now(),
+        }
+    }
+
+    pub fn add_tokens(&self, n: i64) {
+        self.tokens_used.fetch_add(n, Ordering::Relaxed);
+    }
+
+    pub fn tokens_used(&self) -> i64 {
+        self.tokens_used.load(Ordering::Relaxed)
+    }
+
+    pub fn budget_remaining(&self) -> i64 {
+        self.token_budget - self.tokens_used()
+    }
+}
+
+/// In-memory registry of active agent sessions.
+///
+/// - Tracks all running sessions with their token budgets.
+/// - Enforces `MAX_ACTIVE_SESSIONS_PER_PROCESS` via a semaphore.
+/// - Cheap to clone (Arc-backed).
+#[derive(Clone)]
+pub struct AgentRegistry {
+    sessions: Arc<DashMap<Uuid, SessionHandle>>,
+    /// Semaphore cap at `MAX_ACTIVE_SESSIONS_PER_PROCESS`.
+    semaphore: Arc<Semaphore>,
+    /// Global token budget meter (sum of tokens used across all live sessions).
+    global_tokens_used: Arc<AtomicI64>,
+}
+
+impl AgentRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            sessions: Arc::new(DashMap::new()),
+            semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_SESSIONS_PER_PROCESS)),
+            global_tokens_used: Arc::new(AtomicI64::new(0)),
+        }
+    }
+
+    /// Try to acquire a slot.  Returns `None` if at the process cap.
+    pub fn try_acquire(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
+        self.semaphore.try_acquire().ok()
+    }
+
+    /// Insert a new session handle (call after acquiring semaphore slot).
+    pub fn insert(&self, handle: SessionHandle) {
+        self.sessions.insert(handle.session_id, handle);
+    }
+
+    /// Remove a completed/failed session.
+    pub fn remove(&self, session_id: &Uuid) -> Option<SessionHandle> {
+        self.sessions.remove(session_id).map(|(_, h)| h)
+    }
+
+    /// Return a clone of the handle for the given session, if active.
+    pub fn get(&self, session_id: &Uuid) -> Option<SessionHandle> {
+        self.sessions.get(session_id).map(|r| r.clone())
+    }
+
+    /// Number of currently active sessions in this process.
+    pub fn active_count(&self) -> usize {
+        self.sessions.len()
+    }
+
+    /// Accumulate tokens used into the global meter.
+    pub fn record_tokens(&self, n: i64) {
+        self.global_tokens_used.fetch_add(n, Ordering::Relaxed);
+    }
+
+    /// Total tokens consumed across all live sessions since process start.
+    pub fn global_tokens_used(&self) -> i64 {
+        self.global_tokens_used.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for AgentRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AppState
+// ---------------------------------------------------------------------------
 
 /// Shared application state injected into every request handler.
 #[derive(Clone)]
@@ -82,4 +209,6 @@ pub struct AppState {
     pub kafka_consistency: Arc<KafkaConsistencyState>,
     /// In-process MCP session table (ADR-009 Phase 1).
     pub mcp_sessions: McpSessionStore,
+    /// In-process agent session registry (ADR-009 Phase 1).
+    pub agent_registry: AgentRegistry,
 }

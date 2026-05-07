@@ -1,0 +1,89 @@
+# LiteLLM in-cluster proxy values (ADR-009 Phase 1).
+#
+# One virtual-key per (tenant, runtime_kind) tuple is provisioned
+# via the virtual-key provisioning script at infra/scripts/litellm-provision-keys.sh.
+# mTLS is handled by the existing service mesh (Istio / Linkerd).
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/berriai/litellm
+  tag: "main-v1.40.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 4000
+  targetPort: 4000
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1Gi"
+
+# LiteLLM configuration written to /app/config.yaml at startup.
+config:
+  # Master key for the proxy (set via litellm.masterKey env-var or Helm secret).
+  master_key: ""
+  # Model list — each model maps a virtual model name to a real provider.
+  model_list:
+    - model_name: "open_code"
+      litellm_params:
+        model: "openai/gpt-4o"
+        api_key: "os.environ/OPENAI_API_KEY"
+    - model_name: "pi"
+      litellm_params:
+        model: "pi/pi-4"
+        api_key: "os.environ/PI_API_KEY"
+  general_settings:
+    master_key: "os.environ/LITELLM_MASTER_KEY"
+    database_url: "os.environ/DATABASE_URL"
+    # Enable virtual key management (one key per tenant/runtime tuple).
+    use_client_credentials_pass_through_routes: false
+
+# Environment variables injected from a Kubernetes Secret named litellm-secrets.
+envFrom:
+  - secretRef:
+      name: litellm-secrets
+      optional: false
+
+# Pod disruption budget: always keep at least 1 replica during rolling updates.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Anti-affinity: spread replicas across nodes.
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: litellm
+          topologyKey: kubernetes.io/hostname
+
+# Health probes.
+livenessProbe:
+  httpGet:
+    path: /health/liveliness
+    port: 4000
+  initialDelaySeconds: 15
+  periodSeconds: 30
+
+readinessProbe:
+  httpGet:
+    path: /health/readiness
+    port: 4000
+  initialDelaySeconds: 10
+  periodSeconds: 15
+
+# Network policy: allow ingress from control-api pods only.
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - rustbrain-prod
+    - rustbrain-staging
