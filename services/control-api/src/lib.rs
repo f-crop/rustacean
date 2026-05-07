@@ -1,7 +1,9 @@
 mod agents;
 mod config;
+pub mod crypto;
 mod error;
 mod ingest_consumer;
+pub mod jobs;
 mod middleware;
 mod openapi;
 mod routes;
@@ -9,6 +11,7 @@ mod server;
 mod state;
 
 pub use config::Config;
+pub use crypto::token_cipher::OauthTokenCipher;
 pub use error::AppError;
 pub use openapi::ApiDoc;
 pub use routes::build;
