@@ -11,7 +11,7 @@ mod server;
 mod state;
 
 pub use config::Config;
-pub use crypto::token_cipher::OauthTokenCipher;
+pub use crypto::OauthTokenCipher;
 pub use error::AppError;
 pub use openapi::ApiDoc;
 pub use routes::build;
