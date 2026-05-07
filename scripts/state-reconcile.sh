@@ -13,8 +13,8 @@
 #
 # Drift behaviour:
 #   - OPEN state-drift:<env> umbrella issue — created idempotently, updated on each fire
-#   - Closed (done) umbrella issue — auto-closed when drift clears; not re-opened when new drift arrives
-#   - Drift on a closed *done* issue — appends drift-detected comment; NO auto-re-open
+#   - Closed (done) umbrella issue — auto-closed when drift clears
+#   - Drift when umbrella is done/cancelled — creates a new umbrella issue (no re-open of old)
 #   - First-fire baseline — drifts recorded before RECONCILE_BASELINE_DATE are ignored
 #
 # Required env vars:
@@ -488,11 +488,18 @@ find_drift_umbrella_issue() {
 import sys, json
 data = json.load(sys.stdin)
 issues = data if isinstance(data, list) else data.get('issues', [])
-# Find exact title match
+active_statuses = {'todo', 'in_progress'}
+active_match = None
+any_match = None
 for i in issues:
     if i.get('title','').strip() == 'state-drift: $env':
-        print(i['id'], i.get('status',''), i.get('identifier',''))
-        break
+        if i.get('status','') in active_statuses and active_match is None:
+            active_match = i
+        if any_match is None:
+            any_match = i
+found = active_match or any_match
+if found:
+    print(found['id'], found.get('status',''), found.get('identifier',''))
 " 2>/dev/null || echo ""
 }
 
@@ -538,9 +545,13 @@ All 5 reconciliation dimensions are clean on **$env**. Auto-closing." \
   report_body+=$'\n---\n'
   report_body+="Baseline date: $RECONCILE_BASELINE_DATE  "
 
-  if [ -z "$umbrella_id" ]; then
-    # Create new umbrella issue
-    log "  Creating state-drift:$env umbrella issue..."
+  if [ -z "$umbrella_id" ] || [ "$umbrella_status" = "done" ] || [ "$umbrella_status" = "cancelled" ]; then
+    # Create new umbrella issue — no active umbrella exists (or existing one is closed)
+    if [ -n "$umbrella_ident" ]; then
+      log "  Umbrella issue $umbrella_ident is $umbrella_status — creating new umbrella for new drift..."
+    else
+      log "  Creating state-drift:$env umbrella issue..."
+    fi
     local new_issue
     new_issue=$(curl -sf -X POST \
       -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
@@ -565,25 +576,8 @@ All 5 reconciliation dimensions are clean on **$env**. Auto-closing." \
     new_ident=$(echo "$new_issue" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('identifier',''))" 2>/dev/null || echo "")
     log "  Created umbrella issue: $new_ident ($new_id)"
   else
-    # Update existing open umbrella issue with new diff as a comment
+    # Append diff comment to existing active umbrella
     log "  Updating state-drift:$env umbrella issue ($umbrella_ident)..."
-    local update_status="$umbrella_status"
-    if [ "$umbrella_status" = "done" ] || [ "$umbrella_status" = "cancelled" ]; then
-      # Don't re-open closed issues — comment only per policy
-      log "  Umbrella issue $umbrella_ident is $umbrella_status — appending drift comment only (no re-open)"
-      curl -sf -X POST \
-        -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
-        -H "X-Paperclip-Run-Id: $RUN_ID" \
-        -H "Content-Type: application/json" \
-        "$API/api/issues/$umbrella_id/comments" \
-        -d "$(jq -n --arg body "## drift-detected — $TIMESTAMP
-
-New drift found on **$env** but umbrella issue is $umbrella_status. CTO triage required to re-open.
-
-$report_body" '{body: $body}')" > /dev/null
-      return
-    fi
-    # Append diff comment to open umbrella
     curl -sf -X POST \
       -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
       -H "X-Paperclip-Run-Id: $RUN_ID" \
