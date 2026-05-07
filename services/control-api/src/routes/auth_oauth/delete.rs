@@ -1,4 +1,4 @@
-//! `DELETE /v1/auth/oauth/claude` — revoke and remove stored claude_code OAuth token.
+//! `DELETE /v1/auth/oauth/claude` — revoke and remove stored `claude_code` OAuth token.
 
 use axum::{
     extract::State,

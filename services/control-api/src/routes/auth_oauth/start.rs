@@ -1,4 +1,4 @@
-//! `GET /v1/auth/oauth/claude/start` — initiate PKCE OAuth flow for claude_code.
+//! `GET /v1/auth/oauth/claude/start` — initiate PKCE OAuth flow for `claude_code`.
 //!
 //! Generates a random `code_verifier`, derives `code_challenge` (S256), and
 //! stores both in a short-lived session cookie `rb_pkce_state` (max-age 600s).

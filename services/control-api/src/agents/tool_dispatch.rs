@@ -13,12 +13,14 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
 
+#[allow(dead_code)]
 pub struct ControlApiToolDispatch {
     pool: PgPool,
     _qdrant: Option<Arc<TenantVectorStore>>,
     _module_tree_cache: ModuleTreeCache,
 }
 
+#[allow(dead_code)]
 impl ControlApiToolDispatch {
     pub fn new(
         pool: PgPool,
@@ -50,6 +52,7 @@ impl ToolDispatch for ControlApiToolDispatch {
     }
 }
 
+#[allow(dead_code, clippy::unused_async)]
 impl ControlApiToolDispatch {
     async fn search_items(
         &self,
