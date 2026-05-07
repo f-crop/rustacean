@@ -147,28 +147,60 @@ pub async fn claude_oauth_callback(
         .map(|s| s.split_whitespace().map(String::from).collect())
         .unwrap_or_default();
 
+    // Encrypt access and refresh tokens before persistence (RUSAA-862).
+    // When no cipher is configured (development), tokens are stored as-is.
+    let (stored_access, stored_refresh, key_id) =
+        match state.token_cipher.as_deref() {
+            Some(cipher) => {
+                let enc_access = cipher
+                    .encrypt(&token_resp.access_token, session.user_id)
+                    .map_err(|e| {
+                        tracing::error!("failed to encrypt OAuth access_token: {e}");
+                        AppError::Internal(anyhow::anyhow!("internal error"))
+                    })?;
+                let enc_refresh = token_resp
+                    .refresh_token
+                    .as_deref()
+                    .map(|rt| cipher.encrypt(rt, session.user_id))
+                    .transpose()
+                    .map_err(|e| {
+                        tracing::error!("failed to encrypt OAuth refresh_token: {e}");
+                        AppError::Internal(anyhow::anyhow!("internal error"))
+                    })?;
+                (enc_access, enc_refresh, cipher.key_id().to_owned())
+            }
+            None => (
+                token_resp.access_token.clone(),
+                token_resp.refresh_token.clone(),
+                "none".to_owned(),
+            ),
+        };
+
     // Upsert into agents.oauth_tokens (ON CONFLICT tenant+user+provider → UPDATE).
     // Dynamic query — agents schema not in sqlx offline cache yet.
     sqlx::query(
         r#"
         INSERT INTO agents.oauth_tokens
-            (tenant_id, user_id, provider, access_token, refresh_token, expires_at, scopes, updated_at)
-        VALUES ($1, $2, 'claude_code', $3, $4, $5, $6, now())
+            (tenant_id, user_id, provider, access_token, refresh_token,
+             expires_at, scopes, encryption_key_id, updated_at)
+        VALUES ($1, $2, 'claude_code', $3, $4, $5, $6, $7, now())
         ON CONFLICT (tenant_id, user_id, provider)
         DO UPDATE SET
-            access_token  = EXCLUDED.access_token,
-            refresh_token = EXCLUDED.refresh_token,
-            expires_at    = EXCLUDED.expires_at,
-            scopes        = EXCLUDED.scopes,
-            updated_at    = now()
+            access_token      = EXCLUDED.access_token,
+            refresh_token     = EXCLUDED.refresh_token,
+            expires_at        = EXCLUDED.expires_at,
+            scopes            = EXCLUDED.scopes,
+            encryption_key_id = EXCLUDED.encryption_key_id,
+            updated_at        = now()
         "#,
     )
     .bind(session.tenant_id)
     .bind(session.user_id)
-    .bind(&token_resp.access_token)
-    .bind(&token_resp.refresh_token)
+    .bind(&stored_access)
+    .bind(&stored_refresh)
     .bind(expires_at)
     .bind(&scopes)
+    .bind(&key_id)
     .execute(&state.pool)
     .await
     .map_err(|e| {

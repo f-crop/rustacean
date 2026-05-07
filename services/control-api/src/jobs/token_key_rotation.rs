@@ -28,7 +28,7 @@ use std::sync::Arc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::crypto::OauthTokenCipher;
+use crate::crypto::token_cipher::OauthTokenCipher;
 
 const BATCH_SIZE: i64 = 50;
 
@@ -43,7 +43,7 @@ const BATCH_SIZE: i64 = 50;
 pub async fn rotate_oauth_token_keys(
     pool: &PgPool,
     current: &Arc<OauthTokenCipher>,
-    prev: Option<&Arc<OauthTokenCipher>>,
+    prev: &Option<Arc<OauthTokenCipher>>,
 ) -> u64 {
     let target_key_id = current.key_id().to_owned();
     let mut total_ok: u64 = 0;
@@ -82,7 +82,7 @@ pub async fn rotate_oauth_token_keys(
                 refresh_token.as_deref(),
                 old_key_id,
                 current,
-                prev.map(|v| &**v),
+                prev.as_deref(),
                 pool,
             )
             .await;
@@ -121,7 +121,6 @@ pub async fn rotate_oauth_token_keys(
     total_ok
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn reencrypt_row(
     id: Uuid,
     user_id: Uuid,
@@ -192,7 +191,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::reencrypt_value;
-    use crate::crypto::OauthTokenCipher;
+    use crate::crypto::token_cipher::OauthTokenCipher;
 
     fn cipher(id: &str) -> Arc<OauthTokenCipher> {
         // Use distinct key bytes so current != prev.
