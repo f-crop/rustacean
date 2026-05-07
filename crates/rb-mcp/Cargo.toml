@@ -9,9 +9,8 @@ repository.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
-uuid.workspace = true
-thiserror.workspace = true
-chrono.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+dashmap.workspace = true
 
 [lints]
 workspace = true
