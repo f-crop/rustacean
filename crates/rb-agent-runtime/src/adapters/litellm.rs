@@ -4,8 +4,11 @@
 //! `/chat/completions` endpoint.  The only difference is the virtual key and
 //! model name used per runtime kind.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use chrono::Utc;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -84,6 +87,7 @@ struct LiteLlmRuntime {
     http: reqwest::Client,
     base_url: String,
     virtual_key: String,
+    cancel_map: Arc<DashMap<Uuid, tokio::sync::watch::Sender<bool>>>,
 }
 
 impl LiteLlmRuntime {
@@ -94,6 +98,9 @@ impl LiteLlmRuntime {
         dispatch: &dyn ToolDispatch,
         on_event: &(dyn Fn(SessionEvent) + Send + Sync),
     ) -> Result<RunOutcome, RuntimeError> {
+        let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        self.cancel_map.insert(ctx.session_id, cancel_tx);
+
         on_event(SessionEvent::Created(SessionCreatedPayload {
             runtime_kind: self.kind.into(),
             model: ctx.model.clone(),
@@ -125,6 +132,11 @@ impl LiteLlmRuntime {
         let chat_url = format!("{}/chat/completions", self.base_url);
 
         loop {
+            if *cancel_rx.borrow() {
+                self.cancel_map.remove(&ctx.session_id);
+                return Err(RuntimeError::Cancelled);
+            }
+
             if total_tokens >= ctx.token_budget {
                 return Err(RuntimeError::BudgetExhausted {
                     used: total_tokens,
@@ -223,6 +235,7 @@ impl LiteLlmRuntime {
         }
 
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.cancel_map.remove(&ctx.session_id);
         on_event(SessionEvent::Completed(SessionCompletedPayload {
             tokens_used: total_tokens,
             duration_ms,
@@ -249,6 +262,7 @@ impl OpenCodeRuntime {
             http,
             base_url,
             virtual_key,
+            cancel_map: Arc::new(DashMap::new()),
         })
     }
 }
@@ -266,7 +280,10 @@ impl AgentRuntime for OpenCodeRuntime {
         self.0.run_inner(ctx, dispatch, on_event).await
     }
 
-    async fn cancel(&self, _session_id: Uuid) -> Result<(), RuntimeError> {
+    async fn cancel(&self, session_id: Uuid) -> Result<(), RuntimeError> {
+        if let Some(entry) = self.0.cancel_map.get(&session_id) {
+            let _ = entry.send(true);
+        }
         Ok(())
     }
 }

@@ -54,12 +54,28 @@ impl EventBus {
         self.0.publish(tenant, name, data);
     }
 
-    /// Subscribe to the live event stream for `tenant`.
+    /// Subscribe to the live event stream for `tenant`, filtering to only emit
+    /// events whose `data` JSON contains `"session_id": "<session_id>"`.
     ///
     /// If `last_event_id` is provided and found in the 5-minute ring buffer,
     /// the stream first replays all events after that ID before switching to live.
     /// If not found (too old or unknown), a `stream-reset` event is emitted and
     /// the browser should perform a full state re-fetch.
+    #[must_use]
+    pub fn subscribe_session(
+        &self,
+        tenant: &TenantId,
+        session_id: &uuid::Uuid,
+        last_event_id: Option<&EventId>,
+    ) -> EventStream {
+        EventStream::new_filtered(
+            Arc::clone(&self.0),
+            tenant,
+            Some(*session_id),
+            last_event_id,
+            &SseConfig::default(),
+        )
+    }
     ///
     /// The returned [`EventStream`] implements both [`futures::Stream`] (for tests)
     /// and [`axum::response::IntoResponse`] (for handlers).

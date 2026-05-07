@@ -54,7 +54,8 @@ pub async fn rotate_oauth_token_keys(
             "SELECT id, user_id, access_token, refresh_token, encryption_key_id \
              FROM agents.oauth_tokens \
              WHERE encryption_key_id != $1 \
-             LIMIT $2",
+             LIMIT $2 \
+             FOR UPDATE",
         )
         .bind(&target_key_id)
         .bind(BATCH_SIZE)
