@@ -1,9 +1,9 @@
 mod agents;
 mod config;
-pub mod crypto;
+mod crypto;
 mod error;
 mod ingest_consumer;
-pub mod jobs;
+mod jobs;
 mod middleware;
 mod openapi;
 mod routes;
