@@ -18,7 +18,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{config::Config, ingest_consumer, middleware, routes, state::{AppState, KafkaConsistencyState, McpSessionStore}};
+use crate::{config::Config, ingest_consumer, middleware, routes, state::{AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore}};
 
 /// Connects to Postgres, builds [`AppState`], and drives the server until shutdown.
 ///
@@ -123,6 +123,7 @@ pub async fn run(config: Config) -> Result<()> {
         neo4j_uri: config.neo4j_uri.clone(),
         kafka_consistency: Arc::clone(&kafka_consistency),
         mcp_sessions: McpSessionStore::new(),
+        agent_registry: AgentRegistry::new(),
     };
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do

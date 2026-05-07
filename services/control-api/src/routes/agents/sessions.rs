@@ -100,7 +100,7 @@ pub async fn create_session(
 ) -> Result<impl IntoResponse, AppError> {
     let session = require_verified_session(auth)?;
 
-    if !matches!(req.runtime_kind.as_str(), "claude_code" | "open_code") {
+    if !matches!(req.runtime_kind.as_str(), "claude_code" | "open_code" | "pi") {
         return Err(AppError::InvalidInput);
     }
 
@@ -117,7 +117,7 @@ pub async fn create_session(
         return Err(AppError::InvalidInput);
     }
 
-    let permit = state
+    let _permit = state
         .agent_registry
         .try_acquire()
         .ok_or(AppError::SessionCapExceeded)?;
@@ -131,12 +131,12 @@ pub async fn create_session(
 
     // Dynamic query — agents schema not in sqlx offline cache yet (ADR-009 Phase 1).
     sqlx::query(
-        r"
+        r#"
         INSERT INTO agents.agent_sessions
             (id, tenant_id, user_id, runtime_kind, model, system_prompt,
              status, token_budget, tokens_used, input_prompt_preview, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, 0, $8, $9)
-        ",
+        "#,
     )
     .bind(session_id)
     .bind(session.tenant_id)
@@ -179,7 +179,7 @@ pub async fn create_session(
         created_at: now,
     };
 
-    drop(permit);
+    drop(_permit);
     Ok((StatusCode::ACCEPTED, Json(resp)))
 }
 
@@ -198,15 +198,15 @@ mod tests {
 
     #[test]
     fn valid_runtime_kinds() {
-        for k in &["claude_code", "open_code"] {
-            assert!(matches!(*k, "claude_code" | "open_code"));
+        for k in &["claude_code", "open_code", "pi"] {
+            assert!(matches!(*k, "claude_code" | "open_code" | "pi"));
         }
     }
 
     #[test]
     fn invalid_runtime_kind_detected() {
         let k = "unknown";
-        assert!(!matches!(k, "claude_code" | "open_code"));
+        assert!(!matches!(k, "claude_code" | "open_code" | "pi"));
     }
 
     // --- Prompt preview tests (RUSAA-859) ---
