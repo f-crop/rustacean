@@ -8,8 +8,10 @@
 //! library stays thin and reusable.
 
 pub mod protocol;
+pub mod session;
 pub mod types;
 
+pub use session::McpSessionStore;
 pub use protocol::{
     ClientInfo, InitializeParams, InitializeResult, ServerCapabilities, ServerInfo,
     ToolCallParams, ToolCallResult, ToolContent, ToolDefinition, ToolsCapability,
