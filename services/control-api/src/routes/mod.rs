@@ -18,7 +18,7 @@ use axum::{Router, routing::{delete, get, post, put}};
 
 use crate::routes::mcp::mcp_handler;
 use crate::routes::{
-    agents::{create_session, session_events},
+    agent_sessions::{create_session, delete_session, get_session, session_events},
     api_keys::{create_api_key, list_api_keys, revoke_api_key},
     audit::list_audit_events,
     auth::{forgot_password, login, reset_password, signup},
@@ -95,6 +95,7 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
         .route("/v1/agents/sessions", post(create_session))
+        .route("/v1/agents/sessions/{id}", get(get_session).delete(delete_session))
         .route("/v1/agents/sessions/{id}/events", get(session_events))
         .route("/mcp", post(mcp_handler))
         .with_state(state)

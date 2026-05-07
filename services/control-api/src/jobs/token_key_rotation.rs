@@ -43,7 +43,7 @@ const BATCH_SIZE: i64 = 50;
 pub async fn rotate_oauth_token_keys(
     pool: &PgPool,
     current: &Arc<OauthTokenCipher>,
-    prev: &Option<Arc<OauthTokenCipher>>,
+    prev: Option<&Arc<OauthTokenCipher>>,
 ) -> u64 {
     let target_key_id = current.key_id().to_owned();
     let mut total_ok: u64 = 0;
@@ -82,7 +82,7 @@ pub async fn rotate_oauth_token_keys(
                 refresh_token.as_deref(),
                 old_key_id,
                 current,
-                prev.as_deref(),
+                prev.map(AsRef::as_ref),
                 pool,
             )
             .await;

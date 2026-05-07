@@ -165,7 +165,7 @@ pub async fn run(config: Config) -> Result<()> {
             tokio::spawn(async move {
                 tracing::info!("token_key_rotation: sweep starting");
                 let rotated =
-                    token_key_rotation::rotate_oauth_token_keys(&sweep_pool, &cipher, &sweep_prev)
+                    token_key_rotation::rotate_oauth_token_keys(&sweep_pool, &cipher, sweep_prev.as_ref())
                         .await;
                 tracing::info!(rotated, "token_key_rotation: sweep complete");
             });

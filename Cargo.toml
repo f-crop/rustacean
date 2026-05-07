@@ -98,6 +98,8 @@ lettre = { version = "0.11", features = ["smtp-transport", "tokio1-rustls-tls", 
 async-trait = "0.1"
 # Byte buffer (rb-blob)
 bytes = "1"
+# Async utilities (rb-agent-runner)
+tokio-util = { version = "0.7", features = ["codec"] }
 # GitHub App integration (REQ-GH-01 / rb-github)
 jsonwebtoken = "9"
 reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
