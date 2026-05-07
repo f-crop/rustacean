@@ -7,3 +7,4 @@ scripts/.state-reconcile-baseline
 # Test artifacts
 frontend/playwright-report/
 frontend/test-results/
+frontend/axe-results/
