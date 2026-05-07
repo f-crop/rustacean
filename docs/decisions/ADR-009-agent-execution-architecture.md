@@ -476,6 +476,18 @@ DELETE /v1/auth/oauth/claude
      → soft-revokes the caller's row (sets revoked_at); subsequent claude_code sessions get oauth_required.
 ```
 
+**Implementation notes — `redirect_uri` validation (open-redirect guard):**
+
+The `redirect_uri` query parameter to `GET /v1/auth/oauth/claude/start` is **optional**.
+When supplied, the server validates that its origin (scheme + host + port) exactly matches
+the origin of `RB_BASE_URL`.  Requests whose `redirect_uri` has a different origin are
+rejected immediately with `400 bad_redirect_uri`; the OAuth flow is never initiated.
+
+- Non-HTTP/S schemes (e.g. `javascript:`, `data:`) are unconditionally rejected.
+- The comparison is: `scheme://host[:port]` — path, query, and fragment are ignored for the origin check.
+- When `redirect_uri` is absent the callback falls back to `{RB_BASE_URL}/settings/integrations?oauth=claude&status=success`.
+- The validated `redirect_uri` is stored base64url-encoded inside the `rb_pkce_state` cookie alongside the PKCE `code_verifier` and `state`; the callback decodes and uses it for the final redirect.
+
 ### 6.4 Per-runtime dispatch (REQ-MC-02 internal contract)
 
 The `AgentRegistry` resolves `runtime_kind → AgentRuntime impl` from `crates/rb-agent-runtime` at session-creation time. Every session has exactly one runtime adapter; **runtime cannot change mid-session** (immutability mirrored from `tenant_id` per §6.2.2).
@@ -572,7 +584,7 @@ equals the count of session-level + tool-call events for that session. A drift m
 - Tokens in transit: only between control-api and Anthropic OAuth endpoints over TLS; never logged, never sent to the browser, never stored in `agent_events` or `audit.audit_events`.
 - Refresh: the runtime adapter holds a decrypted access token in memory for the session's lifetime; if the access token has < 60s of validity at any tool/LLM call, the adapter triggers a refresh, persists the new ciphertext, and continues. Refresh errors fail the session with `error_kind="oauth_revoked"` and surface a `session_failed` event.
 - Revocation: `DELETE /v1/auth/oauth/claude` sets `revoked_at`. Active sessions for that user complete naturally (best-effort) or fail at next refresh; new sessions for the user with `runtime_kind="claude_code"` immediately return `oauth_required`.
-- Audit: every OAuth start / callback / revoke is written to `audit.audit_events` with `(action="oauth.claude.{start|callback|revoke|refresh}", actor_user_id, actor_tenant_id, outcome)`. Refresh events are sampled at 1-in-10 to keep volume bounded; failures are 100%.
+- Audit: every OAuth start / callback / revoke / refresh is written to `audit.audit_events` with `(action="oauth.claude.{start|callback|revoke|refresh}", actor_user_id, actor_tenant_id, outcome)`. Refresh events are written at **100%** — no sampling (RUSAA-861, security finding M-1). Sampling security-relevant events prevents detection of anomalous refresh patterns (e.g. a compromised session refreshing from a second IP). If write volume becomes a concern, aggregate into a `oauth_refresh_daily_counts` summary table rather than dropping individual audit records.
 
 **LiteLLM virtual keys — issuance and scoping.**
 
