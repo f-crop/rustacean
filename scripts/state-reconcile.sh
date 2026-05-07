@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# state-reconcile.sh — continuous state reconciliation routine (RUSAA-697)
+# state-reconcile.sh — continuous state reconciliation routine
 #
 # Diffs desired state vs observed state across 5 dimensions per env.
 # Fires every 30 min via Paperclip routine. Idempotent.
@@ -408,6 +408,10 @@ reconcile_env() {
     local latest_fp_file="/tmp/uat-fingerprint-latest-${env}.json"
 
     # Try to get latest UAT fingerprint from /tmp if uat-fingerprint.sh was recently run
+    if [ ! -f "$SCRIPT_DIR/uat-fingerprint.sh" ]; then
+      log "    uat-fingerprint.sh not found — dim (e) skipped (uat-fingerprint dependency not yet landed)"
+      return
+    fi
     if [ ! -f "$latest_fp_file" ] || [ "$(find "$latest_fp_file" -mmin +60 2>/dev/null)" != "" ]; then
       log "    Refreshing UAT fingerprint (running uat-fingerprint.sh)..."
       bash "$SCRIPT_DIR/uat-fingerprint.sh" "$COMPOSE_FILE_UAT" "$latest_fp_file" 2>/dev/null || true
