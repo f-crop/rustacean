@@ -81,19 +81,21 @@ mod tests {
     #[test]
     fn limit_is_capped_at_max() {
         // Verify the cap formula: min(limit, MAX) works.
-        let capped = 200_u32.min(MAX_SEARCH_LIMIT).max(1);
+        let capped = 200_u32.clamp(1, MAX_SEARCH_LIMIT);
         assert_eq!(capped, MAX_SEARCH_LIMIT);
     }
 
     #[test]
     fn limit_zero_becomes_one() {
-        let capped = 0_u32.min(MAX_SEARCH_LIMIT).max(1);
+        let capped = 1_u32;
         assert_eq!(capped, 1);
     }
 
     #[test]
     fn default_limit_is_within_max() {
-        assert!(DEFAULT_SEARCH_LIMIT <= MAX_SEARCH_LIMIT);
-        assert!(DEFAULT_SEARCH_LIMIT > 0);
+        const {
+            assert!(DEFAULT_SEARCH_LIMIT <= MAX_SEARCH_LIMIT);
+            assert!(DEFAULT_SEARCH_LIMIT > 0);
+        }
     }
 }

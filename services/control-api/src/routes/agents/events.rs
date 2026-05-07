@@ -107,8 +107,7 @@ mod tests {
     #[test]
     fn anonymous_auth_is_unauthorized() {
         let result: Result<Uuid, AppError> = match AuthContext::Anonymous {
-            AuthContext::Session(_) => unreachable!(),
-            AuthContext::ApiKey(_) => unreachable!(),
+            AuthContext::Session(_) | AuthContext::ApiKey(_) => unreachable!(),
             AuthContext::ExpiredSession => Err(AppError::SessionExpired),
             AuthContext::Anonymous => Err(AppError::Unauthorized),
         };
@@ -118,8 +117,7 @@ mod tests {
     #[test]
     fn expired_session_returns_session_expired() {
         let result: Result<Uuid, AppError> = match AuthContext::ExpiredSession {
-            AuthContext::Session(_) => unreachable!(),
-            AuthContext::ApiKey(_) => unreachable!(),
+            AuthContext::Session(_) | AuthContext::ApiKey(_) => unreachable!(),
             AuthContext::ExpiredSession => Err(AppError::SessionExpired),
             AuthContext::Anonymous => Err(AppError::Unauthorized),
         };

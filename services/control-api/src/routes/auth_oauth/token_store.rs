@@ -245,8 +245,7 @@ mod tests {
 
     fn needs_refresh(expires_at: Option<chrono::DateTime<Utc>>, lead_secs: i64) -> bool {
         expires_at
-            .map(|exp| (exp - Utc::now()).num_seconds() < lead_secs)
-            .unwrap_or(false)
+            .is_some_and(|exp| (exp - Utc::now()).num_seconds() < lead_secs)
     }
 
     #[test]

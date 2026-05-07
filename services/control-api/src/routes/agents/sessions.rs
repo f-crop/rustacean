@@ -17,8 +17,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
+    agents::session_runner::spawn_session_runner,
+    agents::tool_dispatch::ControlApiToolDispatch,
     error::AppError,
     middleware::auth::{AuthContext, require_verified_session},
+    routes::auth_oauth::token_store::PgTokenStore,
     state::{AppState, SessionHandle},
 };
 
@@ -93,6 +96,7 @@ fn prompt_preview(s: &str) -> String {
     ),
     tag = "agents"
 )]
+#[allow(clippy::too_many_lines)]
 pub async fn create_session(
     State(state): State<AppState>,
     auth: AuthContext,
@@ -161,7 +165,58 @@ pub async fn create_session(
         req.runtime_kind.clone(),
         req.token_budget,
     );
-    state.agent_registry.insert(handle);
+    state.agent_registry.insert(handle.clone());
+
+    // Spawn the runtime to execute the agent session (ADR-009 §6.4)
+    let tool_dispatch = ControlApiToolDispatch::new(
+        state.pool.clone(),
+        state.qdrant.clone(),
+        state.module_tree_cache.clone(),
+    );
+
+    // Build runtime-specific key based on runtime_kind
+    let litellm_key = match req.runtime_kind.as_str() {
+        "open_code" => state.config.litellm_open_code_key.clone(),
+        "pi" => state.config.litellm_pi_key.clone(),
+        _ => None,
+    };
+
+    // Build token store for claude_code runtime (OAuth-required)
+    let token_store: Option<std::sync::Arc<dyn rb_agent_runtime::TokenStore>> =
+        if req.runtime_kind == "claude_code" {
+            state
+                .config
+                .claude_oauth_client_id
+                .as_ref()
+                .map(|client_id| {
+                    std::sync::Arc::new(PgTokenStore::new(
+                        state.pool.clone(),
+                        state.http_client.clone(),
+                        client_id.clone(),
+                        60, // refresh lead seconds
+                        state.token_cipher.clone(),
+                    )) as std::sync::Arc<dyn rb_agent_runtime::TokenStore>
+                })
+        } else {
+            None
+        };
+
+    spawn_session_runner(
+        state.pool.clone(),
+        state.agent_registry.clone(),
+        std::sync::Arc::clone(&state.sse_bus),
+        handle.clone(),
+        req.runtime_kind.clone(),
+        req.model.clone(),
+        req.system_prompt.clone(),
+        req.initial_message.clone(),
+        req.token_budget,
+        state.http_client.clone(),
+        token_store,
+        state.config.litellm_url.clone(),
+        litellm_key,
+        tool_dispatch,
+    );
 
     tracing::info!(
         session_id = %session_id,

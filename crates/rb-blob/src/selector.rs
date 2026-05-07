@@ -24,7 +24,7 @@ pub async fn store_from_env() -> Result<Arc<dyn BlobStore>, BlobError> {
             #[cfg(feature = "s3")]
             {
                 let store = crate::s3::S3Store::from_env().await?;
-                return Ok(Arc::new(store));
+                Ok(Arc::new(store))
             }
             #[cfg(not(feature = "s3"))]
             {

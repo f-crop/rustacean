@@ -124,29 +124,6 @@ fn build_gh_app() -> Result<Option<GhApp>> {
     )))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn build_gh_app_returns_none_when_app_id_absent() {
-        // SAFETY: single-threaded test binary; no other thread reads GITHUB_APP_ID.
-        unsafe { std::env::remove_var("GITHUB_APP_ID") };
-        let result = build_gh_app()
-            .expect("build_gh_app must not error when GITHUB_APP_ID is absent");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn build_gh_app_returns_none_when_app_id_empty_string() {
-        // SAFETY: single-threaded test binary; no other thread reads GITHUB_APP_ID.
-        unsafe { std::env::set_var("GITHUB_APP_ID", "") };
-        let result = build_gh_app()
-            .expect("build_gh_app must not error when GITHUB_APP_ID is empty");
-        assert!(result.is_none());
-    }
-}
-
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
@@ -168,5 +145,28 @@ async fn shutdown_signal() {
     tokio::select! {
         () = ctrl_c => {},
         () = terminate => {},
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_gh_app_returns_none_when_app_id_absent() {
+        // SAFETY: single-threaded test binary; no other thread reads GITHUB_APP_ID.
+        unsafe { std::env::remove_var("GITHUB_APP_ID") };
+        let result = build_gh_app()
+            .expect("build_gh_app must not error when GITHUB_APP_ID is absent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn build_gh_app_returns_none_when_app_id_empty_string() {
+        // SAFETY: single-threaded test binary; no other thread reads GITHUB_APP_ID.
+        unsafe { std::env::set_var("GITHUB_APP_ID", "") };
+        let result = build_gh_app()
+            .expect("build_gh_app must not error when GITHUB_APP_ID is empty");
+        assert!(result.is_none());
     }
 }

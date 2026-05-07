@@ -338,6 +338,11 @@ fn split_statements(sql: &str) -> Vec<&str> {
     stmts
 }
 
+/// Returns the path to the migrations directory for a given sub-dir name.
+pub fn migrations_dir(base: &Path, subdir: &str) -> PathBuf {
+    base.join("migrations").join(subdir)
+}
+
 #[cfg(test)]
 mod tests {
     use super::split_statements;
@@ -386,9 +391,4 @@ mod tests {
         assert!(stmts[0].starts_with("DO $$"));
         assert_eq!(stmts[1], "SELECT 2");
     }
-}
-
-/// Returns the path to the migrations directory for a given sub-dir name.
-pub fn migrations_dir(base: &Path, subdir: &str) -> PathBuf {
-    base.join("migrations").join(subdir)
 }
