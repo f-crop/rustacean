@@ -115,9 +115,6 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         neo4j_uri: None,
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
-        agent_registry: control_api::AgentRegistry::new(),
-        token_cipher: None,
-        token_cipher_prev: None,
     }
 }
 
@@ -140,9 +137,6 @@ fn state_without_gh() -> AppState {
         neo4j_uri: None,
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
-        agent_registry: control_api::AgentRegistry::new(),
-        token_cipher: None,
-        token_cipher_prev: None,
     }
 }
 
