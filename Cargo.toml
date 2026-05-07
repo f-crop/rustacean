@@ -17,6 +17,7 @@ members = [
     "crates/rb-parse-tree-sitter",
     "services/migrate",
     "services/control-api",
+    "services/agent-runner",
     "services/audit-worker",
     "services/ingest-clone",
     "services/expand-worker",

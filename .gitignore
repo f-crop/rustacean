@@ -3,3 +3,7 @@
 compose/.no-auto-rebuild
 compose/*.env
 scripts/.state-reconcile-baseline
+
+# Test artifacts
+frontend/playwright-report/
+frontend/test-results/
