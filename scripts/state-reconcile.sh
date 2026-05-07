@@ -515,7 +515,8 @@ manage_drift_issue() {
     log "  No drift detected on $env"
     if [ -n "$umbrella_id" ] && [ "$umbrella_status" != "done" ] && [ "$umbrella_status" != "cancelled" ]; then
       log "  Closing state-drift:$env umbrella issue ($umbrella_ident) — drift cleared"
-      curl -sf -X PATCH \
+      local close_http
+      close_http=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
         -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
         -H "X-Paperclip-Run-Id: $RUN_ID" \
         -H "Content-Type: application/json" \
@@ -523,8 +524,14 @@ manage_drift_issue() {
         -d "$(jq -n --arg comment "## Drift Cleared — $TIMESTAMP
 
 All 5 reconciliation dimensions are clean on **$env**. Auto-closing." \
-          '{status: "done", comment: $comment}')" > /dev/null
-      log "  Umbrella issue $umbrella_ident closed."
+          '{status: "done", comment: $comment}')")
+      if [ "$close_http" = "200" ] || [ "$close_http" = "204" ]; then
+        log "  Umbrella issue $umbrella_ident closed."
+      elif [ "$close_http" = "409" ]; then
+        warn "  409 conflict closing $umbrella_ident (stale run lock) — skipping auto-close; CTO must clear manually"
+      else
+        warn "  Unexpected HTTP $close_http closing $umbrella_ident"
+      fi
     fi
     return
   fi
@@ -569,9 +576,10 @@ All 5 reconciliation dimensions are clean on **$env**. Auto-closing." \
     log "  Updating state-drift:$env umbrella issue ($umbrella_ident)..."
     local update_status="$umbrella_status"
     if [ "$umbrella_status" = "done" ] || [ "$umbrella_status" = "cancelled" ]; then
-      # Don't re-open closed issues — comment only per policy
+      # Don't re-open closed issues — comment only per policy (409 = stale lock, skip)
       log "  Umbrella issue $umbrella_ident is $umbrella_status — appending drift comment only (no re-open)"
-      curl -sf -X POST \
+      local closed_http
+      closed_http=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
         -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
         -H "X-Paperclip-Run-Id: $RUN_ID" \
         -H "Content-Type: application/json" \
@@ -580,17 +588,29 @@ All 5 reconciliation dimensions are clean on **$env**. Auto-closing." \
 
 New drift found on **$env** but umbrella issue is $umbrella_status. CTO triage required to re-open.
 
-$report_body" '{body: $body}')" > /dev/null
+$report_body" '{body: $body}')")
+      if [ "$closed_http" = "409" ]; then
+        warn "  409 conflict posting to $umbrella_ident (stale run lock) — drift skipped"
+      elif [ "$closed_http" != "201" ] && [ "$closed_http" != "200" ]; then
+        warn "  Unexpected HTTP $closed_http posting drift comment to $umbrella_ident"
+      fi
       return
     fi
-    # Append diff comment to open umbrella
-    curl -sf -X POST \
+    # Append diff comment to open umbrella (409 = stale run lock — skip gracefully)
+    local http_status
+    http_status=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
       -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
       -H "X-Paperclip-Run-Id: $RUN_ID" \
       -H "Content-Type: application/json" \
       "$API/api/issues/$umbrella_id/comments" \
-      -d "$(jq -n --arg body "$report_body" '{body: $body}')" > /dev/null
-    log "  Appended drift diff to $umbrella_ident"
+      -d "$(jq -n --arg body "$report_body" '{body: $body}')")
+    if [ "$http_status" = "201" ] || [ "$http_status" = "200" ]; then
+      log "  Appended drift diff to $umbrella_ident"
+    elif [ "$http_status" = "409" ]; then
+      warn "  409 conflict posting to $umbrella_ident (stale run lock) — drift noted in execution issue, umbrella update skipped"
+    else
+      warn "  Unexpected HTTP $http_status posting drift comment to $umbrella_ident"
+    fi
   fi
 
   # Drift-on-closed-issue policy: for any done issue that shows drift in dim (d),
@@ -625,7 +645,8 @@ for i in issues:
         umbrella_ident=$(find_drift_umbrella_issue "$env" | awk '{print $3}')
         log "  Posting drift-detected comment on closed issue $ident (no re-open)"
         local drift_detail="$line"
-        curl -sf -X POST \
+        local closed_drift_http
+        closed_drift_http=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
           -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
           -H "X-Paperclip-Run-Id: $RUN_ID" \
           -H "Content-Type: application/json" \
@@ -638,7 +659,8 @@ Deployment-fingerprint SHA drift detected on **$env** by state-reconcile routine
 $drift_detail
 
 **This issue is NOT re-opened** (per board-confirmed policy). CTO triages via the [$umbrella_ident](/RUSAA/issues/$umbrella_ident) umbrella issue." \
-            '{body: $body}')" > /dev/null
+            '{body: $body}')")
+        [ "$closed_drift_http" = "409" ] && warn "  409 conflict on $ident (stale run lock) — skipped"
       fi
     fi
   done
