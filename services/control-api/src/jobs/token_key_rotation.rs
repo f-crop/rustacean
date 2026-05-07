@@ -28,7 +28,7 @@ use std::sync::Arc;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::crypto::token_cipher::OauthTokenCipher;
+use crate::crypto::OauthTokenCipher;
 
 const BATCH_SIZE: i64 = 50;
 
@@ -192,7 +192,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::reencrypt_value;
-    use crate::crypto::token_cipher::OauthTokenCipher;
+    use crate::crypto::OauthTokenCipher;
 
     fn cipher(id: &str) -> Arc<OauthTokenCipher> {
         // Use distinct key bytes so current != prev.
