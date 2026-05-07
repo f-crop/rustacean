@@ -14,16 +14,18 @@ use uuid::Uuid;
 /// Thread-safe in-memory MCP session table.
 ///
 /// Each session maps a random UUID session ID → bound `tenant_id`. The store
-/// is cheap to clone (Arc-wrapped internally) and can be placed in a shared AppState.
+/// is cheap to clone (Arc-wrapped internally) and can be placed in a shared `AppState`.
 #[derive(Clone, Default)]
 pub struct McpSessionStore(Arc<DashMap<Uuid, Uuid>>);
 
 impl McpSessionStore {
+    #[must_use]
     pub fn new() -> Self {
         Self(Arc::new(DashMap::new()))
     }
 
     /// Register a new session bound to `tenant_id` and return its UUID.
+    #[must_use]
     pub fn create(&self, tenant_id: Uuid) -> Uuid {
         let session_id = Uuid::new_v4();
         self.0.insert(session_id, tenant_id);
@@ -31,6 +33,7 @@ impl McpSessionStore {
     }
 
     /// Return the `tenant_id` for the given `session_id`, or `None` if unknown/evicted.
+    #[must_use]
     pub fn tenant_id(&self, session_id: &Uuid) -> Option<Uuid> {
         self.0.get(session_id).map(|r| *r)
     }
