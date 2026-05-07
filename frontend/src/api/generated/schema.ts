@@ -26,6 +26,28 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/mcp": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * `POST /mcp` — Model Context Protocol JSON-RPC 2.0 endpoint (ADR-009 Phase 1).
+         * @description Accepts a JSON-RPC 2.0 request body and returns a JSON-RPC 2.0 response.
+         *     Notifications (requests without an `id` field) return HTTP 202 with no body.
+         *     All error paths return HTTP 200 with a JSON-RPC error object (spec-compliant).
+         */
+        readonly post: operations["mcp_handler"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/ready": {
         readonly parameters: {
             readonly query?: never;
@@ -1414,6 +1436,43 @@ export interface operations {
                 content: {
                     readonly "application/json": components["schemas"]["HealthResponse"];
                 };
+            };
+        };
+    };
+    readonly mcp_handler: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** @description JSON-RPC 2.0 request or notification */
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": unknown;
+            };
+        };
+        readonly responses: {
+            /** @description JSON-RPC 2.0 response (for requests) */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Notification accepted — no body (notifications/initialized) */
+            readonly 202: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bearer token missing or invalid */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -7,15 +7,15 @@
 //! `rb-query`.  Tool dispatch is wired inside `control-api` so the protocol
 //! library stays thin and reusable.
 
-pub mod protocol;
-pub mod session;
-pub mod types;
+mod protocol;
+mod session;
+mod types;
 
 pub use session::McpSessionStore;
 pub use protocol::{
     ClientInfo, InitializeParams, InitializeResult, ServerCapabilities, ServerInfo,
     ToolCallParams, ToolCallResult, ToolContent, ToolDefinition, ToolsCapability,
-    ToolsListResult, MCP_PROTOCOL_VERSION,
+    ToolsListResult, MCP_PROTOCOL_VERSION, phase1_tools,
 };
 pub use types::{
     JsonRpcError, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse,
