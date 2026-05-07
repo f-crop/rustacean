@@ -382,7 +382,7 @@ mod tests {
         assert!(!store.exists(&blob_ref).await.expect("exists after delete"));
     }
 
-    /// A puts → B tries get → TenantMismatch
+    /// A puts → B tries get → `TenantMismatch`
     #[tokio::test]
     async fn s3_tenant_isolation() {
         let Some(store) = try_store().await else { return };
@@ -409,8 +409,8 @@ mod tests {
         store.delete(&ref_a).await.expect("cleanup");
     }
 
-    /// A puts → B puts → A deletes → C gets must return TenantMismatch (B still owns).
-    /// After B also deletes, C gets must return NotFound.
+    /// A puts → B puts → A deletes → C gets must return `TenantMismatch` (B still owns).
+    /// After B also deletes, C gets must return `NotFound`.
     /// This exercises the per-tenant manifest isolation under the production path
     /// (not a test-double that auto-preserves headers / markers).
     #[tokio::test]
@@ -445,7 +445,7 @@ mod tests {
         );
     }
 
-    /// A puts → B puts same sha256 → A deletes → B can still get (no TenantMismatch)
+    /// A puts → B puts same sha256 → A deletes → B can still get (no `TenantMismatch`)
     /// This is the B-HIGH-1 regression test for per-tenant markers.
     #[tokio::test]
     async fn s3_per_tenant_manifest_independent() {

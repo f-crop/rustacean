@@ -61,8 +61,8 @@ fn simple_fixture_syn_line_numbers_populated() {
     }
 }
 
-/// #275 regression: multi-line items must have line_end > line_start.
-/// Prior to the fix, all items used the identifier span → line_start == line_end.
+/// #275 regression: multi-line items must have `line_end > line_start`.
+/// Prior to the fix, all items used the identifier span → `line_start == line_end`.
 #[test]
 fn simple_fixture_multi_line_items_span_full_body() {
     let src = fixture("simple.rs");
@@ -148,10 +148,10 @@ fn src_factor_fixture_syn_extracts_all_expected_items() {
     assert!(names.contains(&"zero_factor"), "expected zero_factor fn");
 }
 
-/// #274 regression: ZERO_DECIMAL_PAIR must have line_start ≥ 1 and
+/// #274 regression: `ZERO_DECIMAL_PAIR` must have `line_start ≥ 1` and
 /// the ident must land on a line that contains real source text.
-/// line_start = 0 combined with a file starting with '\n' would cause
-/// item_source_slice to return "", producing body=None and NULL source_text.
+/// `line_start = 0` combined with a file starting with '\n' would cause
+/// `item_source_slice` to return "", producing `body=None` and NULL `source_text`.
 #[test]
 fn src_factor_fixture_const_line_numbers_valid() {
     let src = fixture("src_factor.rs");

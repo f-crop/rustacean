@@ -14,6 +14,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct ControlApiToolDispatch {
     pool: PgPool,
     _qdrant: Option<Arc<TenantVectorStore>>,
@@ -47,6 +48,7 @@ impl ToolDispatch for ControlApiToolDispatch {
             "search_items" => self.search_items(tenant_id, arguments).await,
             "get_item" => self.get_item(tenant_id, arguments).await,
             "list_repos" => self.list_repos(tenant_id).await,
+            "index_code_now" => self.index_code_now(tenant_id, arguments).await,
             _ => Err(format!("unknown tool: {tool_name}")),
         }
     }
@@ -103,5 +105,69 @@ impl ControlApiToolDispatch {
             .collect();
 
         Ok(serde_json::json!({ "repos": repos }))
+    }
+
+    async fn index_code_now(
+        &self,
+        tenant_id: Uuid,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let repo_id = args["repo_id"]
+            .as_str()
+            .ok_or("index_code_now: 'repo_id' argument is required")?;
+        let repo_uuid = Uuid::parse_str(repo_id).map_err(|_| "index_code_now: invalid repo_id UUID")?;
+
+        // Verify the repo exists and belongs to the tenant
+        let repo_exists: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM control.repos WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL"
+        )
+        .bind(repo_uuid)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("DB error: {e}"))?;
+
+        if repo_exists.is_none() {
+            return Err(format!("index_code_now: repo {repo_id} not found or access denied"));
+        }
+
+        // Check if there's already an in-flight run
+        let in_flight: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM control.ingestion_runs WHERE repo_id = $1 AND tenant_id = $2 AND status IN ('queued', 'running') LIMIT 1"
+        )
+        .bind(repo_uuid)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("DB error: {e}"))?;
+
+        if in_flight.is_some() {
+            return Ok(serde_json::json!({
+                "success": false,
+                "message": format!("Indexing already in progress for repo {repo_id}")
+            }));
+        }
+
+        // Queue the ingestion run
+        let run_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO control.ingestion_runs (id, tenant_id, repo_id, status, requested_by) VALUES ($1, $2, $3, 'queued', $4)"
+        )
+        .bind(run_id)
+        .bind(tenant_id)
+        .bind(repo_uuid)
+        .bind(tenant_id)  // system-initiated via tool
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("DB error: {e}"))?;
+
+        tracing::info!(%run_id, %repo_uuid, %tenant_id, "index_code_now: ingestion run queued via tool");
+
+        Ok(serde_json::json!({
+            "success": true,
+            "run_id": run_id,
+            "repo_id": repo_uuid,
+            "message": format!("Indexing queued for repo {repo_id}")
+        }))
     }
 }

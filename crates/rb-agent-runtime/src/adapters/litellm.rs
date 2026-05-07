@@ -302,6 +302,7 @@ impl PiRuntime {
             http,
             base_url,
             virtual_key,
+            cancel_map: Arc::new(DashMap::new()),
         })
     }
 }
