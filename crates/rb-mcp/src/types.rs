@@ -56,6 +56,7 @@ pub struct JsonRpcResponse {
 }
 
 impl JsonRpcResponse {
+    #[must_use]
     pub fn ok(id: Option<serde_json::Value>, result: serde_json::Value) -> Self {
         Self { jsonrpc: JSONRPC_VERSION, id, result }
     }
