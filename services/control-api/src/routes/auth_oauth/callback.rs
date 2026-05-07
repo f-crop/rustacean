@@ -23,6 +23,7 @@ use serde::Deserialize;
 use crate::{
     error::AppError,
     middleware::auth::{AuthContext, require_verified_session},
+    routes::auth_oauth::start::same_origin,
     state::AppState,
 };
 
@@ -96,6 +97,16 @@ pub async fn claude_oauth_callback(
     if cookie_state != query.state {
         tracing::warn!("PKCE state mismatch");
         return Err(AppError::InvalidToken);
+    }
+
+    // Re-validate redirect origin (ADR-009 §6.3 open-redirect guard).
+    // The start handler validated the origin before storing it in the cookie,
+    // but we re-check here in case the cookie was tampered with.
+    if let Some(ref uri) = post_oauth_redirect {
+        if !same_origin(uri, &state.config.base_url) {
+            tracing::warn!(redirect_uri = %uri, "post-oauth redirect origin rejected in callback");
+            return Err(AppError::BadRedirectUri);
+        }
     }
 
     let client_id = state

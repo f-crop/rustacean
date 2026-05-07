@@ -51,7 +51,26 @@ impl EventStream {
     ) -> Self {
         let (rx, replay_vec) = broadcaster.subscribe_raw(tenant_id, last_event_id);
         let replay = VecDeque::from(replay_vec);
-        let inner = build_inner_stream(replay, rx);
+        let inner = build_inner_stream(replay, rx, None);
+
+        Self {
+            broadcaster,
+            tenant_id: *tenant_id,
+            keepalive_interval: cfg.keepalive_interval,
+            inner,
+        }
+    }
+
+    pub(crate) fn new_filtered(
+        broadcaster: Arc<PerTenantBroadcaster>,
+        tenant_id: &TenantId,
+        session_id: Option<uuid::Uuid>,
+        last_event_id: Option<&EventId>,
+        cfg: &SseConfig,
+    ) -> Self {
+        let (rx, replay_vec) = broadcaster.subscribe_raw(tenant_id, last_event_id);
+        let replay = VecDeque::from(replay_vec);
+        let inner = build_inner_stream(replay, rx, session_id);
 
         Self {
             broadcaster,
@@ -110,13 +129,18 @@ impl IntoResponse for EventStream {
 /// - Then receive from broadcast channel (Phase 2).
 /// - On `Lagged(n)`: emit `stream-reset`, increment dropped counter, close.
 /// - On `Closed`: end the stream.
+///
+/// When `session_id` is `Some`, only events whose JSON data contains
+/// `"session_id": "<value>"` are emitted; others are silently dropped.
 fn build_inner_stream(
     replay: VecDeque<Arc<SseEnvelope>>,
     rx: broadcast::Receiver<Arc<SseEnvelope>>,
+    session_id: Option<uuid::Uuid>,
 ) -> Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send + 'static>> {
     struct State {
         replay: VecDeque<Arc<SseEnvelope>>,
         rx: broadcast::Receiver<Arc<SseEnvelope>>,
+        session_id: Option<uuid::Uuid>,
         done: bool,
     }
 
@@ -124,6 +148,7 @@ fn build_inner_stream(
         State {
             replay,
             rx,
+            session_id,
             done: false,
         },
         |mut s| async move {
@@ -134,27 +159,38 @@ fn build_inner_stream(
             }
 
             // Phase 1 — replay
-            if let Some(env) = s.replay.pop_front() {
-                return Some((Ok(env.to_axum_event()), s));
+            while let Some(env) = s.replay.pop_front() {
+                if matches_session(&env.data, s.session_id) {
+                    return Some((Ok(env.to_axum_event()), s));
+                }
             }
 
             // Phase 2 — live
-            match s.rx.recv().await {
-                Ok(env) => Some((Ok(env.to_axum_event()), s)),
+            loop {
+                match s.rx.recv().await {
+                    Ok(env) if matches_session(&env.data, s.session_id) => {
+                        return Some((Ok(env.to_axum_event()), s));
+                    }
+                    Ok(_) => continue,
 
-                Err(RecvError::Lagged(n)) => {
-                    // Slow client fell behind. Emit advisory, then close next poll.
-                    metrics::counter!("rb_sse_dropped_total", "reason" => "lagged").increment(n);
-                    s.done = true;
-                    Some((Ok(SseEnvelope::stream_reset().to_axum_event()), s))
+                    Err(RecvError::Lagged(n)) => {
+                        metrics::counter!("rb_sse_dropped_total", "reason" => "lagged").increment(n);
+                        s.done = true;
+                        return Some((Ok(SseEnvelope::stream_reset().to_axum_event()), s));
+                    }
+
+                    Err(RecvError::Closed) => return None,
                 }
-
-                Err(RecvError::Closed) => None,
             }
         },
     );
 
     Box::pin(stream)
+}
+
+fn matches_session(data: &str, session_id: Option<uuid::Uuid>) -> bool {
+    let Some(sid) = session_id else { return true };
+    data.contains(&format!("\"session_id\": \"{sid}\""))
 }
 
 // ---------------------------------------------------------------------------

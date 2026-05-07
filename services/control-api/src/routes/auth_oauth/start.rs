@@ -121,7 +121,7 @@ pub async fn claude_oauth_start(
 ///
 /// Origin = scheme + "://" + host + optional port.  Both `candidate` and
 /// `allowed` must use `http://` or `https://`; any other scheme returns `false`.
-fn same_origin(candidate: &str, allowed: &str) -> bool {
+pub(crate) fn same_origin(candidate: &str, allowed: &str) -> bool {
     match (origin_of(candidate), origin_of(allowed)) {
         (Some(c), Some(a)) => c == a,
         _ => false,
