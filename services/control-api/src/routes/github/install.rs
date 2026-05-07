@@ -271,6 +271,21 @@ mod tests {
         let tenant_b = Uuid::new_v4();
         let github_installation_id: i64 = rand::random::<i32>().abs() as i64 + 1_000_000;
 
+        // Seed the two test tenants (required by FK on github_installations.tenant_id).
+        sqlx::query(
+            "INSERT INTO control.tenants (id, slug, name, schema_name) VALUES \
+             ($1, $2, 'QA Tenant A', $3), ($4, $5, 'QA Tenant B', $6)",
+        )
+        .bind(tenant_a)
+        .bind(format!("qa-tenant-a-{tenant_a}"))
+        .bind(format!("qa_tenant_a_{}", tenant_a.simple()))
+        .bind(tenant_b)
+        .bind(format!("qa-tenant-b-{tenant_b}"))
+        .bind(format!("qa_tenant_b_{}", tenant_b.simple()))
+        .execute(&pool)
+        .await
+        .expect("seed tenants");
+
         // Seed tenant_a owning this installation.
         sqlx::query(
             "INSERT INTO control.github_installations \
@@ -332,7 +347,7 @@ mod tests {
 
         assert!(same_tenant_result.is_some(), "same-tenant re-install must succeed");
 
-        // Cleanup.
+        // Cleanup installations then tenants (FK order).
         sqlx::query(
             "DELETE FROM control.github_installations WHERE github_installation_id = $1",
         )
@@ -340,5 +355,11 @@ mod tests {
         .execute(&pool)
         .await
         .ok();
+        sqlx::query("DELETE FROM control.tenants WHERE id IN ($1, $2)")
+            .bind(tenant_a)
+            .bind(tenant_b)
+            .execute(&pool)
+            .await
+            .ok();
     }
 }
