@@ -106,17 +106,57 @@ pub async fn claude_oauth_callback(
 
     let redirect_uri = format!("{}/v1/auth/oauth/claude/callback", state.config.base_url);
 
-    // Exchange code for tokens.
+    let token_resp = exchange_code_for_tokens(
+        &state.http_client,
+        client_id,
+        query.code.as_str(),
+        redirect_uri.as_str(),
+        code_verifier,
+    )
+    .await?;
+
+    let expires_at = token_resp
+        .expires_in
+        .map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs));
+    let scopes: Vec<String> = token_resp
+        .scope
+        .as_deref()
+        .map(|s| s.split_whitespace().map(String::from).collect())
+        .unwrap_or_default();
+
+    encrypt_and_upsert_tokens(&state, session.tenant_id, session.user_id, &token_resp, expires_at, &scopes).await?;
+
+    tracing::info!(
+        tenant_id = %session.tenant_id,
+        user_id = %session.user_id,
+        "claude_code OAuth token stored"
+    );
+
+    let destination = post_oauth_redirect.unwrap_or_else(|| {
+        format!(
+            "{}/settings/integrations?oauth=claude&status=success",
+            state.config.base_url
+        )
+    });
+    Ok(Redirect::temporary(&destination))
+}
+
+async fn exchange_code_for_tokens(
+    http: &reqwest::Client,
+    client_id: &str,
+    code: &str,
+    redirect_uri: &str,
+    code_verifier: &str,
+) -> Result<TokenResponse, AppError> {
     let params = [
         ("grant_type", "authorization_code"),
-        ("code", query.code.as_str()),
-        ("redirect_uri", redirect_uri.as_str()),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
         ("client_id", client_id),
         ("code_verifier", code_verifier),
     ];
 
-    let resp = state
-        .http_client
+    let resp = http
         .post(ANTHROPIC_TOKEN_URL)
         .form(&params)
         .send()
@@ -133,53 +173,48 @@ pub async fn claude_oauth_callback(
         return Err(AppError::InvalidToken);
     }
 
-    let token_resp: TokenResponse = resp.json().await.map_err(|e| {
+    resp.json().await.map_err(|e| {
         tracing::error!("failed to parse Anthropic token response: {e}");
         AppError::Internal(anyhow::anyhow!("internal error"))
-    })?;
+    })
+}
 
-    let expires_at = token_resp.expires_in.map(|secs| {
-        chrono::Utc::now() + chrono::Duration::seconds(secs)
-    });
+async fn encrypt_and_upsert_tokens(
+    state: &AppState,
+    tenant_id: uuid::Uuid,
+    user_id: uuid::Uuid,
+    token_resp: &TokenResponse,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    scopes: &[String],
+) -> Result<(), AppError> {
+    let (stored_access, stored_refresh, key_id) = match state.token_cipher.as_deref() {
+        Some(cipher) => {
+            let enc_access = cipher
+                .encrypt(&token_resp.access_token, user_id)
+                .map_err(|e| {
+                    tracing::error!("failed to encrypt OAuth access_token: {e}");
+                    AppError::Internal(anyhow::anyhow!("internal error"))
+                })?;
+            let enc_refresh = token_resp
+                .refresh_token
+                .as_deref()
+                .map(|rt| cipher.encrypt(rt, user_id))
+                .transpose()
+                .map_err(|e| {
+                    tracing::error!("failed to encrypt OAuth refresh_token: {e}");
+                    AppError::Internal(anyhow::anyhow!("internal error"))
+                })?;
+            (enc_access, enc_refresh, cipher.key_id().to_owned())
+        }
+        None => (
+            token_resp.access_token.clone(),
+            token_resp.refresh_token.clone(),
+            "none".to_owned(),
+        ),
+    };
 
-    let scopes: Vec<String> = token_resp
-        .scope
-        .map(|s| s.split_whitespace().map(String::from).collect())
-        .unwrap_or_default();
-
-    // Encrypt access and refresh tokens before persistence (RUSAA-862).
-    // When no cipher is configured (development), tokens are stored as-is.
-    let (stored_access, stored_refresh, key_id) =
-        match state.token_cipher.as_deref() {
-            Some(cipher) => {
-                let enc_access = cipher
-                    .encrypt(&token_resp.access_token, session.user_id)
-                    .map_err(|e| {
-                        tracing::error!("failed to encrypt OAuth access_token: {e}");
-                        AppError::Internal(anyhow::anyhow!("internal error"))
-                    })?;
-                let enc_refresh = token_resp
-                    .refresh_token
-                    .as_deref()
-                    .map(|rt| cipher.encrypt(rt, session.user_id))
-                    .transpose()
-                    .map_err(|e| {
-                        tracing::error!("failed to encrypt OAuth refresh_token: {e}");
-                        AppError::Internal(anyhow::anyhow!("internal error"))
-                    })?;
-                (enc_access, enc_refresh, cipher.key_id().to_owned())
-            }
-            None => (
-                token_resp.access_token.clone(),
-                token_resp.refresh_token.clone(),
-                "none".to_owned(),
-            ),
-        };
-
-    // Upsert into agents.oauth_tokens (ON CONFLICT tenant+user+provider → UPDATE).
-    // Dynamic query — agents schema not in sqlx offline cache yet.
     sqlx::query(
-        r#"
+        r"
         INSERT INTO agents.oauth_tokens
             (tenant_id, user_id, provider, access_token, refresh_token,
              expires_at, scopes, encryption_key_id, updated_at)
@@ -192,14 +227,14 @@ pub async fn claude_oauth_callback(
             scopes            = EXCLUDED.scopes,
             encryption_key_id = EXCLUDED.encryption_key_id,
             updated_at        = now()
-        "#,
+        ",
     )
-    .bind(session.tenant_id)
-    .bind(session.user_id)
+    .bind(tenant_id)
+    .bind(user_id)
     .bind(&stored_access)
     .bind(&stored_refresh)
     .bind(expires_at)
-    .bind(&scopes)
+    .bind(scopes)
     .bind(&key_id)
     .execute(&state.pool)
     .await
@@ -208,18 +243,5 @@ pub async fn claude_oauth_callback(
         AppError::Internal(anyhow::anyhow!("internal error"))
     })?;
 
-    tracing::info!(
-        tenant_id = %session.tenant_id,
-        user_id = %session.user_id,
-        "claude_code OAuth token stored"
-    );
-
-    // Redirect to the caller-supplied URI or the default integrations page.
-    let destination = post_oauth_redirect.unwrap_or_else(|| {
-        format!(
-            "{}/settings/integrations?oauth=claude&status=success",
-            state.config.base_url
-        )
-    });
-    Ok(Redirect::temporary(&destination))
+    Ok(())
 }
