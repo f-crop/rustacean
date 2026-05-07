@@ -36,7 +36,7 @@
  */
 
 import * as fs from "node:fs";
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const LIVE_FRONTEND_URL =
   process.env.LIVE_FRONTEND_URL ?? "http://localhost:4173";
@@ -57,15 +57,6 @@ test.beforeEach(async ({}, testInfo) => {
     );
   }
 });
-
-async function loginViaApi(apiRequest: APIRequestContext): Promise<void> {
-  const resp = await apiRequest.post(`${LIVE_API_URL}/v1/auth/login`, {
-    data: { email: LIVE_USER_EMAIL, password: LIVE_USER_PASS },
-  });
-  if (!resp.ok()) {
-    throw new Error(`Login failed (${resp.status()}): ${await resp.text()}`);
-  }
-}
 
 async function loginViaPage(page: Page): Promise<void> {
   const resp = await page.request.post(`${LIVE_API_URL}/v1/auth/login`, {
@@ -96,26 +87,38 @@ test.describe("Live-stack ingestion UAT", () => {
   /**
    * Test 2: Real SSE endpoint responds as event-stream
    *
-   * Authenticates via the real API and then checks the SSE endpoint header.
-   * A mocked run returns a synthetic body; a live run returns a real
-   * text/event-stream from the Kafka-backed broker.
+   * Uses page.evaluate() + fetch() to read response headers before the
+   * stream body closes. Playwright's request.get() hangs on SSE because it
+   * waits for the full body; fetch() resolves the Response promise as soon
+   * as headers arrive, regardless of whether the body stream is still open.
    *
    * This is a structural proof: if Content-Type is text/event-stream from the
    * real control-api, then the fingerprint collector can observe real Kafka
    * offsets on the same broker.
    */
-  test("SSE endpoint responds as text/event-stream (real broker, not mocked)", async ({ request }) => {
-    await loginViaApi(request);
+  test("SSE endpoint responds as text/event-stream (real broker, not mocked)", async ({ page }) => {
+    await page.goto(`${LIVE_FRONTEND_URL}/`);
+    await loginViaPage(page);
 
-    const resp = await request.get(`${LIVE_API_URL}/v1/ingest/events`, {
-      headers: { Accept: "text/event-stream" },
-      timeout: 5_000,
-    });
+    // Use browser-context fetch so the session cookie is included.
+    // fetch() resolves when headers arrive — no need to wait for stream close.
+    const result = await page.evaluate(
+      async ({ apiUrl }: { apiUrl: string }) => {
+        const resp = await fetch(`${apiUrl}/v1/ingest/events`, {
+          headers: { Accept: "text/event-stream" },
+        });
+        return {
+          ok: resp.ok,
+          status: resp.status,
+          contentType: resp.headers.get("content-type") ?? "",
+        };
+      },
+      { apiUrl: LIVE_API_URL },
+    );
 
-    expect(resp.ok(), `SSE endpoint returned ${resp.status()}`).toBe(true);
-    const contentType = resp.headers()["content-type"] ?? "";
+    expect(result.ok, `SSE endpoint returned ${result.status}`).toBe(true);
     expect(
-      contentType,
+      result.contentType,
       "SSE endpoint must return text/event-stream — a mocked route returns a static body, not a live stream",
     ).toContain("text/event-stream");
   });
