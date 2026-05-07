@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn json_to_bolt_float() {
-        let bt = json_to_bolt(&serde_json::json!(3.14f64)).unwrap();
+        let bt = json_to_bolt(&serde_json::json!(2.71f64)).unwrap();
         assert!(matches!(bt, BoltType::Float(_)));
     }
 
