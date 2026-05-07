@@ -1,4 +1,4 @@
-.PHONY: review-ready review-checklist review-checklist-fixtures install-hooks blob-smoke blob-smoke-s3 ingest-smoke
+.PHONY: review-ready review-checklist review-checklist-fixtures state-reconcile-fixtures install-hooks blob-smoke blob-smoke-s3 ingest-smoke
 
 # Run all local pre-PR checks: fmt, clippy, test, deny, openapi, frontend (if changed).
 # All steps run even on partial failure so you see the full picture before pushing.
@@ -14,6 +14,10 @@ review-checklist:
 # Run fixture tests for the reviewer checklist (PASS and FAIL scenarios per check).
 review-checklist-fixtures:
 	bash tests/review-checklist/run-fixtures.sh
+
+# Run fixture tests for the state-reconcile routine (AC-1 and AC-4 paths).
+state-reconcile-fixtures:
+	bash tests/state-reconcile/run-fixtures.sh
 
 # Install git hooks (pre-push bundle detector). Safe to re-run.
 install-hooks:
