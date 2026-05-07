@@ -199,25 +199,40 @@ get_live_env_keys_for_service() {
   docker exec "$container" env 2>/dev/null | cut -d= -f1 | sort || echo ""
 }
 
-# (c) declared migration head — sorted filenames hash for each schema dir
-get_declared_migration_hash() {
+# (c) count of declared migration files for a schema dir
+get_declared_migration_count() {
   local schema_dir="$1"  # "control" or "tenant"
   local dir="$REPO_ROOT/migrations/$schema_dir"
-  if [ ! -d "$dir" ]; then
-    echo "MISSING"
-    return
-  fi
-  # Hash is over sorted filenames (not content — migrations are append-only)
-  ls "$dir" | sort | sha256sum | awk '{print $1}'
+  [ -d "$dir" ] || { echo "0"; return; }
+  ls "$dir" | grep -c '\.sql$' || echo "0"
 }
 
-# (c) applied migration names from running DB _sqlx_migrations table
-get_applied_migrations() {
+# (c) max version applied in control.schema_migrations
+get_control_applied_count() {
   local compose_file="$1"
   docker compose -f "$compose_file" exec -T postgres \
     psql -U "$DB_USER" -d "$DB_NAME" -t -A \
-    -c "SELECT description FROM _sqlx_migrations ORDER BY installed_on ASC;" \
-    2>/dev/null | grep -v '^$' || echo ""
+    -c "SELECT COUNT(*) FROM control.schema_migrations;" \
+    2>/dev/null | tr -d '[:space:]' || echo "0"
+}
+
+# (c) max version applied in a tenant schema (sample first tenant found)
+get_tenant_applied_count() {
+  local compose_file="$1"
+  # Get a sample tenant schema name
+  local tenant_schema
+  tenant_schema=$(docker compose -f "$compose_file" exec -T postgres \
+    psql -U "$DB_USER" -d "$DB_NAME" -t -A \
+    -c "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE 'tenant_%' LIMIT 1;" \
+    2>/dev/null | tr -d '[:space:]' || echo "")
+  if [ -z "$tenant_schema" ]; then
+    echo "NO_TENANT"
+    return
+  fi
+  docker compose -f "$compose_file" exec -T postgres \
+    psql -U "$DB_USER" -d "$DB_NAME" -t -A \
+    -c "SELECT COUNT(*) FROM ${tenant_schema}.schema_migrations;" \
+    2>/dev/null | tr -d '[:space:]' || echo "0"
 }
 
 # (d) fetch issues with deployment-fingerprint docs on the given env
@@ -351,28 +366,35 @@ reconcile_env() {
   # ── (c) Migration head vs running DB applied migrations ──────────────────
   log "  Dimension (c): declared migration head vs applied migrations in DB..."
   local dim_c_drift=()
-  # Test DB connectivity and table existence before proceeding
+  # Test DB connectivity via control.schema_migrations (actual migration table)
   local db_check_output
   db_check_output=$(docker compose -f "$compose_file" exec -T postgres \
     psql -U "$DB_USER" -d "$DB_NAME" -t -A \
-    -c "SELECT 1 FROM _sqlx_migrations LIMIT 1;" 2>&1) || true
+    -c "SELECT 1 FROM control.schema_migrations LIMIT 1;" 2>&1) || true
   if echo "$db_check_output" | grep -qi "does not exist\|no such table\|ERROR"; then
-    warn "  Dimension (c): _sqlx_migrations not found in $DB_NAME — skipping migration check"
+    warn "  Dimension (c): control.schema_migrations not found — skipping migration check"
   else
-    for schema_dir in control tenant; do
-      local applied
-      applied=$(get_applied_migrations "$compose_file" 2>/dev/null | grep -i "$schema_dir" || true)
-      local declared_count
-      declared_count=$(ls "$REPO_ROOT/migrations/$schema_dir/" 2>/dev/null | wc -l | tr -d ' ')
-      local applied_count
-      applied_count=$(echo "$applied" | grep -c . || true)
-      applied_count="${applied_count:-0}"
-      if [ "$applied_count" -lt "$declared_count" ]; then
-        local unapplied=$(( declared_count - applied_count ))
-        dim_c_drift+=("  [c] $schema_dir: $unapplied unapplied migration(s) (declared=$declared_count, applied=$applied_count)")
-      fi
-      log "    $schema_dir: declared=$declared_count applied=$applied_count"
-    done
+    # Control schema
+    local control_declared control_applied
+    control_declared=$(get_declared_migration_count "control")
+    control_applied=$(get_control_applied_count "$compose_file")
+    if [ "$control_applied" -lt "$control_declared" ]; then
+      local unapplied=$(( control_declared - control_applied ))
+      dim_c_drift+=("  [c] control: $unapplied unapplied migration(s) (declared=$control_declared, applied=$control_applied)")
+    fi
+    log "    control: declared=$control_declared applied=$control_applied"
+
+    # Tenant schema (sample one tenant to check the shared tenant migration set)
+    local tenant_declared tenant_applied
+    tenant_declared=$(get_declared_migration_count "tenant")
+    tenant_applied=$(get_tenant_applied_count "$compose_file")
+    if [ "$tenant_applied" = "NO_TENANT" ]; then
+      log "    tenant: no tenant schemas found — skipping tenant migration check"
+    elif [ "$tenant_applied" -lt "$tenant_declared" ]; then
+      local unapplied=$(( tenant_declared - tenant_applied ))
+      dim_c_drift+=("  [c] tenant: $unapplied unapplied migration(s) in sample tenant schema (declared=$tenant_declared, applied=$tenant_applied)")
+    fi
+    [ "$tenant_applied" != "NO_TENANT" ] && log "    tenant: declared=$tenant_declared applied=$tenant_applied"
   fi
   if [ ${#dim_c_drift[@]} -gt 0 ]; then
     drift_lines+=("### (c) Migration Head vs Applied Migrations")
