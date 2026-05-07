@@ -20,7 +20,7 @@ use tower_http::{
 
 use crate::{
     config::Config,
-    crypto::token_cipher::OauthTokenCipher,
+    crypto::OauthTokenCipher,
     ingest_consumer,
     jobs::token_key_rotation,
     middleware,

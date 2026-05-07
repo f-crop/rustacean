@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use rb_agent_runtime::{RuntimeError, TokenStore};
 
-use crate::crypto::token_cipher::OauthTokenCipher;
+use crate::crypto::OauthTokenCipher;
 
 const ANTHROPIC_TOKEN_URL: &str = "https://claude.ai/oauth/token";
 
