@@ -34,6 +34,9 @@ rb-storage-pg = { path = "../../crates/rb-storage-pg", version = "0.1.0" }
 rb-storage-neo4j = { path = "../../crates/rb-storage-neo4j", version = "0.1.0" }
 rb-storage-qdrant = { path = "../../crates/rb-storage-qdrant", version = "0.1.0" }
 rb-query = { path = "../../crates/rb-query", version = "0.1.0" }
+rb-mcp = { path = "../../crates/rb-mcp", version = "0.1.0" }
+rb-agent-runtime = { path = "../../crates/rb-agent-runtime", version = "0.1.0" }
+async-trait.workspace = true
 rb-tracing = { path = "../../crates/rb-tracing", version = "0.1.0" }
 reqwest.workspace = true
 opentelemetry.workspace = true
@@ -55,6 +58,12 @@ uuid.workspace = true
 chrono.workspace = true
 rand.workspace = true
 hex.workspace = true
+sha2.workspace = true
+hkdf.workspace = true
+aes-gcm.workspace = true
+zeroize.workspace = true
+metrics.workspace = true
+dashmap.workspace = true
 urlencoding = "2"
 metrics-exporter-prometheus.workspace = true
 

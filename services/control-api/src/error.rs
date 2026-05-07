@@ -74,6 +74,12 @@ pub enum AppError {
     KafkaUnavailable,
     #[error("failed to publish ingestion event to Kafka: {0}")]
     KafkaPublish(#[from] KafkaError),
+    #[error("process session cap reached; try again later")]
+    SessionCapExceeded,
+    #[error("runtime adapter is not configured on this instance")]
+    RuntimeNotConfigured,
+    #[error("redirect_uri origin does not match the allowed origin")]
+    BadRedirectUri,
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
     #[error("auth error: {0}")]
@@ -204,6 +210,19 @@ impl IntoResponse for AppError {
                     "kafka_publish_error",
                     "failed to queue ingestion event".to_owned(),
                 )
+            }
+            AppError::SessionCapExceeded => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "session_cap_exceeded",
+                self.to_string(),
+            ),
+            AppError::RuntimeNotConfigured => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "runtime_not_configured",
+                self.to_string(),
+            ),
+            AppError::BadRedirectUri => {
+                (StatusCode::BAD_REQUEST, "bad_redirect_uri", self.to_string())
             }
             AppError::Database(e) => {
                 tracing::error!(error = %e, "database error");

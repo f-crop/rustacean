@@ -151,7 +151,7 @@ pub async fn post_graph_query(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::middleware::auth::{ApiKeyInfo, SessionInfo};
+    use crate::middleware::auth::ApiKeyInfo;
 
     fn admin_key(tenant_id: Uuid) -> ApiKeyInfo {
         ApiKeyInfo {
