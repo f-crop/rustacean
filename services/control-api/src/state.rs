@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicI64, AtomicU64, Ordering},
 };
 
-use crate::crypto::token_cipher::OauthTokenCipher;
+use crate::crypto::OauthTokenCipher;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
