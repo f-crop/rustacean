@@ -257,10 +257,7 @@ mod tests {
     /// Skipped automatically when `RB_DATABASE_URL` is not set.
     #[tokio::test]
     async fn upsert_guard_rejects_cross_tenant_owner() {
-        let db_url = match std::env::var("RB_DATABASE_URL") {
-            Ok(u) => u,
-            Err(_) => return,
-        };
+        let Ok(db_url) = std::env::var("RB_DATABASE_URL") else { return };
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect(&db_url)
@@ -269,7 +266,7 @@ mod tests {
 
         let tenant_a = Uuid::new_v4();
         let tenant_b = Uuid::new_v4();
-        let github_installation_id: i64 = rand::random::<i32>().abs() as i64 + 1_000_000;
+        let github_installation_id: i64 = i64::from(rand::random::<i32>().abs()) + 1_000_000;
 
         // Seed the two test tenants (required by FK on github_installations.tenant_id).
         sqlx::query(

@@ -317,10 +317,10 @@ mod tests {
 
     #[test]
     fn limit_defaults_and_cap() {
-        let applied = None::<u32>.unwrap_or(DEFAULT_SEARCH_LIMIT).min(MAX_SEARCH_LIMIT).max(1);
+        let applied = DEFAULT_SEARCH_LIMIT.clamp(1, MAX_SEARCH_LIMIT);
         assert_eq!(applied, DEFAULT_SEARCH_LIMIT);
 
-        let over = 200_u32.min(MAX_SEARCH_LIMIT).max(1);
+        let over = 200_u32.clamp(1, MAX_SEARCH_LIMIT);
         assert_eq!(over, MAX_SEARCH_LIMIT);
     }
 }

@@ -322,8 +322,8 @@ async fn write_parsed_item_with_blob_ref() {
     teardown_tenant(&pool, &ctx).await;
 }
 
-/// Regression for #274: re-ingestion must not overwrite source_text with NULL.
-/// When body=None arrives, COALESCE in the UPSERT must preserve the original source_text.
+/// Regression for #274: re-ingestion must not overwrite `source_text` with NULL.
+/// When body=None arrives, COALESCE in the UPSERT must preserve the original `source_text`.
 #[tokio::test]
 async fn write_parsed_item_reingest_preserves_source_text() {
     skip_no_db!(url);
