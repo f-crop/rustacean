@@ -18,7 +18,10 @@ fn main() {
     println!("cargo:rerun-if-changed={}", pipeline_proto.display());
     println!("cargo:rerun-if-changed={}", agent_proto.display());
 
-    let fds = protox::compile([&ingest_proto, &audit_proto, &pipeline_proto, &agent_proto], [&proto_root])
+    let fds = protox::compile(
+        [&ingest_proto, &audit_proto, &pipeline_proto, &agent_proto],
+        [&proto_root],
+    )
         .expect("protobuf compilation failed");
 
     prost_build::Config::new()

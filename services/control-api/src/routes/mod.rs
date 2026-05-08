@@ -4,26 +4,22 @@ pub mod audit;
 pub mod auth;
 pub mod auth_logout;
 pub mod auth_verify;
-pub mod auth_oauth;
 pub mod github;
 pub mod health;
 pub mod ingest;
-pub mod mcp;
 pub mod me;
 pub mod query;
 pub mod repos;
 pub mod tenants;
 
-use axum::{Router, routing::{delete, get, post, put}};
+use axum::{Router, routing::{delete, get, patch, post, put}};
 
-use crate::routes::mcp::mcp_handler;
 use crate::routes::{
-    agents::{create_session, session_events},
+    agents::{create_session, delete_session, delete_session_api_key, patch_session_status, session_events},
     api_keys::{create_api_key, list_api_keys, revoke_api_key},
     audit::list_audit_events,
     auth::{forgot_password, login, reset_password, signup},
     auth_logout::logout,
-    auth_oauth::{claude_oauth_callback, claude_oauth_delete, claude_oauth_start},
     auth_verify::verify_email,
     github::health::github_app_health,
     github::install::{github_callback, github_install_url},
@@ -59,9 +55,6 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/auth/verify-email", post(verify_email))
         .route("/v1/auth/forgot-password", post(forgot_password))
         .route("/v1/auth/reset-password", post(reset_password))
-        .route("/v1/auth/oauth/claude/start", get(claude_oauth_start))
-        .route("/v1/auth/oauth/claude/callback", get(claude_oauth_callback))
-        .route("/v1/auth/oauth/claude", delete(claude_oauth_delete))
         .route("/v1/me", get(get_me))
         .route("/v1/me/switch-tenant", post(switch_tenant))
         .route("/v1/api-keys", post(create_api_key))
@@ -94,8 +87,12 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/ingest/events", get(events_stream))
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
+        // Agent session routes (ADR-009 Option B)
         .route("/v1/agents/sessions", post(create_session))
+        .route("/v1/agents/sessions/{id}", delete(delete_session))
         .route("/v1/agents/sessions/{id}/events", get(session_events))
-        .route("/mcp", post(mcp_handler))
+        // Internal routes for agent-runner callbacks (no external auth)
+        .route("/internal/agent/sessions/{id}/status", patch(patch_session_status))
+        .route("/internal/agent/sessions/{id}/api-key", delete(delete_session_api_key))
         .with_state(state)
 }

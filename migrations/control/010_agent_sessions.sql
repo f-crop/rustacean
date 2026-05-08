@@ -46,10 +46,16 @@ CREATE TABLE IF NOT EXISTS agents.agent_sessions (
     completed_at    TIMESTAMPTZ,
     failed_at       TIMESTAMPTZ,
     failure_reason  TEXT,
+    -- ADR-009 Option B: process-spawning columns
+    pid             INTEGER,        -- PID of the spawned process
+    exit_code       INTEGER,        -- exit code after termination
+    workspace_path  TEXT        NOT NULL DEFAULT '',  -- path under /data/workspaces/
+    api_key_id      UUID,           -- FK to api_keys table (session-scoped key)
     CONSTRAINT agent_sessions_runtime_kind_check
         CHECK (runtime_kind IN ('claude_code', 'open_code', 'pi')),
     CONSTRAINT agent_sessions_status_check
-        CHECK (status IN ('created', 'starting', 'running', 'paused', 'completed', 'failed', 'cancelled')),
+        CHECK (status IN ('created', 'starting', 'running', 'paused', 'completed', 'failed', 'cancelled',
+                          'pending', 'terminated')),
     CONSTRAINT agent_sessions_token_budget_positive CHECK (token_budget > 0)
 );
 
@@ -142,38 +148,9 @@ CREATE INDEX IF NOT EXISTS agent_events_tenant_created_idx
     ON agents.agent_events (tenant_id, created_at DESC);
 
 -- ---------------------------------------------------------------------------
--- oauth_tokens
--- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS agents.oauth_tokens (
-    id              UUID        NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id       UUID        NOT NULL,
-    user_id         UUID        NOT NULL,
-    provider        TEXT        NOT NULL,  -- 'claude_code' | 'open_code' | 'pi'
-    -- Tokens stored as hex-encoded AES-256-GCM ciphertext (key = RB_OAUTH_ENCRYPT_KEY).
-    access_token    TEXT        NOT NULL,
-    refresh_token   TEXT,
-    expires_at      TIMESTAMPTZ,
-    scopes          TEXT[]      NOT NULL DEFAULT '{}',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT oauth_tokens_provider_check
-        CHECK (provider IN ('claude_code', 'open_code', 'pi')),
-    -- One active token per (tenant, user, provider).
-    CONSTRAINT oauth_tokens_tenant_user_provider_uidx
-        UNIQUE (tenant_id, user_id, provider)
-);
-
-CREATE INDEX IF NOT EXISTS oauth_tokens_tenant_user_idx
-    ON agents.oauth_tokens (tenant_id, user_id);
-
--- ---------------------------------------------------------------------------
 -- Grants
 -- ---------------------------------------------------------------------------
 
 GRANT USAGE ON SCHEMA agents TO rb_agent_writer;
 GRANT INSERT, SELECT, UPDATE ON agents.agent_sessions TO rb_agent_writer;
 GRANT INSERT, SELECT ON agents.agent_events TO rb_agent_writer;
-
-GRANT USAGE ON SCHEMA agents TO rb_oauth_writer;
-GRANT INSERT, SELECT, UPDATE, DELETE ON agents.oauth_tokens TO rb_oauth_writer;

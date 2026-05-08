@@ -2,84 +2,67 @@ syntax = "proto3";
 
 package rust_brain.v1;
 
-// ── Agent Command Types (ADR-009 §5) ─────────────────────────────────────────
-// Commands issued to rb-agent-runner via rb.agent.commands topic.
-// Process-spawning only (no HTTP API client).
+// ── Agent runtime enum ────────────────────────────────────────────────────────
 
-/// Runtime types supported by rb-agent-runner.
-enum RuntimeKind {
-  RUNTIME_KIND_UNSPECIFIED = 0;
-  RUNTIME_KIND_CLAUDE_CODE = 1;  // Claude Code CLI (npx @anthropic-ai/claude-code)
-  RUNTIME_KIND_OPCODE = 2;       // OpenCode CLI (npx @opencode/cli)
-  RUNTIME_KIND_PI = 3;           // Pi CLI (local binary: pi-agent)
+enum AgentRuntime {
+  AGENT_RUNTIME_UNSPECIFIED = 0;
+  AGENT_RUNTIME_CLAUDE_CODE = 1;
+  AGENT_RUNTIME_OPENCODE    = 2;
+  AGENT_RUNTIME_PI          = 3;
 }
 
-/// Initiates a new agent session.
-message StartSessionCommand {
-  /// UUID of the session to start.
-  string session_id = 1;
-  /// Which runtime CLI to spawn.
-  RuntimeKind runtime_kind = 2;
-  /// Initial instruction/context (single-turn prompt).
-  string prompt = 3;
-  /// Working directory name within workspace (relative path).
-  string workdir = 4;
-  /// Environment variables to inject into the spawned process.
-  map<string, string> env = 5;
-  /// Max duration in seconds (0 = unlimited).
-  uint32 timeout_seconds = 6;
+// ── Agent event kind ─────────────────────────────────────────────────────────
+
+enum AgentEventKind {
+  AGENT_EVENT_KIND_UNSPECIFIED = 0;
+  AGENT_EVENT_KIND_STARTED     = 1;
+  AGENT_EVENT_KIND_STDOUT      = 2;
+  AGENT_EVENT_KIND_STDERR      = 3;
+  AGENT_EVENT_KIND_ERROR       = 4;
+  AGENT_EVENT_KIND_TERMINATED  = 5;
 }
 
-/// Terminates an active agent session.
-message StopSessionCommand {
-  /// UUID of the session to stop.
-  string session_id = 1;
-  /// Graceful shutdown timeout before SIGKILL (seconds).
-  uint32 graceful_timeout_seconds = 2;
+enum AgentErrorCategory {
+  AGENT_ERROR_CATEGORY_UNSPECIFIED  = 0;
+  AGENT_ERROR_CATEGORY_SPAWN_FAILED = 1;
+  AGENT_ERROR_CATEGORY_IO_ERROR     = 2;
+  AGENT_ERROR_CATEGORY_TIMEOUT      = 3;
 }
 
-/// Wraps one-of command payloads for rb.agent.commands topic.
-message AgentCommand {
-  /// UUID of the session this command targets.
+// ── Commands (rb.agent.commands) ─────────────────────────────────────────────
+
+message AgentSessionStart {
+  int32  runtime          = 1;  // AgentRuntime value
+  string initial_prompt   = 2;
+  string workspace_path   = 3;  // relative under workspace_base
+  string api_key          = 4;  // session-scoped API key plaintext
+}
+
+message AgentSessionInput {
+  string input = 1;
+}
+
+message AgentSessionTerminate {
+  bool   force  = 1;
+  string reason = 2;
+}
+
+message AgentSessionCommand {
   string session_id = 1;
-  /// Tenant that issued this command (routing key).
-  string tenant_id = 2;
-  /// Timestamp when command was created (Unix epoch ms).
-  int64 created_at_ms = 3;
-  /// The actual command to execute.
-  oneof payload {
-    StartSessionCommand start_session = 4;
-    StopSessionCommand stop_session = 5;
+  oneof command {
+    AgentSessionStart     start     = 2;
+    AgentSessionInput     input     = 3;
+    AgentSessionTerminate terminate = 4;
   }
 }
 
-/// Events emitted during agent session lifecycle (for SSE projection).
-/// NOT used on Kafka topics; stored in control.agent_events.
-enum AgentEventType {
-  AGENT_EVENT_TYPE_UNSPECIFIED = 0;
-  AGENT_EVENT_TYPE_SESSION_STARTED = 1;
-  AGENT_EVENT_TYPE_TOOL_CALL_STARTED = 2;
-  AGENT_EVENT_TYPE_TOOL_CALL_COMPLETED = 3;
-  AGENT_EVENT_TYPE_TOOL_CALL_FAILED = 4;
-  AGENT_EVENT_TYPE_LLM_CALL_STARTED = 5;
-  AGENT_EVENT_TYPE_LLM_CALL_COMPLETED = 6;
-  AGENT_EVENT_TYPE_MESSAGE = 7;
-  AGENT_EVENT_TYPE_SESSION_COMPLETED = 8;
-  AGENT_EVENT_TYPE_SESSION_FAILED = 9;
-  AGENT_EVENT_TYPE_SESSION_CANCELED = 10;
-}
+// ── Events (rb.agent.events) ─────────────────────────────────────────────────
 
-/// Event record stored in control.agent_events table.
-/// Produced by rb-agent-runner stdout/stderr parsing.
 message AgentEvent {
-  /// Event type discriminator.
-  AgentEventType event_type = 1;
-  /// UUID of the session this event belongs to.
-  string session_id = 2;
-  /// Monotonic sequence number within the session.
-  int32 seq = 3;
-  /// ISO 8601 timestamp (RFC3339 format).
-  string ts = 4;
-  /// JSON-serialized event payload (schema depends on event_type).
-  string data = 5;
+  string tenant_id      = 1;
+  string session_id     = 2;
+  int64  seq            = 3;
+  int32  kind           = 4;  // AgentEventKind value
+  string payload        = 5;
+  int64  emitted_at_ms  = 6;
 }

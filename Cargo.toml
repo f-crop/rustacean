@@ -24,15 +24,14 @@ members = [
     "services/typecheck-worker",
     "services/ingest-graph",
     "crates/rb-query",
-    "crates/rb-mcp",
     "crates/rb-audit-cli",
-    "services/rb-agent-runner",
     "crates/rb-storage-neo4j",
     "crates/rb-storage-qdrant",
     "services/projector-pg",
     "services/projector-neo4j",
     "services/tombstoner",
     "services/embed-worker",
+    "services/agent-runner",
 ]
 
 [workspace.package]
