@@ -5,7 +5,7 @@
 //! - `PATCH /internal/agent/sessions/{id}/status`   — agent-runner callback to update DB
 //! - `DELETE /internal/agent/sessions/{id}/api-key` — agent-runner callback to revoke key
 //!
-//! # Prompt security (RUSAA-859)
+//! # Prompt security
 //!
 //! The full `initial_prompt` is forwarded via Kafka but **never stored
 //! verbatim in the database**. Only a ≤256-char Unicode preview is persisted

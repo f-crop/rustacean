@@ -40,7 +40,7 @@ fn make_topics_yaml(topics: &[(&str, i32, &str)]) -> NamedTempFile {
 // ── unit tests (no broker required) ─────────────────────────────────────────
 
 #[test]
-fn test_load_all_23_topics_from_infra_yaml() {
+fn test_load_all_27_topics_from_infra_yaml() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -53,8 +53,8 @@ fn test_load_all_23_topics_from_infra_yaml() {
     let tf = load_topics_file(&path).expect("infra/kafka/topics.yaml must be loadable");
     assert_eq!(
         tf.topics.len(),
-        23,
-        "expected 23 topic definitions (8 base + 2 payload + 6 retry + 7 DLQ)"
+        27,
+        "expected 27 topic definitions (8 base + 2 payload + 6 retry + 7 DLQ + 4 agent)"
     );
 
     let names: Vec<&str> = tf.topics.iter().map(|t| t.name.as_str()).collect();
@@ -81,6 +81,12 @@ fn test_load_all_23_topics_from_infra_yaml() {
     assert!(names.contains(&"rb.ingest.clone.commands.dlq"));
     assert!(names.contains(&"rb.ingest.parse.commands.dlq"));
     assert!(names.contains(&"rb.projector.events.dlq"));
+
+    // Agent topics (ADR-009 process-spawning)
+    assert!(names.contains(&"rb.agent.commands"));
+    assert!(names.contains(&"rb.agent.commands.retry"));
+    assert!(names.contains(&"rb.agent.commands.dlq"));
+    assert!(names.contains(&"rb.agent.events"));
 }
 
 #[test]

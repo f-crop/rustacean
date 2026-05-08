@@ -36,36 +36,6 @@
         }
       }
     },
-    "/mcp": {
-      "post": {
-        "tags": [
-          "mcp"
-        ],
-        "summary": "`POST /mcp` — Model Context Protocol JSON-RPC 2.0 endpoint (ADR-009 Phase 1).",
-        "description": "Accepts a JSON-RPC 2.0 request body and returns a JSON-RPC 2.0 response.\nNotifications (requests without an `id` field) return HTTP 202 with no body.\nAll error paths return HTTP 200 with a JSON-RPC error object (spec-compliant).",
-        "operationId": "mcp_handler",
-        "requestBody": {
-          "description": "JSON-RPC 2.0 request or notification",
-          "content": {
-            "application/json": {
-              "schema": {}
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "JSON-RPC 2.0 response (for requests)"
-          },
-          "202": {
-            "description": "Notification accepted — no body (notifications/initialized)"
-          },
-          "401": {
-            "description": "Bearer token missing or invalid"
-          }
-        }
-      }
-    },
     "/ready": {
       "get": {
         "tags": [
@@ -3417,8 +3387,8 @@
       "description": "Data-plane query endpoints (ADR-008 Wave 6)"
     },
     {
-      "name": "mcp",
-      "description": "Model Context Protocol endpoint — JSON-RPC 2.0 over HTTP (ADR-009 Wave 7)"
+      "name": "agents",
+      "description": "Agent session management (ADR-009 Option B — process-spawning)"
     }
   ]
 }
