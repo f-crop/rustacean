@@ -161,7 +161,9 @@ pub async fn run(config: Config) -> Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = routes::build(state)
+    // SECURITY: Public and internal routes are served on separate listeners
+    // to prevent internal endpoints from being exposed on the public interface.
+    let public_app = routes::build_public(state.clone())
         .route(
             "/metrics",
             get(move || async move { metrics_handle.render() }),
@@ -173,13 +175,29 @@ pub async fn run(config: Config) -> Result<()> {
             middleware::otel_trace::otel_trace_middleware,
         ));
 
-    let addr: std::net::SocketAddr = config.listen_addr.parse()?;
-    tracing::info!(addr = %addr, "control-api listening");
+    let internal_app = routes::build_internal(state)
+        .layer(TraceLayer::new_for_http())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+        .layer(axum::middleware::from_fn(
+            middleware::otel_trace::otel_trace_middleware,
+        ));
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    let public_addr: std::net::SocketAddr = config.listen_addr.parse()?;
+    let internal_addr: std::net::SocketAddr = config.internal_listen_addr.parse()?;
+
+    tracing::info!(addr = %public_addr, "control-api public listener binding");
+    tracing::info!(addr = %internal_addr, "control-api internal listener binding");
+
+    let public_listener = tokio::net::TcpListener::bind(public_addr).await?;
+    let internal_listener = tokio::net::TcpListener::bind(internal_addr).await?;
+
+    // Spawn both servers concurrently; shutdown_signal triggers graceful shutdown for both.
+    let public_server =
+        axum::serve(public_listener, public_app).with_graceful_shutdown(shutdown_signal());
+    let internal_server =
+        axum::serve(internal_listener, internal_app).with_graceful_shutdown(shutdown_signal());
+
+    tokio::try_join!(public_server, internal_server)?;
 
     Ok(())
 }

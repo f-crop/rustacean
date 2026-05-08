@@ -105,7 +105,7 @@ struct AgentSessionFixtures {
 }
 
 /// Insert the minimal set of control and agent schema rows required:
-/// tenant → user (email-verified) → session → agent_session.
+/// tenant → user (email-verified) → session → `agent_session`.
 ///
 /// All rows use fresh UUIDs so parallel test runs never collide.
 async fn insert_agent_session_fixtures(pool: &PgPool) -> AgentSessionFixtures {
@@ -208,7 +208,7 @@ async fn ac1_events_stream_without_session_returns_401() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/agents/sessions/{}/events", session_id))
+                .uri(format!("/v1/agents/sessions/{session_id}/events"))
                 .header("accept", "text/event-stream")
                 .body(Body::empty())
                 .unwrap(),

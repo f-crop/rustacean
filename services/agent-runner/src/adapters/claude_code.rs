@@ -65,11 +65,9 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             } else {
                 Signal::SIGTERM
             };
-            kill(
-                Pid::from_raw(i32::try_from(proc.pid).unwrap_or(i32::MAX)),
-                signal,
-            )
-            .context("Failed to send signal")?;
+            // Linux PIDs are constrained to fit in i32; use fallback on overflow.
+            let pid_i32 = i32::try_from(proc.pid).unwrap_or(i32::MAX);
+            kill(Pid::from_raw(pid_i32), signal).context("Failed to send signal")?;
         }
         #[cfg(not(unix))]
         proc.child.kill().await?;

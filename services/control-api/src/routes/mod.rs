@@ -55,8 +55,8 @@ use crate::routes::{
 };
 use crate::state::AppState;
 
-pub fn build(state: AppState) -> Router {
-    let public = Router::new()
+pub fn build_public(state: AppState) -> Router {
+    Router::new()
         .route("/health", get(health_check))
         .route("/ready", get(ready_check))
         .route("/openapi.json", get(openapi_json))
@@ -128,9 +128,12 @@ pub fn build(state: AppState) -> Router {
         // Agent session routes (ADR-009 Option B)
         .route("/v1/agents/sessions", post(create_session))
         .route("/v1/agents/sessions/{id}", delete(delete_session))
-        .route("/v1/agents/sessions/{id}/events", get(session_events));
+        .route("/v1/agents/sessions/{id}/events", get(session_events))
+        .with_state(state)
+}
 
-    let internal = Router::new()
+pub fn build_internal(state: AppState) -> Router {
+    Router::new()
         // Internal routes for agent-runner callbacks (protected by internal secret middleware)
         .route(
             "/internal/agent/sessions/{id}/status",
@@ -141,7 +144,13 @@ pub fn build(state: AppState) -> Router {
             delete(delete_session_api_key),
         )
         .route_layer(from_fn(require_internal_secret))
-        .with_state(state.clone());
+        .with_state(state)
+}
 
-    public.with_state(state).merge(internal)
+#[deprecated(
+    since = "0.1.0",
+    note = "Use build_public and build_internal separately"
+)]
+pub fn build(state: AppState) -> Router {
+    build_public(state.clone()).merge(build_internal(state))
 }

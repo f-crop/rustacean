@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
+use metrics::counter;
 use rb_schemas::{
     AgentEvent, AgentEventKind, AgentRuntime, AgentSessionInput, AgentSessionStart,
     AgentSessionTerminate, TenantId,
@@ -103,15 +104,18 @@ impl SessionManager {
             .map_err(|_| anyhow::anyhow!("Invalid runtime value: {}", cmd.runtime))?;
 
         let adapter = adapter_for_runtime(runtime)?;
-        let mut process = adapter
-            .spawn(&ctx)
-            .await
-            .with_context(|| format!("Failed to spawn {runtime:?} adapter"))?;
+        let mut process = match adapter.spawn(&ctx).await {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tokio::fs::remove_dir_all(&workspace_path).await;
+                return Err(e.context(format!("Failed to spawn {runtime:?} adapter")));
+            }
+        };
 
         let pid = process.pid;
 
         // Report running status to control-api
-        self.update_session_status(session_id, "running", Some(i64::from(pid)), None)
+        self.update_session_status(session_id, tenant_id, "running", Some(i64::from(pid)), None)
             .await;
 
         let stdout = process
@@ -214,11 +218,21 @@ impl SessionManager {
         handle.stderr_handle.abort();
 
         // Report terminated status to control-api
-        self.update_session_status(session_id, "terminated", None, Some(exit_code))
+        self.update_session_status(session_id, handle.tenant_id, "terminated", None, Some(exit_code))
             .await;
 
         // Revoke session-scoped API key
         self.revoke_api_key(session_id).await;
+
+        if exit_code != 0 {
+            tracing::error!(
+                session_id = %session_id,
+                exit_code = exit_code,
+                duration_ms = duration_ms,
+                reason = %terminate.reason,
+                "Agent session terminated with non-zero exit code"
+            );
+        }
 
         self.emit_terminated_event(
             handle.tenant_id,
@@ -242,6 +256,7 @@ impl SessionManager {
     async fn update_session_status(
         &self,
         session_id: &str,
+        tenant_id: TenantId,
         status: &str,
         pid: Option<i64>,
         exit_code: Option<i32>,
@@ -250,7 +265,12 @@ impl SessionManager {
             "{}/internal/agent/sessions/{}/status",
             self.control_api_base, session_id
         );
-        let body = serde_json::json!({ "status": status, "pid": pid, "exit_code": exit_code });
+        let body = serde_json::json!({
+            "status": status,
+            "pid": pid,
+            "exit_code": exit_code,
+            "tenant_id": tenant_id.to_string(),
+        });
         if let Err(e) = self.http_client.patch(&url).json(&body).send().await {
             tracing::warn!(session_id = %session_id, "Failed to update session status: {e}");
         }
@@ -302,7 +322,9 @@ impl SessionManager {
                                 payload: parsed.payload,
                                 emitted_at_ms: chrono::Utc::now().timestamp_millis(),
                             };
-                            let _ = es.send((tenant_id, event)).await;
+                            if let Err(e) = es.try_send((tenant_id, event)) {
+                                tracing::error!(session_id = %sid_stdout, error = %e, "Failed to send stdout event (channel full or closed)");
+                            }
                         }
                     }
                 }
@@ -333,7 +355,9 @@ impl SessionManager {
                         payload: line,
                         emitted_at_ms: chrono::Utc::now().timestamp_millis(),
                     };
-                    let _ = event_sender.send((tenant_id, event)).await;
+                    if let Err(e) = event_sender.try_send((tenant_id, event)) {
+                        tracing::error!(session_id = %sid_err, error = %e, "Failed to send stderr event (channel full or closed)");
+                    }
                 }
             }
             .instrument(span_err),
@@ -359,7 +383,16 @@ impl SessionManager {
             payload: payload.to_string(),
             emitted_at_ms: chrono::Utc::now().timestamp_millis(),
         };
-        let _ = event_sender.send((tenant_id, event)).await;
+        if tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            event_sender.send((tenant_id, event)),
+        )
+        .await
+        .is_err()
+        {
+            tracing::warn!(session_id = %session_id, seq = seq, "Event channel full, dropped lifecycle event");
+            counter!("rb_agent_events_dropped_total", "reason" => "channel_full").increment(1);
+        }
     }
 
     async fn emit_terminated_event(
@@ -379,12 +412,21 @@ impl SessionManager {
         let event = AgentEvent {
             tenant_id: tenant_id.to_string(),
             session_id: session_id.to_string(),
-            seq: -1,
+            seq: i64::MIN,
             kind: AgentEventKind::Terminated.into(),
             payload: payload.to_string(),
             emitted_at_ms: chrono::Utc::now().timestamp_millis(),
         };
-        let _ = event_sender.send((tenant_id, event)).await;
+        if tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            event_sender.send((tenant_id, event)),
+        )
+        .await
+        .is_err()
+        {
+            tracing::warn!(session_id = %session_id, "Event channel full, dropped terminated event");
+            counter!("rb_agent_events_dropped_total", "reason" => "channel_full").increment(1);
+        }
     }
 }
 

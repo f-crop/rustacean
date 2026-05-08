@@ -37,7 +37,7 @@ use uuid::Uuid;
 use crate::{
     error::AppError,
     middleware::auth::{AuthContext, require_verified_session},
-    state::{AppState, MAX_ACTIVE_SESSIONS_PER_PROCESS, SessionHandle},
+    state::{AppState, SessionHandle},
 };
 
 // ---------------------------------------------------------------------------
@@ -205,13 +205,6 @@ pub struct CreateSessionResponse {
     pub status: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct PatchSessionStatusRequest {
-    pub status: String,
-    pub pid: Option<i64>,
-    pub exit_code: Option<i32>,
-}
-
 // ---------------------------------------------------------------------------
 // POST /v1/agents/sessions
 // ---------------------------------------------------------------------------
@@ -251,11 +244,13 @@ pub async fn create_session(
         format!("{}/{}", session.tenant_id, Uuid::new_v4())
     };
 
-    // Enforce per-process session cap against the live registry rather than a
-    // per-request semaphore permit that would be released when this handler returns.
-    if state.agent_registry.active_count() >= MAX_ACTIVE_SESSIONS_PER_PROCESS {
-        return Err(AppError::SessionCapExceeded);
-    }
+    // Acquire a slot from the semaphore to atomically enforce the per-process cap.
+    // This prevents race conditions where concurrent requests could both pass the
+    // check and exceed MAX_ACTIVE_SESSIONS_PER_PROCESS.
+    let _permit = state
+        .agent_registry
+        .try_acquire()
+        .ok_or(AppError::SessionCapExceeded)?;
 
     let session_id = Uuid::new_v4();
     let now = Utc::now();
@@ -417,6 +412,15 @@ pub async fn delete_session(
 // PATCH /internal/agent/sessions/{id}/status  (agent-runner callback)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Deserialize)]
+pub struct PatchSessionStatusRequest {
+    pub status: String,
+    pub pid: Option<i64>,
+    pub exit_code: Option<i32>,
+    /// Required: `tenant_id` must match the session's tenant for authorization.
+    pub tenant_id: Uuid,
+}
+
 pub async fn patch_session_status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -430,15 +434,30 @@ pub async fn patch_session_status(
         return Err(AppError::InvalidInput);
     }
 
+    // SECURITY: Verify the session belongs to the claimed tenant.
+    // This prevents an attacker with the internal secret from updating arbitrary sessions.
+    let row: Option<(Uuid,)> =
+        sqlx::query_as("SELECT tenant_id FROM agents.agent_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+
+    let (session_tenant_id,) = row.ok_or(AppError::NotFound)?;
+    if session_tenant_id != req.tenant_id {
+        return Err(AppError::Unauthorized);
+    }
+
     sqlx::query(
         "UPDATE agents.agent_sessions
          SET status = $1, pid = $2, exit_code = $3
-         WHERE id = $4",
+         WHERE id = $4 AND tenant_id = $5",
     )
     .bind(&req.status)
     .bind(req.pid)
     .bind(req.exit_code)
     .bind(session_id)
+    .bind(req.tenant_id)
     .execute(&state.pool)
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;

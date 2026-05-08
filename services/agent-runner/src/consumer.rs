@@ -140,7 +140,7 @@ async fn emit_error_event(
     let event = AgentEvent {
         tenant_id: tenant_id.to_string(),
         session_id: session_id.to_string(),
-        seq: -1,
+        seq: i64::MIN + 1,
         kind: AgentEventKind::Error.into(),
         payload: payload.to_string(),
         emitted_at_ms: chrono::Utc::now().timestamp_millis(),
