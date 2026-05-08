@@ -218,8 +218,14 @@ impl SessionManager {
         handle.stderr_handle.abort();
 
         // Report terminated status to control-api
-        self.update_session_status(session_id, handle.tenant_id, "terminated", None, Some(exit_code))
-            .await;
+        self.update_session_status(
+            session_id,
+            handle.tenant_id,
+            "terminated",
+            None,
+            Some(exit_code),
+        )
+        .await;
 
         // Revoke session-scoped API key
         self.revoke_api_key(session_id).await;
