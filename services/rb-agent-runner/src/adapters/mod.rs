@@ -18,6 +18,7 @@ pub fn runtime_kind_as_str(kind: RuntimeKind) -> &'static str {
 
 #[async_trait::async_trait]
 pub trait RuntimeAdapter: Send + Sync + 'static {
+    #[allow(dead_code)]
     fn runtime_kind(&self) -> RuntimeKind;
 
     async fn spawn(

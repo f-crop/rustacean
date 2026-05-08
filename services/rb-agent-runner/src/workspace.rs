@@ -15,10 +15,12 @@ use crate::error::Result;
 const DEFAULT_WORKSPACE_BASE: &str = "/data/workspaces";
 
 /// Default TTL for workspace garbage collection (24 hours).
+#[allow(dead_code)]
 const DEFAULT_WORKSPACE_TTL_SECONDS: u64 = 24 * 60 * 60;
 
 /// Isolated workspace for an agent session.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Workspace {
     pub session_id: Uuid,
     pub tenant_id: Uuid,
@@ -73,6 +75,7 @@ impl Workspace {
     }
 
     /// Reads a file from the workspace.
+    #[allow(dead_code)]
     pub async fn read_file(&self, relative_path: &str) -> Result<Vec<u8>> {
         let file_path = self.path.join(relative_path);
         let content = fs::read(&file_path).await?;
@@ -80,6 +83,7 @@ impl Workspace {
     }
 
     /// Cleans up the workspace directory.
+    #[allow(dead_code)]
     pub async fn cleanup(&self) -> Result<()> {
         if self.path.exists() {
             fs::remove_dir_all(&self.path).await?;
@@ -94,6 +98,7 @@ impl Workspace {
 }
 
 /// Garbage collects old workspaces that exceed the TTL.
+#[allow(dead_code)]
 pub async fn garbage_collect_workspaces() -> Result<usize> {
     let base = std::env::var("RB_WORKSPACE_BASE")
         .unwrap_or_else(|_| DEFAULT_WORKSPACE_BASE.to_string());
