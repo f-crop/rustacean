@@ -3775,6 +3775,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rb-agent-runner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "metrics",
+ "metrics-util 0.18.0",
+ "rb-kafka",
+ "rb-schemas",
+ "rb-tracing",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rb-agent-runtime"
 version = "0.1.0"
 dependencies = [
