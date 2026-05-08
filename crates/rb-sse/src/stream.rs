@@ -190,7 +190,10 @@ fn build_inner_stream(
 
 fn matches_session(data: &str, session_id: Option<uuid::Uuid>) -> bool {
     let Some(sid) = session_id else { return true };
-    data.contains(&format!("\"session_id\": \"{sid}\""))
+    serde_json::from_str::<serde_json::Value>(data)
+        .ok()
+        .and_then(|v| v.get("session_id")?.as_str().map(String::from))
+        .is_some_and(|s| s == sid.to_string())
 }
 
 // ---------------------------------------------------------------------------

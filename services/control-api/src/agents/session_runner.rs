@@ -90,7 +90,6 @@ pub fn spawn_session_runner(
         // Track sequence number for event ordering (atomic to allow Fn closure access)
         let sequence = Arc::new(AtomicI64::new(0));
 
-        // Run the session with event callback
         let result = runtime
             .run(
                 ctx,
@@ -99,18 +98,23 @@ pub fn spawn_session_runner(
                     let seq = sequence.fetch_add(1, Ordering::SeqCst) + 1;
                     let env = EventEnvelope::new(session_id, tenant_id, seq, &event);
 
-                    // Persist to DB (fire and forget — log error but don't stop session)
                     let pool_clone = pool.clone();
                     let event_for_db = event.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = persist_event(&pool_clone, session_id, tenant_id, seq, &event_for_db).await {
-                            tracing::warn!(%session_id, "failed to persist event: {e}");
-                        }
+                    let persist_result = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async move {
+                            persist_event(&pool_clone, session_id, tenant_id, seq, &event_for_db).await
+                        })
                     });
 
-                    // Publish to SSE bus
-                    let tenant = TenantId::from(tenant_id);
-                    sse_bus.publish(&tenant, "agent.event", &env);
+                    match persist_result {
+                        Ok(()) => {
+                            let tenant = TenantId::from(tenant_id);
+                            sse_bus.publish(&tenant, "agent.event", &env);
+                        }
+                        Err(e) => {
+                            tracing::warn!(%session_id, "failed to persist event, skipping SSE publish: {e}");
+                        }
+                    }
                 },
             )
             .await;
@@ -162,11 +166,6 @@ fn build_runtime(
             Some(Box::new(rb_agent_runtime::OpenCodeRuntime::new(
                 http, url, key,
             )))
-        }
-        "pi" => {
-            let url = litellm_url?;
-            let key = litellm_key?;
-            Some(Box::new(rb_agent_runtime::PiRuntime::new(http, url, key)))
         }
         _ => None,
     }
