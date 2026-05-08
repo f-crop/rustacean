@@ -14,7 +14,7 @@ pub mod tenants;
 
 use axum::{
     Router,
-    middleware::from_fn,
+    middleware::from_fn_with_state,
     routing::{delete, get, patch, post, put},
 };
 
@@ -143,7 +143,7 @@ pub fn build_internal(state: AppState) -> Router {
             "/internal/agent/sessions/{id}/api-key",
             delete(delete_session_api_key),
         )
-        .route_layer(from_fn(require_internal_secret))
+        .route_layer(from_fn_with_state(state.clone(), require_internal_secret))
         .with_state(state)
 }
 

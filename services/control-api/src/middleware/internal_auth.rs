@@ -1,12 +1,16 @@
-use axum::{extract::Request, middleware::Next, response::Response};
+use axum::{extract::Request, extract::State, middleware::Next, response::Response};
 
 use crate::error::AppError;
+use crate::state::AppState;
 
-pub async fn require_internal_secret(request: Request, next: Next) -> Result<Response, AppError> {
-    let expected = std::env::var("RB_INTERNAL_SECRET")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .ok_or(AppError::Unauthorized)?;
+pub async fn require_internal_secret(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, AppError> {
+    if state.internal_secret.is_empty() {
+        return Err(AppError::Unauthorized);
+    }
 
     let provided = request
         .headers()
@@ -14,7 +18,7 @@ pub async fn require_internal_secret(request: Request, next: Next) -> Result<Res
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    if !constant_time_compare(expected.as_bytes(), provided.as_bytes()) {
+    if !constant_time_compare(state.internal_secret.as_bytes(), provided.as_bytes()) {
         return Err(AppError::Unauthorized);
     }
 
