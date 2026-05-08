@@ -71,16 +71,15 @@ pub async fn fetch_module_tree(
     let table = tenant_ctx.qualify("code_symbols");
 
     // One SQL query — ADR-008 AC2.
-    let rows: Vec<SymbolRow> =
-        sqlx::query_as(&format!(
-            "SELECT fqn, kind, source_path, line_start, line_end \
+    let rows: Vec<SymbolRow> = sqlx::query_as(&format!(
+        "SELECT fqn, kind, source_path, line_start, line_end \
              FROM {table} \
              WHERE repo_id = $1 \
              ORDER BY fqn"
-        ))
-        .bind(repo_id)
-        .fetch_all(pool)
-        .await?;
+    ))
+    .bind(repo_id)
+    .fetch_all(pool)
+    .await?;
 
     tracing::debug!(
         %repo_id,
@@ -132,7 +131,15 @@ fn build_tree(rows: Vec<SymbolRow>) -> ModuleNode {
             });
         }
         // The explicit row wins (overwrites a synthetic placeholder if present).
-        node_map.insert(fqn, NodeInfo { kind, source_path, line_start, line_end });
+        node_map.insert(
+            fqn,
+            NodeInfo {
+                kind,
+                source_path,
+                line_start,
+                line_end,
+            },
+        );
     }
 
     // 2. Build the parent → children map.
@@ -185,7 +192,11 @@ fn make_node(
 
     let children = children_map
         .get(fqn)
-        .map(|kids| kids.iter().map(|c| make_node(c, node_map, children_map)).collect())
+        .map(|kids| {
+            kids.iter()
+                .map(|c| make_node(c, node_map, children_map))
+                .collect()
+        })
         .unwrap_or_default();
 
     ModuleNode {
@@ -212,7 +223,13 @@ mod tests {
     }
 
     fn row_with_source(fqn: &str, kind: &str, path: &str, start: i32, end: i32) -> SymbolRow {
-        (fqn.to_owned(), kind.to_owned(), Some(path.to_owned()), Some(start), Some(end))
+        (
+            fqn.to_owned(),
+            kind.to_owned(),
+            Some(path.to_owned()),
+            Some(start),
+            Some(end),
+        )
     }
 
     #[test]

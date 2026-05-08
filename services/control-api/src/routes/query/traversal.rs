@@ -3,12 +3,15 @@
 //! BFS traversal of the Neo4j call graph within a tenant.  Depth-limited (default 3, max 10).
 //! Results are paginated via an opaque base64 offset cursor.
 
-use axum::{Json, extract::{Path, Query, State}, response::IntoResponse};
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+    response::IntoResponse,
+};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rb_query::{
-    DEFAULT_DEPTH, DEFAULT_LIMIT, MAX_DEPTH, MAX_LIMIT,
-    EdgeProvenance, TraversalEdge, TraversalNode, TraversalOptions, TraversalResult,
-    fetch_callers, fetch_callees,
+    DEFAULT_DEPTH, DEFAULT_LIMIT, EdgeProvenance, MAX_DEPTH, MAX_LIMIT, TraversalEdge,
+    TraversalNode, TraversalOptions, TraversalResult, fetch_callees, fetch_callers,
 };
 use rb_schemas::TenantId;
 use serde::{Deserialize, Serialize};
@@ -75,7 +78,13 @@ pub struct TraversalNodeSchema {
 
 impl From<TraversalNode> for TraversalNodeSchema {
     fn from(n: TraversalNode) -> Self {
-        Self { fqn: n.fqn, name: n.name, kind: n.kind, file_path: n.file_path, line: n.line }
+        Self {
+            fqn: n.fqn,
+            name: n.name,
+            kind: n.kind,
+            file_path: n.file_path,
+            line: n.line,
+        }
     }
 }
 
@@ -126,8 +135,12 @@ impl From<TraversalResult> for TraversalResponse {
 // Query parameters
 // ---------------------------------------------------------------------------
 
-fn default_depth() -> u32 { DEFAULT_DEPTH }
-fn default_limit() -> usize { DEFAULT_LIMIT }
+fn default_depth() -> u32 {
+    DEFAULT_DEPTH
+}
+fn default_limit() -> usize {
+    DEFAULT_LIMIT
+}
 
 /// Query parameters for BFS traversal endpoints.
 #[derive(Debug, Deserialize, IntoParams)]
@@ -147,7 +160,11 @@ pub struct TraversalQuery {
 // ---------------------------------------------------------------------------
 
 fn build_opts(q: TraversalQuery) -> Result<TraversalOptions, AppError> {
-    let TraversalQuery { depth, limit, cursor } = q;
+    let TraversalQuery {
+        depth,
+        limit,
+        cursor,
+    } = q;
     if depth > MAX_DEPTH {
         return Err(AppError::InvalidInput);
     }
@@ -156,13 +173,19 @@ fn build_opts(q: TraversalQuery) -> Result<TraversalOptions, AppError> {
     }
     let offset = match cursor {
         Some(c) => {
-            let bytes = URL_SAFE_NO_PAD.decode(c.as_bytes()).map_err(|_| AppError::InvalidInput)?;
+            let bytes = URL_SAFE_NO_PAD
+                .decode(c.as_bytes())
+                .map_err(|_| AppError::InvalidInput)?;
             let s = String::from_utf8(bytes).map_err(|_| AppError::InvalidInput)?;
             s.parse::<usize>().map_err(|_| AppError::InvalidInput)?
         }
         None => 0,
     };
-    Ok(TraversalOptions { depth, limit, offset })
+    Ok(TraversalOptions {
+        depth,
+        limit,
+        offset,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -202,8 +225,9 @@ pub async fn get_callers(
     let tenant_id = require_read_access(auth)?;
     let graph = state.graph.as_deref().ok_or(AppError::GraphUnavailable)?;
 
-    let fqn_bytes =
-        URL_SAFE_NO_PAD.decode(fqn_b64.as_bytes()).map_err(|_| AppError::InvalidInput)?;
+    let fqn_bytes = URL_SAFE_NO_PAD
+        .decode(fqn_b64.as_bytes())
+        .map_err(|_| AppError::InvalidInput)?;
     let fqn = String::from_utf8(fqn_bytes).map_err(|_| AppError::InvalidInput)?;
 
     let owned: Option<(Uuid,)> = sqlx::query_as(
@@ -263,8 +287,9 @@ pub async fn get_callees(
     let tenant_id = require_read_access(auth)?;
     let graph = state.graph.as_deref().ok_or(AppError::GraphUnavailable)?;
 
-    let fqn_bytes =
-        URL_SAFE_NO_PAD.decode(fqn_b64.as_bytes()).map_err(|_| AppError::InvalidInput)?;
+    let fqn_bytes = URL_SAFE_NO_PAD
+        .decode(fqn_b64.as_bytes())
+        .map_err(|_| AppError::InvalidInput)?;
     let fqn = String::from_utf8(fqn_bytes).map_err(|_| AppError::InvalidInput)?;
 
     let owned: Option<(Uuid,)> = sqlx::query_as(
@@ -314,7 +339,10 @@ mod tests {
     #[test]
     fn require_read_access_accepts_verified_session() {
         let tid = Uuid::new_v4();
-        assert_eq!(require_read_access(AuthContext::Session(verified_session(tid))).unwrap(), tid);
+        assert_eq!(
+            require_read_access(AuthContext::Session(verified_session(tid))).unwrap(),
+            tid
+        );
     }
 
     #[test]
@@ -341,12 +369,19 @@ mod tests {
 
     #[test]
     fn require_read_access_rejects_anonymous() {
-        assert!(matches!(require_read_access(AuthContext::Anonymous), Err(AppError::Unauthorized)));
+        assert!(matches!(
+            require_read_access(AuthContext::Anonymous),
+            Err(AppError::Unauthorized)
+        ));
     }
 
     #[test]
     fn build_opts_defaults() {
-        let q = TraversalQuery { depth: DEFAULT_DEPTH, limit: DEFAULT_LIMIT, cursor: None };
+        let q = TraversalQuery {
+            depth: DEFAULT_DEPTH,
+            limit: DEFAULT_LIMIT,
+            cursor: None,
+        };
         let opts = build_opts(q).unwrap();
         assert_eq!(opts.depth, DEFAULT_DEPTH);
         assert_eq!(opts.limit, DEFAULT_LIMIT);
@@ -355,19 +390,31 @@ mod tests {
 
     #[test]
     fn build_opts_rejects_depth_over_max() {
-        let q = TraversalQuery { depth: MAX_DEPTH + 1, limit: DEFAULT_LIMIT, cursor: None };
+        let q = TraversalQuery {
+            depth: MAX_DEPTH + 1,
+            limit: DEFAULT_LIMIT,
+            cursor: None,
+        };
         assert!(matches!(build_opts(q), Err(AppError::InvalidInput)));
     }
 
     #[test]
     fn build_opts_rejects_limit_zero() {
-        let q = TraversalQuery { depth: DEFAULT_DEPTH, limit: 0, cursor: None };
+        let q = TraversalQuery {
+            depth: DEFAULT_DEPTH,
+            limit: 0,
+            cursor: None,
+        };
         assert!(matches!(build_opts(q), Err(AppError::InvalidInput)));
     }
 
     #[test]
     fn build_opts_rejects_limit_over_max() {
-        let q = TraversalQuery { depth: DEFAULT_DEPTH, limit: MAX_LIMIT + 1, cursor: None };
+        let q = TraversalQuery {
+            depth: DEFAULT_DEPTH,
+            limit: MAX_LIMIT + 1,
+            cursor: None,
+        };
         assert!(matches!(build_opts(q), Err(AppError::InvalidInput)));
     }
 
@@ -375,7 +422,11 @@ mod tests {
     fn build_opts_decodes_valid_cursor() {
         use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
         let cursor = URL_SAFE_NO_PAD.encode(b"42");
-        let q = TraversalQuery { depth: DEFAULT_DEPTH, limit: DEFAULT_LIMIT, cursor: Some(cursor) };
+        let q = TraversalQuery {
+            depth: DEFAULT_DEPTH,
+            limit: DEFAULT_LIMIT,
+            cursor: Some(cursor),
+        };
         let opts = build_opts(q).unwrap();
         assert_eq!(opts.offset, 42);
     }

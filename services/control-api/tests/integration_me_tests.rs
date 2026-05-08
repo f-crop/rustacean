@@ -67,6 +67,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         qdrant_url: None,
         ollama_url: None,
         embedding_model: "nomic-embed-text".to_owned(),
+        internal_secret: Some("test-internal-secret".to_owned()),
+        internal_listen_addr: "127.0.0.1:0".to_owned(),
     };
     let state = AppState {
         pool: pool.clone(),
@@ -87,6 +89,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
         agent_commands_producer: None,
+        internal_secret: "test-internal-secret".to_owned(),
     };
     Some((state, pool))
 }
@@ -230,13 +233,12 @@ async fn integration_me_extends_session_last_seen_at() {
     // Capture last_seen_at BEFORE the GET. Sleep briefly so the post-GET
     // refresh produces a strictly later timestamp.
     let token_hash = rb_auth::sha256_hex(&token);
-    let before: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
-        "SELECT last_seen_at FROM control.sessions WHERE token_hash = $1",
-    )
-    .bind(&token_hash)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let before: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("SELECT last_seen_at FROM control.sessions WHERE token_hash = $1")
+            .bind(&token_hash)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
@@ -257,13 +259,12 @@ async fn integration_me_extends_session_last_seen_at() {
     let mut after = before;
     for _ in 0..20 {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        after = sqlx::query_scalar(
-            "SELECT last_seen_at FROM control.sessions WHERE token_hash = $1",
-        )
-        .bind(&token_hash)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        after =
+            sqlx::query_scalar("SELECT last_seen_at FROM control.sessions WHERE token_hash = $1")
+                .bind(&token_hash)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         if after > before {
             break;
         }
@@ -348,7 +349,10 @@ async fn integration_me_with_unverified_email_returns_email_not_verified() {
         return;
     };
     let app = build(state);
-    let email = format!("integ-me-unverified-{}@test.example", Uuid::new_v4().simple());
+    let email = format!(
+        "integ-me-unverified-{}@test.example",
+        Uuid::new_v4().simple()
+    );
     // verify_email=false: signup creates user with email_verified_at = NULL,
     // and login still succeeds (returning email_verification_required: true).
     let token = signup_and_login(

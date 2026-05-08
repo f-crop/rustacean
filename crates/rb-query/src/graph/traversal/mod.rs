@@ -15,8 +15,8 @@ mod pagination;
 mod types;
 
 pub use types::{
-    DEFAULT_DEPTH, DEFAULT_LIMIT, MAX_DEPTH, MAX_LIMIT,
-    EdgeProvenance, TraversalEdge, TraversalNode, TraversalOptions, TraversalResult,
+    DEFAULT_DEPTH, DEFAULT_LIMIT, EdgeProvenance, MAX_DEPTH, MAX_LIMIT, TraversalEdge,
+    TraversalNode, TraversalOptions, TraversalResult,
 };
 
 use std::collections::HashMap;
@@ -52,7 +52,13 @@ pub async fn fetch_callers(
 
     let root = match bfs::fetch_root_node(graph, tenant_id, &repo_str, fqn).await? {
         Some(n) => n,
-        None => TraversalNode { fqn: fqn.to_owned(), name: None, kind: None, file_path: None, line: None },
+        None => TraversalNode {
+            fqn: fqn.to_owned(),
+            name: None,
+            kind: None,
+            file_path: None,
+            line: None,
+        },
     };
 
     let mut all_edges = Vec::new();
@@ -84,14 +90,22 @@ pub async fn fetch_callers(
             if !visited.contains(&caller_fqn) {
                 visited.insert(caller_fqn.clone());
                 next_frontier.push(caller_fqn.clone());
-                node_map.entry(caller_fqn).or_insert_with(|| edge.from_node.clone());
+                node_map
+                    .entry(caller_fqn)
+                    .or_insert_with(|| edge.from_node.clone());
             }
             all_edges.push(edge);
         }
         frontier = next_frontier;
     }
 
-    Ok(pagination::paginate(root, &all_edges, &node_map, &opts, cycles_detected))
+    Ok(pagination::paginate(
+        root,
+        &all_edges,
+        &node_map,
+        &opts,
+        cycles_detected,
+    ))
 }
 
 /// Fetch all callees of `fqn` within `repo_id`, up to `opts.depth` BFS hops.
@@ -112,7 +126,13 @@ pub async fn fetch_callees(
 
     let root = match bfs::fetch_root_node(graph, tenant_id, &repo_str, fqn).await? {
         Some(n) => n,
-        None => TraversalNode { fqn: fqn.to_owned(), name: None, kind: None, file_path: None, line: None },
+        None => TraversalNode {
+            fqn: fqn.to_owned(),
+            name: None,
+            kind: None,
+            file_path: None,
+            line: None,
+        },
     };
 
     let mut all_edges = Vec::new();
@@ -160,5 +180,11 @@ pub async fn fetch_callees(
         frontier = next_frontier;
     }
 
-    Ok(pagination::paginate(root, &all_edges, &node_map, &opts, cycles_detected))
+    Ok(pagination::paginate(
+        root,
+        &all_edges,
+        &node_map,
+        &opts,
+        cycles_detected,
+    ))
 }

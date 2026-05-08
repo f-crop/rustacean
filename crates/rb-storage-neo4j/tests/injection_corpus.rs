@@ -12,8 +12,8 @@ fn run_dir(dir: &str, should_reject: bool) {
     let path = format!("{manifest}/tests/fixtures/cypher_attacks/{dir}");
     let mut count = 0usize;
 
-    let entries = std::fs::read_dir(&path)
-        .unwrap_or_else(|e| panic!("cannot read corpus dir {path}: {e}"));
+    let entries =
+        std::fs::read_dir(&path).unwrap_or_else(|e| panic!("cannot read corpus dir {path}: {e}"));
 
     for entry in entries {
         let entry = entry.expect("dir entry");

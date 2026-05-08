@@ -106,14 +106,17 @@ pub async fn run(
                                 "expand_worker: max retries exceeded — routing to DLQ"
                             );
                             counter!("rb_expand_worker_dlq_total").increment(1);
-                            if let Err(dlq_err) = consumer.nack_to_dlq(&envelope, &format!("{e:#}")).await {
+                            if let Err(dlq_err) =
+                                consumer.nack_to_dlq(&envelope, &format!("{e:#}")).await
+                            {
                                 tracing::error!(%ingest_run_id, "expand_worker: nack_to_dlq failed: {dlq_err}");
                             }
                             if let Err(commit_err) = consumer.commit(&envelope).await {
                                 tracing::warn!(%ingest_run_id, "expand_worker: commit after DLQ failed: {commit_err}");
                             }
                         } else {
-                            let delay = policy.next_delay(attempt).unwrap_or(Duration::from_secs(1));
+                            let delay =
+                                policy.next_delay(attempt).unwrap_or(Duration::from_secs(1));
                             tokio::time::sleep(delay).await;
                         }
                     }
@@ -123,10 +126,7 @@ pub async fn run(
     }
 }
 
-async fn process_expand(
-    ctx: &ExpandCtx,
-    envelope: &EventEnvelope<IngestRequest>,
-) -> Result<()> {
+async fn process_expand(ctx: &ExpandCtx, envelope: &EventEnvelope<IngestRequest>) -> Result<()> {
     let req = &envelope.payload;
     let tenant_id = envelope.tenant_id;
     let ingest_run_id = &req.ingest_run_id;
@@ -138,8 +138,8 @@ async fn process_expand(
 
     tracing::info!(%ingest_run_id, "expand_worker: downloading clone blob");
 
-    let blob_ref = BlobRef::from_uri_minimal(blob_uri)
-        .context("invalid blob_ref URI in expand command")?;
+    let blob_ref =
+        BlobRef::from_uri_minimal(blob_uri).context("invalid blob_ref URI in expand command")?;
     let archive_bytes = ctx
         .blob_store
         .get(&blob_ref)
@@ -344,11 +344,7 @@ async fn emit_parse_command(
     Ok(())
 }
 
-async fn emit_done_status(
-    ctx: &ExpandCtx,
-    tenant_id: TenantId,
-    req: &IngestRequest,
-) -> Result<()> {
+async fn emit_done_status(ctx: &ExpandCtx, tenant_id: TenantId, req: &IngestRequest) -> Result<()> {
     let ev = IngestStatusEvent {
         ingest_request_id: req.event_id.clone(),
         tenant_id: tenant_id.to_string(),
@@ -414,7 +410,11 @@ mod tests {
             TOPIC_PROJECTOR_EVENTS,
         ];
         let unique: std::collections::HashSet<_> = topics.iter().collect();
-        assert_eq!(unique.len(), topics.len(), "all topic constants must be unique");
+        assert_eq!(
+            unique.len(),
+            topics.len(),
+            "all topic constants must be unique"
+        );
     }
 
     #[test]
@@ -485,7 +485,10 @@ mod tests {
         assert!(!policy.is_terminal(0));
         assert!(!policy.is_terminal(1));
         assert!(!policy.is_terminal(2));
-        assert!(policy.is_terminal(3), "attempt 3 must be terminal (DLQ path)");
+        assert!(
+            policy.is_terminal(3),
+            "attempt 3 must be terminal (DLQ path)"
+        );
     }
 
     #[test]
@@ -493,7 +496,10 @@ mod tests {
         let policy = RetryPolicy::default();
         assert!(policy.next_delay(1).is_some());
         assert!(policy.next_delay(2).is_some());
-        assert!(policy.next_delay(3).is_none(), "no delay after terminal attempt");
+        assert!(
+            policy.next_delay(3).is_none(),
+            "no delay after terminal attempt"
+        );
     }
 
     #[test]
@@ -520,7 +526,10 @@ mod tests {
         let result = std::fs::read(dir.path().join("src/lib.rs"))
             .map(|bytes| hex::encode(sha2::Sha256::digest(&bytes)))
             .unwrap_or_default();
-        assert!(result.is_empty(), "missing source file should produce empty sha256");
+        assert!(
+            result.is_empty(),
+            "missing source file should produce empty sha256"
+        );
     }
 
     fn create_tar_zst_for_test(src: &Path) -> Vec<u8> {
@@ -537,8 +546,7 @@ mod tests {
             }
             builder.finish().unwrap();
         }
-        let mut encoder =
-            zstd::Encoder::new(Vec::new(), 3).unwrap();
+        let mut encoder = zstd::Encoder::new(Vec::new(), 3).unwrap();
         encoder.write_all(&archive_data).unwrap();
         encoder.finish().unwrap()
     }

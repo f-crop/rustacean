@@ -209,11 +209,10 @@ impl<E: ProstMessage + Default> TestConsumer<E> {
                 // tests without a propagator, so scoping to the sync call is safe.
                 let result = {
                     let extractor = KafkaHeaderExtractor(&msg.headers);
-                    let _cx_guard =
-                        opentelemetry::global::get_text_map_propagator(|prop| {
-                            prop.extract(&extractor)
-                        })
-                        .attach();
+                    let _cx_guard = opentelemetry::global::get_text_map_propagator(|prop| {
+                        prop.extract(&extractor)
+                    })
+                    .attach();
                     decode_envelope(&msg.payload, &msg.headers, &msg.topic, 0, 0)
                     // _cx_guard dropped here
                 };

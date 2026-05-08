@@ -1,6 +1,6 @@
 use axum::{
     extract::FromRequestParts,
-    http::{header, request::Parts, StatusCode},
+    http::{StatusCode, header, request::Parts},
 };
 use chrono::{DateTime, Utc};
 use rb_auth::sha256_hex;
@@ -117,7 +117,10 @@ impl FromRequestParts<AppState> for AuthContext {
 
 fn extract_bearer_token(parts: &Parts) -> Option<String> {
     let value = parts.headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    value.strip_prefix("Bearer ").map(|t| t.trim().to_owned()).filter(|t| !t.is_empty())
+    value
+        .strip_prefix("Bearer ")
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty())
 }
 
 fn extract_session_cookie(parts: &Parts) -> Option<String> {
@@ -174,7 +177,12 @@ pub(crate) async fn lookup_session(pool: &PgPool, token: &str) -> SessionLookup 
         return SessionLookup::Expired;
     }
 
-    SessionLookup::Active(SessionInfo { session_id, user_id, tenant_id, email_verified })
+    SessionLookup::Active(SessionInfo {
+        session_id,
+        user_id,
+        tenant_id,
+        email_verified,
+    })
 }
 
 async fn lookup_api_key(pool: &PgPool, token: &str) -> Option<ApiKeyInfo> {
@@ -195,15 +203,18 @@ async fn lookup_api_key(pool: &PgPool, token: &str) -> Option<ApiKeyInfo> {
     // Fire-and-forget: update last_used_at without blocking the hot path.
     let pool = pool.clone();
     tokio::spawn(async move {
-        let _ = sqlx::query(
-            "UPDATE control.api_keys SET last_used_at = now() WHERE id = $1",
-        )
-        .bind(key_id)
-        .execute(&pool)
-        .await;
+        let _ = sqlx::query("UPDATE control.api_keys SET last_used_at = now() WHERE id = $1")
+            .bind(key_id)
+            .execute(&pool)
+            .await;
     });
 
-    Some(ApiKeyInfo { key_id, tenant_id, user_id, scopes })
+    Some(ApiKeyInfo {
+        key_id,
+        tenant_id,
+        user_id,
+        scopes,
+    })
 }
 
 fn parse_scopes(value: &serde_json::Value) -> Vec<Scope> {
@@ -226,7 +237,10 @@ fn parse_scopes(value: &serde_json::Value) -> Vec<Scope> {
 /// Returns `Unauthorized` for non-API-key callers and `InsufficientScope`
 /// when the key lacks the required scope.
 #[allow(dead_code)]
-pub fn require_scope<'a>(auth: &'a AuthContext, required: &Scope) -> Result<&'a ApiKeyInfo, AppError> {
+pub fn require_scope<'a>(
+    auth: &'a AuthContext,
+    required: &Scope,
+) -> Result<&'a ApiKeyInfo, AppError> {
     match auth {
         AuthContext::ApiKey(info) => {
             if info.scopes.contains(required) {
@@ -238,7 +252,6 @@ pub fn require_scope<'a>(auth: &'a AuthContext, required: &Scope) -> Result<&'a 
         _ => Err(AppError::Unauthorized),
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Session-check helpers
@@ -351,7 +364,10 @@ mod tests {
     #[test]
     fn extract_bearer_token_parses_valid_header() {
         let parts = parts_with_bearer("rb_live_abc123def456");
-        assert_eq!(extract_bearer_token(&parts).as_deref(), Some("rb_live_abc123def456"));
+        assert_eq!(
+            extract_bearer_token(&parts).as_deref(),
+            Some("rb_live_abc123def456")
+        );
     }
 
     #[test]
@@ -407,7 +423,10 @@ mod tests {
     #[test]
     fn require_scope_rejects_anonymous() {
         let auth = AuthContext::Anonymous;
-        assert!(matches!(require_scope(&auth, &Scope::Read), Err(AppError::Unauthorized)));
+        assert!(matches!(
+            require_scope(&auth, &Scope::Read),
+            Err(AppError::Unauthorized)
+        ));
     }
 
     #[test]
@@ -418,7 +437,10 @@ mod tests {
             tenant_id: Uuid::new_v4(),
             email_verified: false,
         });
-        assert!(matches!(require_scope(&auth, &Scope::Read), Err(AppError::Unauthorized)));
+        assert!(matches!(
+            require_scope(&auth, &Scope::Read),
+            Err(AppError::Unauthorized)
+        ));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use rb_kafka::KafkaError;
 use serde_json::json;
@@ -98,40 +98,48 @@ impl IntoResponse for AppError {
         let (status, code, message) = match &self {
             AppError::NotFound => (StatusCode::NOT_FOUND, "not_found", self.to_string()),
             AppError::EmailTaken => (StatusCode::CONFLICT, "email_taken", self.to_string()),
-            AppError::WeakPassword => {
-                (StatusCode::BAD_REQUEST, "weak_password", self.to_string())
-            }
-            AppError::InvalidEmail => {
-                (StatusCode::UNPROCESSABLE_ENTITY, "invalid_email", self.to_string())
-            }
+            AppError::WeakPassword => (StatusCode::BAD_REQUEST, "weak_password", self.to_string()),
+            AppError::InvalidEmail => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_email",
+                self.to_string(),
+            ),
             AppError::InvalidInput => (StatusCode::BAD_REQUEST, "invalid_input", self.to_string()),
             AppError::InvalidToken => (StatusCode::BAD_REQUEST, "invalid_token", self.to_string()),
-            AppError::Unauthorized => {
-                (StatusCode::UNAUTHORIZED, "unauthorized", self.to_string())
-            }
+            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized", self.to_string()),
             AppError::InsufficientRole => {
                 (StatusCode::FORBIDDEN, "insufficient_role", self.to_string())
             }
-            AppError::InsufficientScope => {
-                (StatusCode::FORBIDDEN, "insufficient_scope", self.to_string())
-            }
-            AppError::CannotRemoveOwner => {
-                (StatusCode::BAD_REQUEST, "cannot_remove_owner", self.to_string())
-            }
+            AppError::InsufficientScope => (
+                StatusCode::FORBIDDEN,
+                "insufficient_scope",
+                self.to_string(),
+            ),
+            AppError::CannotRemoveOwner => (
+                StatusCode::BAD_REQUEST,
+                "cannot_remove_owner",
+                self.to_string(),
+            ),
             AppError::NotAMember => (StatusCode::FORBIDDEN, "not_a_member", self.to_string()),
             AppError::AlreadyMember => (StatusCode::CONFLICT, "already_member", self.to_string()),
-            AppError::InvalidCredentials => {
-                (StatusCode::UNAUTHORIZED, "invalid_credentials", self.to_string())
-            }
+            AppError::InvalidCredentials => (
+                StatusCode::UNAUTHORIZED,
+                "invalid_credentials",
+                self.to_string(),
+            ),
             AppError::AccountSuspended => {
                 (StatusCode::FORBIDDEN, "account_suspended", self.to_string())
             }
-            AppError::SessionExpired => {
-                (StatusCode::UNAUTHORIZED, "session_expired", self.to_string())
-            }
-            AppError::EmailNotVerified => {
-                (StatusCode::FORBIDDEN, "email_not_verified", self.to_string())
-            }
+            AppError::SessionExpired => (
+                StatusCode::UNAUTHORIZED,
+                "session_expired",
+                self.to_string(),
+            ),
+            AppError::EmailNotVerified => (
+                StatusCode::FORBIDDEN,
+                "email_not_verified",
+                self.to_string(),
+            ),
             AppError::GithubAppNotConfigured => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "github_app_not_configured",
@@ -147,9 +155,11 @@ impl IntoResponse for AppError {
                 "repo_not_accessible",
                 self.to_string(),
             ),
-            AppError::RepoAlreadyConnected => {
-                (StatusCode::CONFLICT, "repo_already_connected", self.to_string())
-            }
+            AppError::RepoAlreadyConnected => (
+                StatusCode::CONFLICT,
+                "repo_already_connected",
+                self.to_string(),
+            ),
             AppError::IngestRunAlreadyInFlight => (
                 StatusCode::CONFLICT,
                 "ingest_run_already_in_flight",
@@ -221,9 +231,11 @@ impl IntoResponse for AppError {
                 "runtime_not_configured",
                 self.to_string(),
             ),
-            AppError::BadRedirectUri => {
-                (StatusCode::BAD_REQUEST, "bad_redirect_uri", self.to_string())
-            }
+            AppError::BadRedirectUri => (
+                StatusCode::BAD_REQUEST,
+                "bad_redirect_uri",
+                self.to_string(),
+            ),
             AppError::Database(e) => {
                 tracing::error!(error = %e, "database error");
                 (
@@ -271,10 +283,6 @@ impl IntoResponse for AppError {
                 )
             }
         };
-        (
-            status,
-            Json(json!({ "error": code, "message": message })),
-        )
-            .into_response()
+        (status, Json(json!({ "error": code, "message": message }))).into_response()
     }
 }

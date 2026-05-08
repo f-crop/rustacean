@@ -54,8 +54,8 @@ impl BlobRef {
         let (tenant_str, sha256) = rest
             .split_once('/')
             .ok_or_else(|| BlobError::InvalidUri(uri.to_string()))?;
-        let tenant_id = Uuid::parse_str(tenant_str)
-            .map_err(|_| BlobError::InvalidUri(uri.to_string()))?;
+        let tenant_id =
+            Uuid::parse_str(tenant_str).map_err(|_| BlobError::InvalidUri(uri.to_string()))?;
         Ok(Self {
             tenant_id,
             sha256: sha256.to_string(),
@@ -87,7 +87,12 @@ mod tests {
     #[test]
     fn uri_roundtrip() {
         let tenant_id = Uuid::new_v4();
-        let original = BlobRef::new(tenant_id, "deadbeef".repeat(8), "application/octet-stream", 42);
+        let original = BlobRef::new(
+            tenant_id,
+            "deadbeef".repeat(8),
+            "application/octet-stream",
+            42,
+        );
         let uri = original.to_uri();
         let parsed = BlobRef::from_uri_minimal(&uri).expect("valid uri");
         assert_eq!(parsed.tenant_id, original.tenant_id);

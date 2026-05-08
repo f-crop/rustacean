@@ -100,7 +100,12 @@ pub async fn search_by_vector(
     let qdrant_triples: Vec<(Uuid, String, f32)> = qdrant_results
         .hits
         .iter()
-        .filter_map(|h| h.repo_id.parse::<Uuid>().ok().map(|rid| (rid, h.fqn.clone(), h.score)))
+        .filter_map(|h| {
+            h.repo_id
+                .parse::<Uuid>()
+                .ok()
+                .map(|rid| (rid, h.fqn.clone(), h.score))
+        })
         .collect();
 
     if qdrant_triples.is_empty() {
@@ -109,7 +114,10 @@ pub async fn search_by_vector(
 
     // Batch-fetch code_symbols rows for kind + source_path enrichment.
     let repo_ids: Vec<Uuid> = qdrant_triples.iter().map(|(rid, _, _)| *rid).collect();
-    let fqns: Vec<String> = qdrant_triples.iter().map(|(_, fqn, _)| fqn.clone()).collect();
+    let fqns: Vec<String> = qdrant_triples
+        .iter()
+        .map(|(_, fqn, _)| fqn.clone())
+        .collect();
     let table = tenant_ctx.qualify("code_symbols");
 
     // `WHERE repo_id = ANY($1) AND fqn = ANY($2)` may produce false-positive
@@ -141,7 +149,13 @@ pub async fn search_by_vector(
                     return None;
                 }
             }
-            Some(SemanticHit { fqn, repo_id, kind, source_path, score })
+            Some(SemanticHit {
+                fqn,
+                repo_id,
+                kind,
+                source_path,
+                score,
+            })
         })
         .take(limit as usize)
         .collect();

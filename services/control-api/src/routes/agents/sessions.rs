@@ -28,8 +28,8 @@ use chrono::Utc;
 use rb_auth::ApiKey;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{
-    AgentRuntime, AgentSessionCommand, AgentSessionStart, AgentSessionTerminate,
-    TenantId, agent_session_command,
+    AgentRuntime, AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
+    agent_session_command,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -169,10 +169,12 @@ fn ct_eq_bytes(a: &[u8], b: &[u8]) -> bool {
 
 /// Validate the `X-Internal-Secret` header against the `RB_INTERNAL_SECRET`
 /// environment variable.  Returns `Err(AppError::Unauthorized)` when the header
-/// is missing, the env var is unset, or the values do not match.
+/// is missing, the env var is unset/empty, or the values do not match.
 fn verify_internal_secret(headers: &HeaderMap) -> Result<(), AppError> {
     let expected = std::env::var("RB_INTERNAL_SECRET")
-        .map_err(|_| AppError::Unauthorized)?;
+        .ok()
+        .filter(|s| !s.is_empty())
+        .ok_or(AppError::Unauthorized)?;
     let provided = headers
         .get("x-internal-secret")
         .and_then(|v| v.to_str().ok())
@@ -269,20 +271,30 @@ pub async fn create_session(
     drop(raw_key);
 
     db_insert_session_api_key(
-        &state.pool, api_key_id, session.tenant_id, session.user_id,
-        session_id, &key_hash, &scopes_json,
-    ).await?;
-
-    db_insert_agent_session(&state.pool, &NewAgentSession {
-        session_id,
-        tenant_id: session.tenant_id,
-        user_id: session.user_id,
-        runtime: &req.runtime,
-        preview: &preview,
-        workspace_rel: &workspace_rel,
+        &state.pool,
         api_key_id,
-        now,
-    }).await?;
+        session.tenant_id,
+        session.user_id,
+        session_id,
+        &key_hash,
+        &scopes_json,
+    )
+    .await?;
+
+    db_insert_agent_session(
+        &state.pool,
+        &NewAgentSession {
+            session_id,
+            tenant_id: session.tenant_id,
+            user_id: session.user_id,
+            runtime: &req.runtime,
+            preview: &preview,
+            workspace_rel: &workspace_rel,
+            api_key_id,
+            now,
+        },
+    )
+    .await?;
 
     // Publish SessionStart command to Kafka.
     let command = AgentSessionCommand {
@@ -360,13 +372,12 @@ pub async fn delete_session(
     let session = require_verified_session(auth)?;
 
     // Verify the session belongs to the caller's tenant.
-    let row: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT tenant_id FROM agents.agent_sessions WHERE id = $1",
-    )
-    .bind(session_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+    let row: Option<(Uuid,)> =
+        sqlx::query_as("SELECT tenant_id FROM agents.agent_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
 
     let (session_tenant_id,) = row.ok_or(AppError::NotFound)?;
     if session_tenant_id != session.tenant_id {
@@ -452,13 +463,12 @@ pub async fn delete_session_api_key(
     verify_internal_secret(&headers)?;
 
     // Look up the api_key_id from the session.
-    let row: Option<(Option<Uuid>,)> = sqlx::query_as(
-        "SELECT api_key_id FROM agents.agent_sessions WHERE id = $1",
-    )
-    .bind(session_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+    let row: Option<(Option<Uuid>,)> =
+        sqlx::query_as("SELECT api_key_id FROM agents.agent_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
 
     let (api_key_id,) = row.ok_or(AppError::NotFound)?;
 

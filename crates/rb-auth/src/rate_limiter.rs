@@ -48,7 +48,9 @@ impl LoginRateLimiter {
                 let oldest = recent.iter().copied().min().unwrap_or(now);
                 let elapsed = now.duration_since(oldest).as_secs();
                 let retry_after = LOCKOUT_SECS.saturating_sub(elapsed);
-                return Err(AuthError::RateLimited { retry_after_secs: retry_after.max(1) });
+                return Err(AuthError::RateLimited {
+                    retry_after_secs: retry_after.max(1),
+                });
             }
         }
         Ok(())

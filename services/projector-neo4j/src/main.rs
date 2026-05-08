@@ -9,7 +9,9 @@ mod writer;
 fn validate_boot_env() -> Result<()> {
     let neo4j_password = std::env::var("NEO4J_PASSWORD").unwrap_or_default();
     if neo4j_password.is_empty() {
-        anyhow::bail!("projector-neo4j boot validation failed:\n  - NEO4J_PASSWORD: required but missing");
+        anyhow::bail!(
+            "projector-neo4j boot validation failed:\n  - NEO4J_PASSWORD: required but missing"
+        );
     }
     Ok(())
 }
@@ -20,11 +22,9 @@ async fn main() -> Result<()> {
 
     let _guard = rb_tracing::init("projector-neo4j")?;
 
-    let neo4j_uri = std::env::var("NEO4J_URI")
-        .unwrap_or_else(|_| "bolt://neo4j:7687".to_owned());
+    let neo4j_uri = std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://neo4j:7687".to_owned());
     let neo4j_user = std::env::var("NEO4J_USER").unwrap_or_else(|_| "neo4j".to_owned());
-    let neo4j_password =
-        std::env::var("NEO4J_PASSWORD").context("NEO4J_PASSWORD is required")?;
+    let neo4j_password = std::env::var("NEO4J_PASSWORD").context("NEO4J_PASSWORD is required")?;
 
     let graph = TenantGraph::connect(&neo4j_uri, &neo4j_user, &neo4j_password)
         .await

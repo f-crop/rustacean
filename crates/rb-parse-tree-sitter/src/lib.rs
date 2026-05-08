@@ -183,7 +183,11 @@ mod tests {
     fn extracts_struct_and_impl() {
         let src = "struct Foo {}\nimpl Foo { fn new() -> Self { Foo {} } }";
         let items = extract_items_partial(src);
-        assert!(items.iter().any(|i| i.kind == Kind::Struct && i.name == "Foo"));
+        assert!(
+            items
+                .iter()
+                .any(|i| i.kind == Kind::Struct && i.name == "Foo")
+        );
         assert!(items.iter().any(|i| i.kind == Kind::Impl));
     }
 

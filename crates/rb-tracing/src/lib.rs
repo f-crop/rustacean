@@ -22,13 +22,11 @@ use opentelemetry::{global, trace::TracerProvider as _};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig as _};
 use opentelemetry_sdk::{
-    logs::SdkLoggerProvider,
-    propagation::TraceContextPropagator,
+    Resource, logs::SdkLoggerProvider, propagation::TraceContextPropagator,
     trace::SdkTracerProvider,
-    Resource,
 };
 use tracing_opentelemetry::OpenTelemetryLayer;
-use tracing_subscriber::{fmt, layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TracingError {
@@ -115,7 +113,9 @@ pub fn init(service_name: &str) -> Result<TracingGuard, TracingError> {
         tracing_subscriber::registry()
             .with(EnvFilter::from_default_env())
             .with(fmt::layer().pretty())
-            .with(OpenTelemetryLayer::new(tracer_provider.tracer("rb-tracing")))
+            .with(OpenTelemetryLayer::new(
+                tracer_provider.tracer("rb-tracing"),
+            ))
             .with(log_bridge)
             .try_init()
             .map_err(|e| TracingError::Subscriber(e.to_string()))?;
@@ -123,11 +123,16 @@ pub fn init(service_name: &str) -> Result<TracingGuard, TracingError> {
         tracing_subscriber::registry()
             .with(EnvFilter::from_default_env())
             .with(StructuredJsonLayer::stdout())
-            .with(OpenTelemetryLayer::new(tracer_provider.tracer("rb-tracing")))
+            .with(OpenTelemetryLayer::new(
+                tracer_provider.tracer("rb-tracing"),
+            ))
             .with(log_bridge)
             .try_init()
             .map_err(|e| TracingError::Subscriber(e.to_string()))?;
     }
 
-    Ok(TracingGuard { tracer_provider, logger_provider })
+    Ok(TracingGuard {
+        tracer_provider,
+        logger_provider,
+    })
 }

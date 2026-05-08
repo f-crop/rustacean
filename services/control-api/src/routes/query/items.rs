@@ -65,14 +65,14 @@ struct ReadAccess {
 /// should be able to use API keys without needing a browser session.
 fn require_read_access(auth: AuthContext) -> Result<ReadAccess, AppError> {
     match auth {
-        AuthContext::Session(info) if info.email_verified => {
-            Ok(ReadAccess { tenant_id: info.tenant_id })
-        }
+        AuthContext::Session(info) if info.email_verified => Ok(ReadAccess {
+            tenant_id: info.tenant_id,
+        }),
         AuthContext::Session(_) => Err(AppError::EmailNotVerified),
         AuthContext::ExpiredSession => Err(AppError::SessionExpired),
-        AuthContext::ApiKey(info) if info.scopes.contains(&Scope::Read) => {
-            Ok(ReadAccess { tenant_id: info.tenant_id })
-        }
+        AuthContext::ApiKey(info) if info.scopes.contains(&Scope::Read) => Ok(ReadAccess {
+            tenant_id: info.tenant_id,
+        }),
         AuthContext::ApiKey(_) => Err(AppError::InsufficientScope),
         AuthContext::Anonymous => Err(AppError::Unauthorized),
     }
@@ -116,8 +116,9 @@ pub async fn get_item(
     let access = require_read_access(auth)?;
 
     // Decode the URL-safe base64 FQN (AC1: fqn_b64 path segment).
-    let fqn_bytes =
-        URL_SAFE_NO_PAD.decode(fqn_b64.as_bytes()).map_err(|_| AppError::InvalidInput)?;
+    let fqn_bytes = URL_SAFE_NO_PAD
+        .decode(fqn_b64.as_bytes())
+        .map_err(|_| AppError::InvalidInput)?;
     let fqn = String::from_utf8(fqn_bytes).map_err(|_| AppError::InvalidInput)?;
 
     // AC4: Verify the repo belongs to this tenant before touching the tenant schema.
@@ -274,7 +275,9 @@ mod tests {
 
     #[test]
     fn invalid_base64_maps_to_invalid_input() {
-        let err = URL_SAFE_NO_PAD.decode(b"not-valid-base64!@#").map_err(|_| AppError::InvalidInput);
+        let err = URL_SAFE_NO_PAD
+            .decode(b"not-valid-base64!@#")
+            .map_err(|_| AppError::InvalidInput);
         assert!(matches!(err, Err(AppError::InvalidInput)));
     }
 

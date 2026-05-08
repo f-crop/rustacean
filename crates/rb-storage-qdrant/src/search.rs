@@ -66,9 +66,8 @@ pub async fn search(
     http: &reqwest::Client,
     opts: SearchOptions<'_>,
 ) -> Result<SearchResults, QdrantError> {
-    let mut must_conditions = vec![
-        json!({ "key": "tenant_id", "match": { "value": opts.tenant_id } }),
-    ];
+    let mut must_conditions =
+        vec![json!({ "key": "tenant_id", "match": { "value": opts.tenant_id } })];
 
     if let Some(repo_id) = opts.repo_id_filter {
         must_conditions.push(json!({ "key": "repo_id", "match": { "value": repo_id } }));
@@ -87,14 +86,20 @@ pub async fn search(
         "filter": { "must": must_conditions },
     });
 
-    let url = format!("{}/collections/{}/points/search", opts.qdrant_url, COLLECTION);
+    let url = format!(
+        "{}/collections/{}/points/search",
+        opts.qdrant_url, COLLECTION
+    );
 
     let resp = http.post(&url).json(&body).send().await?;
 
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(QdrantError::Http { status: status.as_u16(), body });
+        return Err(QdrantError::Http {
+            status: status.as_u16(),
+            body,
+        });
     }
 
     let json_val: serde_json::Value = resp.json().await?;
@@ -118,7 +123,12 @@ pub async fn search(
                 .to_owned();
             #[allow(clippy::cast_possible_truncation)]
             let score = pt.get("score")?.as_f64()? as f32;
-            Some(SearchHit { fqn, repo_id, score, ingest_run_id })
+            Some(SearchHit {
+                fqn,
+                repo_id,
+                score,
+                ingest_run_id,
+            })
         })
         .collect();
 
@@ -129,7 +139,10 @@ pub async fn search(
 
     let next_offset = has_more.then_some(opts.offset + opts.limit);
 
-    Ok(SearchResults { hits: all_hits, next_offset })
+    Ok(SearchResults {
+        hits: all_hits,
+        next_offset,
+    })
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -155,7 +168,12 @@ mod tests {
     #[test]
     fn search_results_next_offset_when_has_more() {
         let result = SearchResults {
-            hits: vec![SearchHit { fqn: "a::Foo".into(), repo_id: "r1".into(), score: 0.9, ingest_run_id: "run1".into() }],
+            hits: vec![SearchHit {
+                fqn: "a::Foo".into(),
+                repo_id: "r1".into(),
+                score: 0.9,
+                ingest_run_id: "run1".into(),
+            }],
             next_offset: Some(10),
         };
         assert_eq!(result.next_offset, Some(10));
@@ -163,7 +181,10 @@ mod tests {
 
     #[test]
     fn search_results_no_next_offset_when_exhausted() {
-        let result = SearchResults { hits: vec![], next_offset: None };
+        let result = SearchResults {
+            hits: vec![],
+            next_offset: None,
+        };
         assert!(result.next_offset.is_none());
     }
 }

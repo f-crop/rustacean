@@ -17,9 +17,8 @@ mod vector;
 pub use error::QueryError;
 pub use graph::impls::{ImplEntry, fetch_trait_impls};
 pub use graph::traversal::{
-    DEFAULT_DEPTH, DEFAULT_LIMIT, MAX_DEPTH, MAX_LIMIT,
-    EdgeProvenance, TraversalEdge, TraversalNode, TraversalOptions, TraversalResult,
-    fetch_callers, fetch_callees,
+    DEFAULT_DEPTH, DEFAULT_LIMIT, EdgeProvenance, MAX_DEPTH, MAX_LIMIT, TraversalEdge,
+    TraversalNode, TraversalOptions, TraversalResult, fetch_callees, fetch_callers,
 };
 pub use graph::usages::{UsageEntry, fetch_type_usages};
 pub use pg::items;

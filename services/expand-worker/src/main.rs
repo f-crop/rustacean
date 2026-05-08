@@ -26,10 +26,11 @@ async fn main() -> Result<()> {
 
     let _guard = rb_tracing::init("expand-worker")?;
 
-    let blob_store = store_from_env().await.context("failed to init blob store")?;
+    let blob_store = store_from_env()
+        .await
+        .context("failed to init blob store")?;
 
-    let consumer: Consumer<IngestRequest> =
-        Consumer::new(&ConsumerCfg::new("expand-worker"))?;
+    let consumer: Consumer<IngestRequest> = Consumer::new(&ConsumerCfg::new("expand-worker"))?;
     consumer.subscribe(&[consumer::TOPIC_EXPAND_COMMANDS])?;
 
     let expanded_producer = Arc::new(Producer::<ExpandedFileEvent>::new(&ProducerCfg::default())?);

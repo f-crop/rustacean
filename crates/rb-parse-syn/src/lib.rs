@@ -202,7 +202,11 @@ mod tests {
         let src = "pub mod inner { pub fn x() {} }";
         let items = extract_items(src).unwrap();
         // Only the mod itself — we don't recurse into inline mods.
-        assert!(items.iter().any(|i| i.kind == Kind::Mod && i.name == "inner"));
+        assert!(
+            items
+                .iter()
+                .any(|i| i.kind == Kind::Mod && i.name == "inner")
+        );
     }
 
     #[test]
@@ -252,7 +256,8 @@ mod tests {
 
     #[test]
     fn multi_line_impl_spans_full_body() {
-        let src = "impl Foo {\n    pub fn new() -> Self { Foo }\n    pub fn val(&self) -> i32 { 0 }\n}";
+        let src =
+            "impl Foo {\n    pub fn new() -> Self { Foo }\n    pub fn val(&self) -> i32 { 0 }\n}";
         let items = extract_items(src).unwrap();
         let impl_item = items.iter().find(|i| i.kind == Kind::Impl).unwrap();
         assert!(

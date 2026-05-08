@@ -222,7 +222,12 @@ mod tests {
 
     fn make_blob_ref(tenant_id: Uuid, data: &[u8]) -> BlobRef {
         let sha256 = compute_sha256(data);
-        BlobRef::new(tenant_id, sha256, "application/octet-stream", data.len() as u64)
+        BlobRef::new(
+            tenant_id,
+            sha256,
+            "application/octet-stream",
+            data.len() as u64,
+        )
     }
 
     #[tokio::test]
@@ -233,7 +238,10 @@ mod tests {
         let data = b"hello, rustbrain blob store";
         let blob_ref = make_blob_ref(tenant, data);
 
-        store.put(&blob_ref, Bytes::from_static(data)).await.expect("put");
+        store
+            .put(&blob_ref, Bytes::from_static(data))
+            .await
+            .expect("put");
         assert!(store.exists(&blob_ref).await.expect("exists"));
 
         let retrieved = store.get(&blob_ref).await.expect("get");
@@ -251,11 +259,22 @@ mod tests {
         let ref_a = make_blob_ref(tenant_a, data);
 
         // Tenant A stores the blob.
-        store.put(&ref_a, Bytes::from_static(data)).await.expect("put as tenant_a");
+        store
+            .put(&ref_a, Bytes::from_static(data))
+            .await
+            .expect("put as tenant_a");
 
         // Tenant B tries to read the same SHA-256 — must be rejected.
-        let ref_b = BlobRef::new(tenant_b, ref_a.sha256.clone(), "application/octet-stream", ref_a.size);
-        let err = store.get(&ref_b).await.expect_err("cross-tenant read must fail");
+        let ref_b = BlobRef::new(
+            tenant_b,
+            ref_a.sha256.clone(),
+            "application/octet-stream",
+            ref_a.size,
+        );
+        let err = store
+            .get(&ref_b)
+            .await
+            .expect_err("cross-tenant read must fail");
         assert!(
             matches!(err, BlobError::TenantMismatch),
             "expected TenantMismatch, got {err:?}"
@@ -274,15 +293,34 @@ mod tests {
         let tenant_c = Uuid::new_v4();
         let data = b"shared content multi-tenant delete";
         let ref_a = make_blob_ref(tenant_a, data);
-        let ref_b = BlobRef::new(tenant_b, ref_a.sha256.clone(), "application/octet-stream", ref_a.size);
-        let ref_c = BlobRef::new(tenant_c, ref_a.sha256.clone(), "application/octet-stream", ref_a.size);
+        let ref_b = BlobRef::new(
+            tenant_b,
+            ref_a.sha256.clone(),
+            "application/octet-stream",
+            ref_a.size,
+        );
+        let ref_c = BlobRef::new(
+            tenant_c,
+            ref_a.sha256.clone(),
+            "application/octet-stream",
+            ref_a.size,
+        );
 
-        store.put(&ref_a, Bytes::from_static(data)).await.expect("A put");
-        store.put(&ref_b, Bytes::from_static(data)).await.expect("B put");
+        store
+            .put(&ref_a, Bytes::from_static(data))
+            .await
+            .expect("A put");
+        store
+            .put(&ref_b, Bytes::from_static(data))
+            .await
+            .expect("B put");
         store.delete(&ref_a).await.expect("A delete");
 
         // B still owns the blob → C must see TenantMismatch, not NotFound.
-        let err = store.get(&ref_c).await.expect_err("C get must fail while B owns blob");
+        let err = store
+            .get(&ref_c)
+            .await
+            .expect_err("C get must fail while B owns blob");
         assert!(
             matches!(err, BlobError::TenantMismatch),
             "expected TenantMismatch (B still owns blob), got {err:?}"
@@ -291,7 +329,10 @@ mod tests {
         store.delete(&ref_b).await.expect("B delete");
 
         // Nobody owns the blob now → C must see NotFound.
-        let err2 = store.get(&ref_c).await.expect_err("C get after all-deleted must fail");
+        let err2 = store
+            .get(&ref_c)
+            .await
+            .expect_err("C get after all-deleted must fail");
         assert!(
             matches!(err2, BlobError::NotFound { .. }),
             "expected NotFound after all tenants deleted, got {err2:?}"
@@ -311,18 +352,32 @@ mod tests {
 
         // Pre-create a stale .tmp with wrong content to simulate an aborted write.
         let path = store.blob_path(&blob_ref);
-        tokio::fs::create_dir_all(path.parent().unwrap()).await.unwrap();
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
         let tmp_path = path.with_extension("tmp");
-        tokio::fs::write(&tmp_path, b"corrupted partial write").await.unwrap();
+        tokio::fs::write(&tmp_path, b"corrupted partial write")
+            .await
+            .unwrap();
 
         // The .tmp must not be visible as an existing blob.
         assert!(!store.exists(&blob_ref).await.expect("exists before put"));
 
         // A normal put must overwrite the stale .tmp and rename to final path.
-        store.put(&blob_ref, Bytes::from_static(data)).await.expect("put after crash");
+        store
+            .put(&blob_ref, Bytes::from_static(data))
+            .await
+            .expect("put after crash");
 
-        let retrieved = store.get(&blob_ref).await.expect("get after crash-recovery put");
-        assert_eq!(retrieved.as_ref(), data, "must return correct (non-corrupted) content");
+        let retrieved = store
+            .get(&blob_ref)
+            .await
+            .expect("get after crash-recovery put");
+        assert_eq!(
+            retrieved.as_ref(),
+            data,
+            "must return correct (non-corrupted) content"
+        );
     }
 
     /// A puts → B puts same sha256 → A deletes → B can still get (no `TenantMismatch`)
@@ -335,10 +390,21 @@ mod tests {
         let tenant_b = Uuid::new_v4();
         let data = b"independently owned blob";
         let ref_a = make_blob_ref(tenant_a, data);
-        let ref_b = BlobRef::new(tenant_b, ref_a.sha256.clone(), "application/octet-stream", ref_a.size);
+        let ref_b = BlobRef::new(
+            tenant_b,
+            ref_a.sha256.clone(),
+            "application/octet-stream",
+            ref_a.size,
+        );
 
-        store.put(&ref_a, Bytes::from_static(data)).await.expect("put A");
-        store.put(&ref_b, Bytes::from_static(data)).await.expect("put B");
+        store
+            .put(&ref_a, Bytes::from_static(data))
+            .await
+            .expect("put A");
+        store
+            .put(&ref_b, Bytes::from_static(data))
+            .await
+            .expect("put B");
 
         // A deletes — B should still be accessible.
         store.delete(&ref_a).await.expect("delete A");
@@ -355,7 +421,10 @@ mod tests {
         let data = b"to be deleted";
         let blob_ref = make_blob_ref(tenant, data);
 
-        store.put(&blob_ref, Bytes::from_static(data)).await.expect("put");
+        store
+            .put(&blob_ref, Bytes::from_static(data))
+            .await
+            .expect("put");
         store.delete(&blob_ref).await.expect("delete");
         assert!(!store.exists(&blob_ref).await.expect("exists after delete"));
     }
@@ -388,7 +457,10 @@ mod tests {
         let data: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
         let blob_ref = make_blob_ref(tenant, &data);
 
-        store.put(&blob_ref, Bytes::from(data.clone())).await.expect("put 100 MiB");
+        store
+            .put(&blob_ref, Bytes::from(data.clone()))
+            .await
+            .expect("put 100 MiB");
         let retrieved = store.get(&blob_ref).await.expect("get 100 MiB");
         assert_eq!(retrieved.len(), size);
         assert_eq!(retrieved.as_ref(), data.as_slice());

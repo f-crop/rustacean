@@ -68,12 +68,10 @@ pub async fn verify_email(
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query(
-        "INSERT INTO control.auth_events (user_id, event) VALUES ($1, 'email_verified')",
-    )
-    .bind(user_id)
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query("INSERT INTO control.auth_events (user_id, event) VALUES ($1, 'email_verified')")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
 

@@ -37,7 +37,11 @@ pub struct SemanticHit {
 
 impl From<SearchHit> for SemanticHit {
     fn from(h: SearchHit) -> Self {
-        Self { fqn: h.fqn, repo_id: h.repo_id, score: h.score }
+        Self {
+            fqn: h.fqn,
+            repo_id: h.repo_id,
+            score: h.score,
+        }
     }
 }
 
@@ -71,7 +75,11 @@ mod tests {
 
     #[test]
     fn semantic_hit_from_search_hit() {
-        let hit = SearchHit { fqn: "my::Fn".to_owned(), repo_id: "r1".to_owned(), score: 0.9 };
+        let hit = SearchHit {
+            fqn: "my::Fn".to_owned(),
+            repo_id: "r1".to_owned(),
+            score: 0.9,
+        };
         let sh: SemanticHit = hit.into();
         assert_eq!(sh.fqn, "my::Fn");
         assert_eq!(sh.repo_id, "r1");

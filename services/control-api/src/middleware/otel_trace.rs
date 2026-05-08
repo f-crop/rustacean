@@ -56,9 +56,11 @@ pub async fn otel_trace_middleware(request: Request, next: Next) -> Response {
 mod tests {
     use super::*;
     use axum::{
+        Router,
         body::Body,
         http::{HeaderMap, HeaderName, HeaderValue, Request, StatusCode},
-        middleware, routing::get, Router,
+        middleware,
+        routing::get,
     };
     use tower::ServiceExt as _;
 

@@ -278,10 +278,8 @@ mod tests {
 
     #[tokio::test]
     async fn single_flight_collapses_concurrent_cold_misses() {
-        let minter = CountingMinter::with_delay(
-            chrono::Duration::minutes(60),
-            Duration::from_millis(50),
-        );
+        let minter =
+            CountingMinter::with_delay(chrono::Duration::minutes(60), Duration::from_millis(50));
         let cache = TokenCache::new(minter.clone());
 
         let mut handles = Vec::with_capacity(100);

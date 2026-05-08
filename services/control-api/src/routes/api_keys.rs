@@ -143,7 +143,13 @@ pub struct ListApiKeysResponse {
     pub keys: Vec<ApiKeyItem>,
 }
 
-type ApiKeyRow = (Uuid, String, serde_json::Value, Option<DateTime<Utc>>, DateTime<Utc>);
+type ApiKeyRow = (
+    Uuid,
+    String,
+    serde_json::Value,
+    Option<DateTime<Utc>>,
+    DateTime<Utc>,
+);
 
 /// List all active (non-revoked) API keys for the current session's tenant.
 ///
@@ -165,14 +171,14 @@ pub async fn list_api_keys(
     let session = require_session(auth)?;
 
     let rows: Vec<ApiKeyRow> = sqlx::query_as(
-            "SELECT id, name, scopes, last_used_at, created_at \
+        "SELECT id, name, scopes, last_used_at, created_at \
              FROM control.api_keys \
              WHERE tenant_id = $1 AND revoked_at IS NULL \
              ORDER BY created_at DESC",
-        )
-        .bind(session.tenant_id)
-        .fetch_all(&state.pool)
-        .await?;
+    )
+    .bind(session.tenant_id)
+    .fetch_all(&state.pool)
+    .await?;
 
     let keys = rows
         .into_iter()
@@ -185,7 +191,13 @@ pub async fn list_api_keys(
                         .collect()
                 })
                 .unwrap_or_default();
-            ApiKeyItem { id, name, scopes, last_used_at, created_at }
+            ApiKeyItem {
+                id,
+                name,
+                scopes,
+                last_used_at,
+                created_at,
+            }
         })
         .collect();
 
@@ -299,7 +311,10 @@ mod tests {
 
     #[test]
     fn require_session_rejects_anonymous() {
-        assert!(matches!(require_session(AuthContext::Anonymous), Err(AppError::Unauthorized)));
+        assert!(matches!(
+            require_session(AuthContext::Anonymous),
+            Err(AppError::Unauthorized)
+        ));
     }
 
     #[test]
@@ -334,7 +349,10 @@ mod tests {
             created_at: Utc::now(),
         };
         let val = serde_json::to_value(&item).unwrap();
-        assert!(val.get("key").is_none(), "plaintext key must not be present in list response");
+        assert!(
+            val.get("key").is_none(),
+            "plaintext key must not be present in list response"
+        );
         assert!(val.get("id").is_some());
     }
 

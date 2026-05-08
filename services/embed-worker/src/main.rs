@@ -30,7 +30,11 @@ fn validate_boot_env() -> Result<()> {
         anyhow::bail!(
             "embed-worker boot validation failed ({} error(s)):\n{}",
             errors.len(),
-            errors.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n")
+            errors
+                .iter()
+                .map(|e| format!("  - {e}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
     Ok(())
@@ -42,16 +46,16 @@ async fn main() -> Result<()> {
 
     let _guard = rb_tracing::init("embed-worker")?;
 
-    let ollama_url = std::env::var("RB_OLLAMA_URL")
-        .unwrap_or_else(|_| "http://ollama:11434".to_owned());
-    let embedding_model = std::env::var("RB_EMBEDDING_MODEL")
-        .unwrap_or_else(|_| "nomic-embed-text".to_owned());
+    let ollama_url =
+        std::env::var("RB_OLLAMA_URL").unwrap_or_else(|_| "http://ollama:11434".to_owned());
+    let embedding_model =
+        std::env::var("RB_EMBEDDING_MODEL").unwrap_or_else(|_| "nomic-embed-text".to_owned());
     let embedding_dimensions: u32 = std::env::var("RB_EMBEDDING_DIMENSIONS")
         .unwrap_or_else(|_| "768".to_owned())
         .parse()
         .context("RB_EMBEDDING_DIMENSIONS must be a positive integer")?;
-    let qdrant_url = std::env::var("QDRANT_URL")
-        .unwrap_or_else(|_| "http://qdrant:6333".to_owned());
+    let qdrant_url =
+        std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://qdrant:6333".to_owned());
 
     // Fail fast: validate that Qdrant collection dimensions match our config.
     qdrant::ensure_collection(&qdrant_url, embedding_dimensions)
@@ -64,14 +68,15 @@ async fn main() -> Result<()> {
         "embed-worker: Qdrant collection validated"
     );
 
-    let blob_store = store_from_env().await.context("failed to init blob store")?;
+    let blob_store = store_from_env()
+        .await
+        .context("failed to init blob store")?;
 
     let item_consumer: Consumer<TypecheckedItemEvent> =
         Consumer::new(&ConsumerCfg::new("embed-worker"))?;
     item_consumer.subscribe(&[consumer::TOPIC_EMBED_COMMANDS])?;
 
-    let status_producer =
-        Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
+    let status_producer = Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
 
     tracing::info!("embed-worker starting");
 

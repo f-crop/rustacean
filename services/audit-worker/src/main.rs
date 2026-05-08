@@ -14,14 +14,20 @@ fn validate_boot_env() -> anyhow::Result<()> {
     if db_url.is_empty() {
         errors.push("RB_DATABASE_URL: required but missing".to_owned());
     } else if !db_url.starts_with("postgres") {
-        errors.push(format!("RB_DATABASE_URL: expected postgres DSN, got {db_url:?}"));
+        errors.push(format!(
+            "RB_DATABASE_URL: expected postgres DSN, got {db_url:?}"
+        ));
     }
 
     if !errors.is_empty() {
         anyhow::bail!(
             "audit-worker boot validation failed ({} error(s)):\n{}",
             errors.len(),
-            errors.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n")
+            errors
+                .iter()
+                .map(|e| format!("  - {e}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
     Ok(())
@@ -33,8 +39,7 @@ async fn main() -> Result<()> {
 
     let _guard = rb_tracing::init("audit-worker")?;
 
-    let database_url = std::env::var("RB_DATABASE_URL")
-        .context("RB_DATABASE_URL is required")?;
+    let database_url = std::env::var("RB_DATABASE_URL").context("RB_DATABASE_URL is required")?;
 
     let pool = Arc::new(
         PgPoolOptions::new()
@@ -46,13 +51,9 @@ async fn main() -> Result<()> {
 
     tracing::info!("audit-worker starting");
 
-    let audit_handle = spawn_with_log("audit_consumer", || {
-        audit_consumer::spawn(&pool)
-    })?;
+    let audit_handle = spawn_with_log("audit_consumer", || audit_consumer::spawn(&pool))?;
 
-    let mirror_handle = spawn_with_log("mirror_consumer", || {
-        mirror_consumer::spawn(&pool)
-    })?;
+    let mirror_handle = spawn_with_log("mirror_consumer", || mirror_consumer::spawn(&pool))?;
 
     shutdown_signal().await;
     tracing::info!("shutdown signal received — stopping consumers");

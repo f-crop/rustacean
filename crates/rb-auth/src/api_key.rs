@@ -46,7 +46,10 @@ mod tests {
     #[test]
     fn api_key_has_rb_live_prefix() {
         let k = ApiKey::generate();
-        assert!(k.as_str().starts_with("rb_live_"), "key must start with rb_live_");
+        assert!(
+            k.as_str().starts_with("rb_live_"),
+            "key must start with rb_live_"
+        );
     }
 
     #[test]
@@ -60,7 +63,11 @@ mod tests {
     fn api_key_hex_suffix_is_lowercase_hex() {
         let k = ApiKey::generate();
         let suffix = &k.as_str()[8..];
-        assert!(suffix.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
+        assert!(
+            suffix
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        );
     }
 
     #[test]

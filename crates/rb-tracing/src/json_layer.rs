@@ -3,7 +3,7 @@ use serde_json::{Map, Value};
 use std::{fmt, io::Write, sync::Mutex};
 use tracing::{Event, Subscriber};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
-use tracing_subscriber::{layer::Context, registry::LookupSpan, Layer};
+use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
 
 // ── Timestamp ────────────────────────────────────────────────────────────────
 
@@ -66,10 +66,12 @@ impl tracing::field::Visit for JsonVisitor<'_> {
         self.0.insert(field.name().to_owned(), value.into());
     }
     fn record_i128(&mut self, field: &tracing::field::Field, value: i128) {
-        self.0.insert(field.name().to_owned(), value.to_string().into());
+        self.0
+            .insert(field.name().to_owned(), value.to_string().into());
     }
     fn record_u128(&mut self, field: &tracing::field::Field, value: u128) {
-        self.0.insert(field.name().to_owned(), value.to_string().into());
+        self.0
+            .insert(field.name().to_owned(), value.to_string().into());
     }
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
         self.0.insert(field.name().to_owned(), value.into());
@@ -82,7 +84,8 @@ impl tracing::field::Visit for JsonVisitor<'_> {
         field: &tracing::field::Field,
         value: &(dyn std::error::Error + 'static),
     ) {
-        self.0.insert(field.name().to_owned(), value.to_string().into());
+        self.0
+            .insert(field.name().to_owned(), value.to_string().into());
     }
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn fmt::Debug) {
         self.0
@@ -195,7 +198,10 @@ where
         record.insert("fields".into(), Value::Object(fields));
 
         if let Ok(line) = serde_json::to_string(&record) {
-            let mut w = self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut w = self
+                .writer
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let _ = writeln!(w, "{line}");
         }
     }
@@ -207,7 +213,7 @@ where
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
-    use tracing_subscriber::{layer::SubscriberExt as _, Registry};
+    use tracing_subscriber::{Registry, layer::SubscriberExt as _};
 
     struct BufWriter(Arc<Mutex<Vec<u8>>>);
 
@@ -293,8 +299,14 @@ mod tests {
         });
 
         let v = first_line(&buf.lock().unwrap());
-        assert!(v.get("span").is_none(), "span field should be absent outside a span");
-        assert!(v.get("spans").is_none(), "spans field should be absent outside a span");
+        assert!(
+            v.get("span").is_none(),
+            "span field should be absent outside a span"
+        );
+        assert!(
+            v.get("spans").is_none(),
+            "spans field should be absent outside a span"
+        );
     }
 
     #[test]

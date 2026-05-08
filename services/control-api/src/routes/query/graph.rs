@@ -67,7 +67,9 @@ async fn require_admin_access(
     match auth {
         AuthContext::ApiKey(info) => {
             if info.scopes.contains(&Scope::Admin) {
-                Ok(AdminAccess { tenant_id: info.tenant_id })
+                Ok(AdminAccess {
+                    tenant_id: info.tenant_id,
+                })
             } else {
                 Err(AppError::InsufficientScope)
             }
@@ -85,9 +87,9 @@ async fn require_admin_access(
 
             match row {
                 None => Err(AppError::NotAMember),
-                Some((role,)) if role == "owner" || role == "admin" => {
-                    Ok(AdminAccess { tenant_id: session.tenant_id })
-                }
+                Some((role,)) if role == "owner" || role == "admin" => Ok(AdminAccess {
+                    tenant_id: session.tenant_id,
+                }),
                 Some(_) => Err(AppError::InsufficientRole),
             }
         }
@@ -138,7 +140,9 @@ pub async fn post_graph_query(
     }
 
     let tenant_id = TenantId::from(access.tenant_id);
-    let rows = graph.execute_query(&tenant_id, &req.cypher, &req.params).await?;
+    let rows = graph
+        .execute_query(&tenant_id, &req.cypher, &req.params)
+        .await?;
     let row_count = rows.len();
 
     Ok(Json(GraphQueryResponse { rows, row_count }))
@@ -252,7 +256,10 @@ mod tests {
         let cypher = "CREATE (n:Foo) RETURN n";
         let read_only = false;
         let would_deny = read_only && has_write_operators(cypher);
-        assert!(!would_deny, "read_only=false must bypass the write-denied guard");
+        assert!(
+            !would_deny,
+            "read_only=false must bypass the write-denied guard"
+        );
     }
 
     // ----- Admin scope check (no DB needed) -----

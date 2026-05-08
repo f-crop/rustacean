@@ -12,10 +12,18 @@ pub mod query;
 pub mod repos;
 pub mod tenants;
 
-use axum::{Router, routing::{delete, get, patch, post, put}};
+use axum::{
+    Router,
+    middleware::from_fn,
+    routing::{delete, get, patch, post, put},
+};
 
+use crate::middleware::internal_auth::require_internal_secret;
 use crate::routes::{
-    agents::{create_session, delete_session, delete_session_api_key, patch_session_status, session_events},
+    agents::{
+        create_session, delete_session, delete_session_api_key, patch_session_status,
+        session_events,
+    },
     api_keys::{create_api_key, list_api_keys, revoke_api_key},
     audit::list_audit_events,
     auth::{forgot_password, login, reset_password, signup},
@@ -37,15 +45,18 @@ use crate::routes::{
     query::items::get_item,
     query::modules::get_module_tree,
     query::search::search,
-    query::traversal::{get_callers, get_callees},
+    query::traversal::{get_callees, get_callers},
     query::usages::get_type_usages,
     repos::{connect_repo, list_repos, trigger_ingest},
-    tenants::{delete_tenant, invite_member, list_members, remove_member, transfer_ownership, update_member_role},
+    tenants::{
+        delete_tenant, invite_member, list_members, remove_member, transfer_ownership,
+        update_member_role,
+    },
 };
 use crate::state::AppState;
 
 pub fn build(state: AppState) -> Router {
-    Router::new()
+    let public = Router::new()
         .route("/health", get(health_check))
         .route("/ready", get(ready_check))
         .route("/openapi.json", get(openapi_json))
@@ -61,38 +72,76 @@ pub fn build(state: AppState) -> Router {
         .route("/v1/api-keys", get(list_api_keys))
         .route("/v1/api-keys/{id}", delete(revoke_api_key))
         .route("/v1/tenants/{id}", delete(delete_tenant))
-        .route("/v1/tenants/{id}/members", get(list_members).post(invite_member))
-        .route("/v1/tenants/{id}/members/{uid}/role", put(update_member_role))
+        .route(
+            "/v1/tenants/{id}/members",
+            get(list_members).post(invite_member),
+        )
+        .route(
+            "/v1/tenants/{id}/members/{uid}/role",
+            put(update_member_role),
+        )
         .route("/v1/tenants/{id}/members/{uid}", delete(remove_member))
-        .route("/v1/tenants/{id}/transfer-ownership", post(transfer_ownership))
+        .route(
+            "/v1/tenants/{id}/transfer-ownership",
+            post(transfer_ownership),
+        )
         .route("/v1/health/github-app", get(github_app_health))
         .route("/v1/github/webhook", post(github_webhook))
         .route("/v1/github/install-url", get(github_install_url))
         .route("/v1/github/callback", get(github_callback))
-        .route("/v1/github/installations/{id}/available-repos", get(list_available_repos))
+        .route(
+            "/v1/github/installations/{id}/available-repos",
+            get(list_available_repos),
+        )
         .route("/v1/repos/{repo_id}/modules", get(get_module_tree))
         .route("/v1/repos", post(connect_repo).get(list_repos))
         .route("/v1/repos/{id}/ingest", post(trigger_ingest))
         .route("/v1/repos/{repo_id}/ingestions", post(trigger_ingestion))
         .route("/v1/repos/{repo_id}/items/{fqn_b64}", get(get_item))
-        .route("/v1/repos/{repo_id}/items/{fqn_b64}/impls", get(get_trait_impls))
-        .route("/v1/repos/{repo_id}/items/{fqn_b64}/usages", get(get_type_usages))
+        .route(
+            "/v1/repos/{repo_id}/items/{fqn_b64}/impls",
+            get(get_trait_impls),
+        )
+        .route(
+            "/v1/repos/{repo_id}/items/{fqn_b64}/usages",
+            get(get_type_usages),
+        )
         .route("/v1/graph/query", post(post_graph_query))
         .route("/v1/search", post(search))
         .route("/v1/health/consistency", get(consistency_check))
         .route("/v1/ingestions/recent", get(list_recent_runs))
-        .route("/v1/ingestions/{ingestion_run_id}/stages", get(get_stage_timeline))
-        .route("/v1/repos/{repo_id}/items/{fqn_b64}/callers", get(get_callers))
-        .route("/v1/repos/{repo_id}/items/{fqn_b64}/callees", get(get_callees))
+        .route(
+            "/v1/ingestions/{ingestion_run_id}/stages",
+            get(get_stage_timeline),
+        )
+        .route(
+            "/v1/repos/{repo_id}/items/{fqn_b64}/callers",
+            get(get_callers),
+        )
+        .route(
+            "/v1/repos/{repo_id}/items/{fqn_b64}/callees",
+            get(get_callees),
+        )
         .route("/v1/ingest/events", get(events_stream))
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
         // Agent session routes (ADR-009 Option B)
         .route("/v1/agents/sessions", post(create_session))
         .route("/v1/agents/sessions/{id}", delete(delete_session))
-        .route("/v1/agents/sessions/{id}/events", get(session_events))
-        // Internal routes for agent-runner callbacks (no external auth)
-        .route("/internal/agent/sessions/{id}/status", patch(patch_session_status))
-        .route("/internal/agent/sessions/{id}/api-key", delete(delete_session_api_key))
-        .with_state(state)
+        .route("/v1/agents/sessions/{id}/events", get(session_events));
+
+    let internal = Router::new()
+        // Internal routes for agent-runner callbacks (protected by internal secret middleware)
+        .route(
+            "/internal/agent/sessions/{id}/status",
+            patch(patch_session_status),
+        )
+        .route(
+            "/internal/agent/sessions/{id}/api-key",
+            delete(delete_session_api_key),
+        )
+        .route_layer(from_fn(require_internal_secret))
+        .with_state(state.clone());
+
+    public.with_state(state).merge(internal)
 }

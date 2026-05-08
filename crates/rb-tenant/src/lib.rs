@@ -42,7 +42,10 @@ fn is_valid_schema_name(s: &str) -> bool {
     let Some(suffix) = s.strip_prefix("tenant_") else {
         return false;
     };
-    suffix.len() == 24 && suffix.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    suffix.len() == 24
+        && suffix
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// Tenant execution context: tenant identity paired with its validated schema name.
@@ -64,7 +67,10 @@ impl TenantCtx {
     #[must_use]
     pub fn new(tenant_id: TenantId) -> Self {
         let schema_name = derive_schema_name(&tenant_id);
-        Self { tenant_id, schema_name }
+        Self {
+            tenant_id,
+            schema_name,
+        }
     }
 
     #[must_use]
@@ -150,7 +156,9 @@ mod tests {
         let suffix = &name["tenant_".len()..];
         assert_eq!(suffix.len(), 24, "suffix must be 24 chars");
         assert!(
-            suffix.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+            suffix
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
             "suffix must be lowercase hex"
         );
     }

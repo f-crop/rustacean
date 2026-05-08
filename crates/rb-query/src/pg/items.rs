@@ -40,21 +40,39 @@ pub async fn get_by_fqn(
     repo_id: Uuid,
     fqn: &str,
 ) -> Result<Option<CodeSymbol>, sqlx::Error> {
-    type Row = (Uuid, String, String, Option<String>, Option<i32>, Option<i32>, Option<String>, Option<String>);
+    type Row = (
+        Uuid,
+        String,
+        String,
+        Option<String>,
+        Option<i32>,
+        Option<i32>,
+        Option<String>,
+        Option<String>,
+    );
     let table = ctx.qualify("code_symbols");
     let row: Option<Row> = sqlx::query_as(&format!(
-            "SELECT id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text \
+        "SELECT id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text \
              FROM {table} \
              WHERE repo_id = $1 AND fqn = $2",
-        ))
-        .bind(repo_id)
-        .bind(fqn)
-        .fetch_optional(pool)
-        .await?;
+    ))
+    .bind(repo_id)
+    .bind(fqn)
+    .fetch_optional(pool)
+    .await?;
 
-    Ok(row.map(|(id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text)| {
-        CodeSymbol { id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text }
-    }))
+    Ok(row.map(
+        |(id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text)| CodeSymbol {
+            id,
+            fqn,
+            kind,
+            source_path,
+            line_start,
+            line_end,
+            blob_ref,
+            source_text,
+        },
+    ))
 }
 
 #[cfg(test)]

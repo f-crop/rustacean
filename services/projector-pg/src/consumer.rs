@@ -8,7 +8,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use metrics::counter;
 use rb_kafka::{Consumer, ConsumerCfg, EventEnvelope, Producer, ProducerCfg};
-use rb_schemas::{SourceFileEvent, ParsedItemEvent, GraphRelationEvent, IngestStage, IngestStatus, IngestStatusEvent};
+use rb_schemas::{
+    GraphRelationEvent, IngestStage, IngestStatus, IngestStatusEvent, ParsedItemEvent,
+    SourceFileEvent,
+};
 use rb_storage_pg::TenantPool;
 use rb_tenant::TenantCtx;
 use tokio::task::JoinHandle;
@@ -26,21 +29,17 @@ const TOPIC_PROJECTOR_EVENTS: &str = "rb.projector.events";
 #[allow(clippy::missing_errors_doc)]
 pub fn spawn(pool: Arc<TenantPool>) -> Result<JoinHandle<()>> {
     // Source file consumer (from clone stage)
-    let source_consumer = Consumer::<SourceFileEvent>::new(
-        &ConsumerCfg::new("projector-pg-source")
-    )?;
+    let source_consumer =
+        Consumer::<SourceFileEvent>::new(&ConsumerCfg::new("projector-pg-source"))?;
     source_consumer.subscribe(&[TOPIC_SOURCE_FILE])?;
 
     // Parsed item consumer (from parse stage)
-    let item_consumer = Consumer::<ParsedItemEvent>::new(
-        &ConsumerCfg::new("projector-pg-items")
-    )?;
+    let item_consumer = Consumer::<ParsedItemEvent>::new(&ConsumerCfg::new("projector-pg-items"))?;
     item_consumer.subscribe(&[TOPIC_PARSED_ITEMS])?;
 
     // Relation consumer (from graph stage)
-    let relation_consumer = Consumer::<GraphRelationEvent>::new(
-        &ConsumerCfg::new("projector-pg-relations")
-    )?;
+    let relation_consumer =
+        Consumer::<GraphRelationEvent>::new(&ConsumerCfg::new("projector-pg-relations"))?;
     relation_consumer.subscribe(&[TOPIC_GRAPH_RELATIONS])?;
 
     let producer = Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
@@ -128,8 +127,13 @@ async fn handle_source_file(
             );
             counter!("rb_projector_pg_events_total", "event_type" => "source_file", "outcome" => "err")
                 .increment(1);
-            emit_failed_status(producer, &tenant_id, &ingest_run_id, &format!("source_write_failed: {e}"))
-                .await;
+            emit_failed_status(
+                producer,
+                &tenant_id,
+                &ingest_run_id,
+                &format!("source_write_failed: {e}"),
+            )
+            .await;
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
     }
@@ -163,8 +167,13 @@ async fn handle_parsed_item(
             );
             counter!("rb_projector_pg_events_total", "event_type" => "parsed_item", "outcome" => "err")
                 .increment(1);
-            emit_failed_status(producer, &tenant_id, &ingest_run_id, &format!("item_write_failed: {e}"))
-                .await;
+            emit_failed_status(
+                producer,
+                &tenant_id,
+                &ingest_run_id,
+                &format!("item_write_failed: {e}"),
+            )
+            .await;
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
     }
@@ -199,8 +208,13 @@ async fn handle_relation(
             );
             counter!("rb_projector_pg_events_total", "event_type" => "relation", "outcome" => "err")
                 .increment(1);
-            emit_failed_status(producer, &tenant_id, &ingest_run_id, &format!("relation_write_failed: {e}"))
-                .await;
+            emit_failed_status(
+                producer,
+                &tenant_id,
+                &ingest_run_id,
+                &format!("relation_write_failed: {e}"),
+            )
+            .await;
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
     }
@@ -251,7 +265,10 @@ async fn emit_ok_status(
     let status_ev = build_ok_status_event(tenant_id, ingest_run_id, stage);
     let env = EventEnvelope::new(*tenant_id, status_ev);
     let key = tenant_id.to_string();
-    if let Err(e) = producer.publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env).await {
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env)
+        .await
+    {
         tracing::error!("projector_pg: failed to publish ok status event: {e}");
     }
 }
@@ -265,7 +282,10 @@ async fn emit_failed_status(
     let status_ev = build_failed_status_event(tenant_id, ingest_run_id, error_message);
     let env = EventEnvelope::new(*tenant_id, status_ev);
     let key = tenant_id.to_string();
-    if let Err(e) = producer.publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env).await {
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env)
+        .await
+    {
         tracing::error!("projector_pg: failed to publish status event: {e}");
     }
 }
@@ -285,7 +305,10 @@ mod tests {
         assert_eq!(ev.ingest_run_id, run_id);
         assert_eq!(ev.tenant_id, tid.to_string());
         assert!(ev.error_message.is_empty());
-        assert_eq!(ev.attempt, 0, "first attempt must be 0 per proto convention");
+        assert_eq!(
+            ev.attempt, 0,
+            "first attempt must be 0 per proto convention"
+        );
     }
 
     #[test]
@@ -305,7 +328,10 @@ mod tests {
         assert_eq!(ev.stage, IngestStage::ProjectPg as i32);
         assert_eq!(ev.ingest_run_id, run_id);
         assert_eq!(ev.error_message, err);
-        assert_eq!(ev.attempt, 0, "first attempt must be 0 per proto convention");
+        assert_eq!(
+            ev.attempt, 0,
+            "first attempt must be 0 per proto convention"
+        );
     }
 
     #[test]

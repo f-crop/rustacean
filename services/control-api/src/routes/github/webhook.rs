@@ -383,8 +383,7 @@ async fn archive_removed_repos(
         return WebhookOutcome::Ok;
     }
 
-    let github_repo_ids: Vec<i64> =
-        payload.repositories_removed.iter().map(|r| r.id).collect();
+    let github_repo_ids: Vec<i64> = payload.repositories_removed.iter().map(|r| r.id).collect();
 
     let result = sqlx::query(
         "UPDATE control.repos \

@@ -26,13 +26,17 @@ async fn main() -> Result<()> {
 
     let _guard = rb_tracing::init("typecheck-worker")?;
 
-    let blob_store = store_from_env().await.context("failed to init blob store")?;
+    let blob_store = store_from_env()
+        .await
+        .context("failed to init blob store")?;
 
     let cmd_consumer: Consumer<IngestRequest> =
         Consumer::new(&ConsumerCfg::new("typecheck-worker"))?;
     cmd_consumer.subscribe(&[consumer::TOPIC_TYPECHECK_COMMANDS])?;
 
-    let item_producer = Arc::new(Producer::<TypecheckedItemEvent>::new(&ProducerCfg::default())?);
+    let item_producer = Arc::new(Producer::<TypecheckedItemEvent>::new(
+        &ProducerCfg::default(),
+    )?);
     let status_producer = Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
 
     tracing::info!("typecheck-worker starting");

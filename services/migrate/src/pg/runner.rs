@@ -46,7 +46,12 @@ impl MigrationFile {
         hasher.update(sql.as_bytes());
         let checksum = hex::encode(hasher.finalize());
 
-        Ok(Self { version, description, checksum, sql })
+        Ok(Self {
+            version,
+            description,
+            checksum,
+            sql,
+        })
     }
 }
 
@@ -64,7 +69,10 @@ pub struct Runner {
 
 impl Runner {
     pub fn new(schema: &str, dir: &Path) -> Self {
-        Self { schema: schema.to_owned(), dir: dir.to_owned() }
+        Self {
+            schema: schema.to_owned(),
+            dir: dir.to_owned(),
+        }
     }
 
     /// Bootstrap the schema and migration tracking table.
@@ -72,7 +80,10 @@ impl Runner {
     /// Returns a `BoxFuture` (heap-allocated, type-erased, `Send`) so that the
     /// compiler does not need HRTB bounds when this future is awaited in a
     /// `Send`-constrained context (e.g., an axum handler).
-    pub fn bootstrap<'c>(&self, conn: &'c mut PgConnection) -> BoxFuture<'c, Result<(), MigrateError>> {
+    pub fn bootstrap<'c>(
+        &self,
+        conn: &'c mut PgConnection,
+    ) -> BoxFuture<'c, Result<(), MigrateError>> {
         let create_schema = format!(r#"CREATE SCHEMA IF NOT EXISTS "{}""#, self.schema);
         let create_table = format!(
             r#"CREATE TABLE IF NOT EXISTS "{}".schema_migrations (
@@ -94,8 +105,14 @@ impl Runner {
     ///
     /// Returns a `BoxFuture` so that the caller (including axum handlers) can
     /// await it in a `Send` context without triggering HRTB `Executor<'_>` errors.
-    pub fn apply_all<'c>(&self, conn: &'c mut PgConnection) -> BoxFuture<'c, Result<usize, MigrateError>> {
-        let files_result = self.load_files().map(|mut f| { f.sort_by_key(|m| m.version); f });
+    pub fn apply_all<'c>(
+        &self,
+        conn: &'c mut PgConnection,
+    ) -> BoxFuture<'c, Result<usize, MigrateError>> {
+        let files_result = self.load_files().map(|mut f| {
+            f.sort_by_key(|m| m.version);
+            f
+        });
         let schema = self.schema.clone();
         let query_applied_sql = format!(
             r#"SELECT version, checksum FROM "{}".schema_migrations ORDER BY version"#,
@@ -132,8 +149,14 @@ impl Runner {
     }
 
     /// Return migration status for all known migrations.
-    pub fn status<'c>(&self, conn: &'c mut PgConnection) -> BoxFuture<'c, Result<Vec<MigrationStatus>, MigrateError>> {
-        let files_result = self.load_files().map(|mut f| { f.sort_by_key(|m| m.version); f });
+    pub fn status<'c>(
+        &self,
+        conn: &'c mut PgConnection,
+    ) -> BoxFuture<'c, Result<Vec<MigrationStatus>, MigrateError>> {
+        let files_result = self.load_files().map(|mut f| {
+            f.sort_by_key(|m| m.version);
+            f
+        });
         let query_applied_sql = format!(
             r#"SELECT version, checksum FROM "{}".schema_migrations ORDER BY version"#,
             self.schema
@@ -356,25 +379,37 @@ mod tests {
     #[test]
     fn multiple_statements() {
         let sql = "CREATE TABLE foo (id INT);\nCREATE TABLE bar (id INT);";
-        assert_eq!(split_statements(sql), vec!["CREATE TABLE foo (id INT)", "CREATE TABLE bar (id INT)"]);
+        assert_eq!(
+            split_statements(sql),
+            vec!["CREATE TABLE foo (id INT)", "CREATE TABLE bar (id INT)"]
+        );
     }
 
     #[test]
     fn ignores_semicolons_in_string_literals() {
         let sql = "INSERT INTO t VALUES ('hello; world');\nSELECT 1;";
-        assert_eq!(split_statements(sql), vec!["INSERT INTO t VALUES ('hello; world')", "SELECT 1"]);
+        assert_eq!(
+            split_statements(sql),
+            vec!["INSERT INTO t VALUES ('hello; world')", "SELECT 1"]
+        );
     }
 
     #[test]
     fn ignores_semicolons_in_line_comments() {
         let sql = "-- this; is a comment\nSELECT 1;";
-        assert_eq!(split_statements(sql), vec!["-- this; is a comment\nSELECT 1"]);
+        assert_eq!(
+            split_statements(sql),
+            vec!["-- this; is a comment\nSELECT 1"]
+        );
     }
 
     #[test]
     fn ignores_semicolons_in_block_comments() {
         let sql = "/* semi; in comment */ SELECT 1;";
-        assert_eq!(split_statements(sql), vec!["/* semi; in comment */ SELECT 1"]);
+        assert_eq!(
+            split_statements(sql),
+            vec!["/* semi; in comment */ SELECT 1"]
+        );
     }
 
     #[test]

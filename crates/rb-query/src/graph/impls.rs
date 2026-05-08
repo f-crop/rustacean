@@ -57,8 +57,13 @@ pub async fn fetch_trait_impls(
         let Some(fqn_val) = row.get::<String>("fqn").ok() else {
             continue;
         };
-        let impl_kind = row.get::<String>("impl_kind").unwrap_or_else(|_| "direct".to_owned());
-        entries.push(ImplEntry { fqn: fqn_val, impl_kind });
+        let impl_kind = row
+            .get::<String>("impl_kind")
+            .unwrap_or_else(|_| "direct".to_owned());
+        entries.push(ImplEntry {
+            fqn: fqn_val,
+            impl_kind,
+        });
     }
     Ok(entries)
 }
@@ -69,15 +74,20 @@ mod tests {
 
     #[test]
     fn impl_entry_fields_are_accessible() {
-        let entry = ImplEntry { fqn: "my_crate::Foo".to_owned(), impl_kind: "direct".to_owned() };
+        let entry = ImplEntry {
+            fqn: "my_crate::Foo".to_owned(),
+            impl_kind: "direct".to_owned(),
+        };
         assert_eq!(entry.fqn, "my_crate::Foo");
         assert_eq!(entry.impl_kind, "direct");
     }
 
     #[test]
     fn impl_entry_blanket_kind() {
-        let entry =
-            ImplEntry { fqn: "my_crate::GenericFoo".to_owned(), impl_kind: "blanket".to_owned() };
+        let entry = ImplEntry {
+            fqn: "my_crate::GenericFoo".to_owned(),
+            impl_kind: "blanket".to_owned(),
+        };
         assert_eq!(entry.impl_kind, "blanket");
     }
 }

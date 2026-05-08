@@ -13,8 +13,8 @@ mod search;
 mod store;
 
 pub use error::QdrantError;
-pub use store::{SearchHit, TenantVectorStore};
 pub use search::{SearchOptions, SearchResults, search};
+pub use store::{SearchHit, TenantVectorStore};
 
 /// Name of the single shared Qdrant collection for all tenants.
 pub const COLLECTION: &str = "rb_embeddings";

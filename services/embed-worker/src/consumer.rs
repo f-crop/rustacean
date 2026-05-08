@@ -21,8 +21,8 @@ use metrics::counter;
 use rb_blob::{BlobRef, BlobStore};
 use rb_kafka::{Consumer, EventEnvelope, Producer, RetryPolicy};
 use rb_schemas::{
-    IngestStage, IngestStatus, IngestStatusEvent, TenantId,
-    TypecheckedItemEvent, typechecked_item_event,
+    IngestStage, IngestStatus, IngestStatusEvent, TenantId, TypecheckedItemEvent,
+    typechecked_item_event,
 };
 use uuid::Uuid;
 
@@ -152,14 +152,10 @@ async fn process_item(
         source_text.as_deref(),
     );
 
-    let vector = crate::embedder::call_ollama(
-        &ctx.http,
-        &ctx.ollama_url,
-        &ctx.embedding_model,
-        &composite,
-    )
-    .await
-    .context("Ollama embedding call failed")?;
+    let vector =
+        crate::embedder::call_ollama(&ctx.http, &ctx.ollama_url, &ctx.embedding_model, &composite)
+            .await
+            .context("Ollama embedding call failed")?;
 
     upsert_vector(
         &ctx.http,
@@ -193,8 +189,8 @@ async fn resolve_body(
     match body {
         None => Ok(None),
         Some(typechecked_item_event::Body::InlinePayload(bytes)) => {
-            let text = String::from_utf8(bytes.clone())
-                .context("inline item body is not valid UTF-8")?;
+            let text =
+                String::from_utf8(bytes.clone()).context("inline item body is not valid UTF-8")?;
             Ok(Some(text))
         }
         Some(typechecked_item_event::Body::BlobRef(uri)) => {
@@ -205,8 +201,8 @@ async fn resolve_body(
                 .get(&blob_ref)
                 .await
                 .context("failed to download item body blob")?;
-            let text = String::from_utf8(data.to_vec())
-                .context("blob item body is not valid UTF-8")?;
+            let text =
+                String::from_utf8(data.to_vec()).context("blob item body is not valid UTF-8")?;
             Ok(Some(text))
         }
     }
@@ -284,7 +280,10 @@ async fn emit_failed_status(
     };
     let envelope = rb_kafka::EventEnvelope::new(tenant_id, ev);
     let key = tenant_id.to_string();
-    if let Err(e) = producer.publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), envelope).await {
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), envelope)
+        .await
+    {
         tracing::error!("embed_worker: failed to publish failed status: {e}");
     }
 }

@@ -83,7 +83,12 @@ impl KafkaAdmin {
             .topics()
             .iter()
             .filter(|t: &&MetadataTopic| !t.name().starts_with("__"))
-            .map(|t: &MetadataTopic| (t.name().to_owned(), i32::try_from(t.partitions().len()).unwrap_or(0)))
+            .map(|t: &MetadataTopic| {
+                (
+                    t.name().to_owned(),
+                    i32::try_from(t.partitions().len()).unwrap_or(0),
+                )
+            })
             .collect())
     }
 
@@ -112,7 +117,11 @@ impl KafkaAdmin {
             .filter(|t| existing.contains_key(&t.name) && t.config.is_empty())
             .count();
 
-        Ok(ApplyResult { created, configs_applied, skipped })
+        Ok(ApplyResult {
+            created,
+            configs_applied,
+            skipped,
+        })
     }
 
     async fn create_topics(&self, topics: &[&TopicDef]) -> Result<usize> {
@@ -214,10 +223,9 @@ impl KafkaAdmin {
 }
 
 pub fn load_topics_file(path: &Path) -> Result<TopicsFile> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
-    serde_yaml::from_str(&content)
-        .with_context(|| format!("parsing {}", path.display()))
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    serde_yaml::from_str(&content).with_context(|| format!("parsing {}", path.display()))
 }
 
 #[cfg(test)]
@@ -255,8 +263,7 @@ topics:
 
     #[test]
     fn test_load_topics_file_missing() {
-        let err = load_topics_file(std::path::Path::new("/nonexistent/topics.yaml"))
-            .unwrap_err();
+        let err = load_topics_file(std::path::Path::new("/nonexistent/topics.yaml")).unwrap_err();
         assert!(err.to_string().contains("reading"));
     }
 

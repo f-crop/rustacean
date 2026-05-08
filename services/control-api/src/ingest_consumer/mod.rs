@@ -6,10 +6,7 @@ use db::{TOTAL_PIPELINE_STAGES, stage_db_params};
 #[cfg(test)]
 use sse::{IngestStatusEventJson, stage_label, status_label};
 
-use std::sync::{
-    Arc,
-    atomic::Ordering,
-};
+use std::sync::{Arc, atomic::Ordering};
 
 use anyhow::Result;
 use rb_kafka::{Consumer, ConsumerCfg};
@@ -50,7 +47,9 @@ pub fn spawn(
                 }
                 Some(Ok(envelope)) => {
                     let now_ms = chrono::Utc::now().timestamp_millis();
-                    consistency.last_event_at_ms.store(now_ms, Ordering::Relaxed);
+                    consistency
+                        .last_event_at_ms
+                        .store(now_ms, Ordering::Relaxed);
                     consistency.lag_records.store(0, Ordering::Relaxed);
 
                     let ev = &envelope.payload;

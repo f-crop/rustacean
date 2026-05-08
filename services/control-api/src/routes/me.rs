@@ -109,10 +109,14 @@ pub async fn switch_tenant(
     tx.commit().await?;
 
     Ok(Json(SwitchTenantResponse {
-        current_tenant: CurrentTenant { id: body.tenant_id, name, slug, role },
+        current_tenant: CurrentTenant {
+            id: body.tenant_id,
+            name,
+            slug,
+            role,
+        },
     }))
 }
-
 
 // ---------------------------------------------------------------------------
 // GET /v1/me
@@ -168,9 +172,18 @@ pub async fn get_me(
     let session = require_verified_session(auth)?;
 
     // Q1: user + current tenant in one shot, anchored by session_id.
-    let row: (Uuid, String, String, bool, DateTime<Utc>, Uuid, String, String, String) =
-        sqlx::query_as(
-            "SELECT u.id, u.email::text, u.status, \
+    let row: (
+        Uuid,
+        String,
+        String,
+        bool,
+        DateTime<Utc>,
+        Uuid,
+        String,
+        String,
+        String,
+    ) = sqlx::query_as(
+        "SELECT u.id, u.email::text, u.status, \
                     (u.email_verified_at IS NOT NULL), u.created_at, \
                     t.id, t.name, t.slug::text, tm.role \
              FROM control.users u \
@@ -179,10 +192,10 @@ pub async fn get_me(
              JOIN control.tenant_members tm \
                  ON tm.tenant_id = t.id AND tm.user_id = u.id \
              WHERE s.id = $1",
-        )
-        .bind(session.session_id)
-        .fetch_one(&state.pool)
-        .await?;
+    )
+    .bind(session.session_id)
+    .fetch_one(&state.pool)
+    .await?;
 
     let (
         user_id,
@@ -210,7 +223,12 @@ pub async fn get_me(
 
     let available_tenants = tenants
         .into_iter()
-        .map(|(id, name, slug, role)| TenantWithRole { id, name, slug, role })
+        .map(|(id, name, slug, role)| TenantWithRole {
+            id,
+            name,
+            slug,
+            role,
+        })
         .collect();
 
     // Fire-and-forget sliding-window refresh. We do NOT await on this; the
@@ -275,7 +293,10 @@ mod tests {
     fn switch_tenant_request_deserializes() {
         let json = r#"{"tenant_id":"550e8400-e29b-41d4-a716-446655440000"}"#;
         let req: SwitchTenantRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.tenant_id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(
+            req.tenant_id.to_string(),
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
     }
 
     #[test]
@@ -324,7 +345,10 @@ mod tests {
 
     #[test]
     fn not_a_member_error_message() {
-        assert_eq!(AppError::NotAMember.to_string(), "user is not a member of this tenant");
+        assert_eq!(
+            AppError::NotAMember.to_string(),
+            "user is not a member of this tenant"
+        );
     }
 
     #[test]
@@ -437,6 +461,9 @@ mod tests {
 
     #[test]
     fn email_not_verified_error_message() {
-        assert_eq!(AppError::EmailNotVerified.to_string(), "email address not yet verified");
+        assert_eq!(
+            AppError::EmailNotVerified.to_string(),
+            "email address not yet verified"
+        );
     }
 }

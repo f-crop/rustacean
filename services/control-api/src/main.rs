@@ -4,7 +4,11 @@ use control_api::Config;
 use utoipa::OpenApi as _;
 
 #[derive(Parser)]
-#[command(name = "control-api", about = "rust-brain control-plane HTTP API", version)]
+#[command(
+    name = "control-api",
+    about = "rust-brain control-plane HTTP API",
+    version
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,

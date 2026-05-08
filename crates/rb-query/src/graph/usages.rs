@@ -65,9 +65,13 @@ pub async fn fetch_type_usages(
         let Some(fqn_val) = row.get::<String>("fqn").ok() else {
             continue;
         };
-        let usage_kind =
-            row.get::<String>("usage_kind").unwrap_or_else(|_| "textual".to_owned());
-        entries.push(UsageEntry { fqn: fqn_val, usage_kind });
+        let usage_kind = row
+            .get::<String>("usage_kind")
+            .unwrap_or_else(|_| "textual".to_owned());
+        entries.push(UsageEntry {
+            fqn: fqn_val,
+            usage_kind,
+        });
     }
     Ok(entries)
 }
@@ -78,8 +82,10 @@ mod tests {
 
     #[test]
     fn usage_entry_textual_kind() {
-        let entry =
-            UsageEntry { fqn: "my_crate::uses_foo".to_owned(), usage_kind: "textual".to_owned() };
+        let entry = UsageEntry {
+            fqn: "my_crate::uses_foo".to_owned(),
+            usage_kind: "textual".to_owned(),
+        };
         assert_eq!(entry.fqn, "my_crate::uses_foo");
         assert_eq!(entry.usage_kind, "textual");
     }

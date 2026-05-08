@@ -65,6 +65,8 @@ pub struct Config {
     /// Must match the model used by `embed-worker`. Defaults to `nomic-embed-text`.
     pub embedding_model: String,
 
+    pub internal_secret: Option<String>,
+    pub internal_listen_addr: String,
 }
 
 impl Config {
@@ -131,6 +133,11 @@ impl Config {
             ollama_url: env::var("RB_OLLAMA_URL").ok().filter(|s| !s.is_empty()),
             embedding_model: env::var("RB_EMBEDDING_MODEL")
                 .unwrap_or_else(|_| "nomic-embed-text".to_owned()),
+            internal_secret: env::var("RB_INTERNAL_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            internal_listen_addr: env::var("RB_INTERNAL_LISTEN_ADDR")
+                .unwrap_or_else(|_| "127.0.0.1:8081".to_owned()),
         })
     }
 
@@ -157,8 +164,8 @@ impl Config {
         } else if self.base_url.contains(":8080") {
             // :8080 is the API listen address — RB_BASE_URL must point at the frontend.
             // Allow the local dev default only when email is non-sending (console/noop).
-            let is_local = self.base_url.contains("localhost")
-                || self.base_url.contains("127.0.0.1");
+            let is_local =
+                self.base_url.contains("localhost") || self.base_url.contains("127.0.0.1");
             if !is_local || !matches!(self.email_transport.as_str(), "console" | "noop") {
                 errors.push(format!(
                     "RB_BASE_URL={:?}: looks like the API address (:8080), not the frontend. \
@@ -190,6 +197,16 @@ impl Config {
                     ));
                 }
             }
+        }
+
+        // RB_INTERNAL_SECRET must be non-empty when internal routes are used.
+        // The internal routes are always compiled in, so require the secret.
+        if self.internal_secret.as_ref().is_none_or(String::is_empty) {
+            errors.push(
+                "RB_INTERNAL_SECRET is required and must be non-empty. \
+                 Set a strong shared secret for agent-runner callbacks."
+                    .to_owned(),
+            );
         }
 
         if !errors.is_empty() {
@@ -236,6 +253,8 @@ impl Config {
             qdrant_url: None,
             ollama_url: None,
             embedding_model: "nomic-embed-text".to_owned(),
+            internal_secret: None,
+            internal_listen_addr: "127.0.0.1:0".to_owned(),
         }
     }
 }
@@ -245,7 +264,9 @@ mod tests {
     use super::*;
 
     fn base() -> Config {
-        Config::for_test()
+        let mut cfg = Config::for_test();
+        cfg.internal_secret = Some("test-internal-secret-for-validation".to_owned());
+        cfg
     }
 
     #[test]

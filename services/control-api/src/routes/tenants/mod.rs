@@ -1,5 +1,5 @@
-mod role;
 pub mod delete;
+mod role;
 
 pub use delete::delete_tenant;
 
@@ -136,19 +136,17 @@ pub async fn invite_member(
     let session = require_session(auth)?;
     require_role(&state.pool, session.user_id, tenant_id, TenantRole::Admin).await?;
 
-    let tenant_name: Option<String> = sqlx::query_scalar(
-        "SELECT name FROM control.tenants WHERE id = $1 AND status = 'active'",
-    )
-    .bind(tenant_id)
-    .fetch_optional(&state.pool)
-    .await?;
-    let tenant_name = tenant_name.ok_or(AppError::NotFound)?;
-
-    let existing: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM control.users WHERE email = $1")
-            .bind(&body.email)
+    let tenant_name: Option<String> =
+        sqlx::query_scalar("SELECT name FROM control.tenants WHERE id = $1 AND status = 'active'")
+            .bind(tenant_id)
             .fetch_optional(&state.pool)
             .await?;
+    let tenant_name = tenant_name.ok_or(AppError::NotFound)?;
+
+    let existing: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM control.users WHERE email = $1")
+        .bind(&body.email)
+        .fetch_optional(&state.pool)
+        .await?;
 
     if let Some((invitee_id,)) = existing {
         return add_existing_user_to_tenant(&state, tenant_id, invitee_id, &session, body.email)
@@ -556,7 +554,10 @@ mod tests {
             email_verified: false,
         };
         let ctx = AuthContext::Session(info);
-        assert!(matches!(require_session(ctx), Err(AppError::EmailNotVerified)));
+        assert!(matches!(
+            require_session(ctx),
+            Err(AppError::EmailNotVerified)
+        ));
     }
 
     #[test]
@@ -579,7 +580,10 @@ mod tests {
 
     #[test]
     fn error_unauthorized_produces_message() {
-        assert_eq!(AppError::Unauthorized.to_string(), "authentication required");
+        assert_eq!(
+            AppError::Unauthorized.to_string(),
+            "authentication required"
+        );
     }
 
     #[test]

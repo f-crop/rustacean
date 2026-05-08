@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use sqlx::PgPool;
 
 use crate::error::MigrateError;
-use crate::pg::runner::{migrations_dir, MigrationStatus, Runner};
+use crate::pg::runner::{MigrationStatus, Runner, migrations_dir};
 
 /// Apply tenant migrations for a tenant identified by hex ID.
 ///
@@ -51,7 +51,6 @@ async fn migrate_tenant_schema_inner(
     runner.bootstrap(&mut conn).await?;
     runner.apply_all(&mut conn).await
 }
-
 
 /// Applies tenant migrations to all existing tenant schemas in parallel-safe order.
 ///
@@ -104,17 +103,19 @@ pub fn tenant_schema_name(tenant_id: &str) -> String {
     format!("tenant_{tenant_id}")
 }
 
-async fn migrate_tenant_locked(pool: &PgPool, schema: &str, dir: &Path) -> Result<usize, MigrateError> {
+async fn migrate_tenant_locked(
+    pool: &PgPool,
+    schema: &str,
+    dir: &Path,
+) -> Result<usize, MigrateError> {
     // Acquire a session-level advisory lock on this schema.
     // pg_try_advisory_lock returns false immediately if another session holds it.
     let mut conn = pool.acquire().await?;
 
-    let locked: bool = sqlx::query_scalar(
-        "SELECT pg_try_advisory_lock(hashtext($1)::bigint)",
-    )
-    .bind(format!("rb.migrate.{schema}"))
-    .fetch_one(&mut *conn)
-    .await?;
+    let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock(hashtext($1)::bigint)")
+        .bind(format!("rb.migrate.{schema}"))
+        .fetch_one(&mut *conn)
+        .await?;
 
     if !locked {
         return Err(MigrateError::LockUnavailable(schema.to_string()));
