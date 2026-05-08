@@ -21,7 +21,7 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::IntoResponse,
 };
 use chrono::Utc;
@@ -155,32 +155,6 @@ fn validate_workspace_path(path: &str) -> Result<(), AppError> {
         if matches!(component, Component::ParentDir | Component::CurDir) {
             return Err(AppError::InvalidInput);
         }
-    }
-    Ok(())
-}
-
-/// Constant-time byte comparison to prevent timing side-channels.
-fn ct_eq_bytes(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-/// Validate the `X-Internal-Secret` header against the `RB_INTERNAL_SECRET`
-/// environment variable.  Returns `Err(AppError::Unauthorized)` when the header
-/// is missing, the env var is unset/empty, or the values do not match.
-fn verify_internal_secret(headers: &HeaderMap) -> Result<(), AppError> {
-    let expected = std::env::var("RB_INTERNAL_SECRET")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .ok_or(AppError::Unauthorized)?;
-    let provided = headers
-        .get("x-internal-secret")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if !ct_eq_bytes(expected.as_bytes(), provided.as_bytes()) {
-        return Err(AppError::Unauthorized);
     }
     Ok(())
 }
@@ -423,12 +397,9 @@ pub struct PatchSessionStatusRequest {
 
 pub async fn patch_session_status(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path(session_id): Path<Uuid>,
     Json(req): Json<PatchSessionStatusRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    verify_internal_secret(&headers)?;
-
     // Reject unknown statuses to prevent arbitrary string injection into the DB.
     if !VALID_AGENT_STATUSES.contains(&req.status.as_str()) {
         return Err(AppError::InvalidInput);
@@ -476,11 +447,8 @@ pub async fn patch_session_status(
 
 pub async fn delete_session_api_key(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    verify_internal_secret(&headers)?;
-
     // Look up the api_key_id from the session.
     let row: Option<(Option<Uuid>,)> =
         sqlx::query_as("SELECT api_key_id FROM agents.agent_sessions WHERE id = $1")
@@ -563,13 +531,6 @@ mod tests {
         assert!(validate_workspace_path("tenant/session").is_ok());
         assert!(validate_workspace_path("abc123").is_ok());
         assert!(validate_workspace_path("tenant-id/session-id").is_ok());
-    }
-
-    #[test]
-    fn ct_eq_bytes_matches_equal_slices() {
-        assert!(ct_eq_bytes(b"secret", b"secret"));
-        assert!(!ct_eq_bytes(b"secret", b"other"));
-        assert!(!ct_eq_bytes(b"a", b"ab"));
     }
 
     #[test]
