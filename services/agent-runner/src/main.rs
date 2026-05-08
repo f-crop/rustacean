@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rb_kafka::{Consumer, ConsumerCfg};
 use rb_schemas::AgentSessionCommand;
 
@@ -31,7 +31,22 @@ async fn main() -> Result<()> {
 
     let control_api_base = std::env::var("RB_CONTROL_API_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
-    let http_client = reqwest::Client::new();
+
+    // Attach the shared secret header to every internal control-api callback.
+    let http_client = {
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        if let Ok(secret) = std::env::var("RB_INTERNAL_SECRET") {
+            let val = reqwest::header::HeaderValue::from_str(&secret)
+                .context("RB_INTERNAL_SECRET contains invalid header characters")?;
+            default_headers.insert("x-internal-secret", val);
+        } else {
+            tracing::warn!("RB_INTERNAL_SECRET not set — internal callbacks will be rejected by control-api");
+        }
+        reqwest::Client::builder()
+            .default_headers(default_headers)
+            .build()
+            .context("Failed to build HTTP client")?
+    };
 
     let handle = consumer::spawn(consumer, workspace_base, control_api_base, http_client)?;
 

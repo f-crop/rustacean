@@ -78,7 +78,9 @@ impl RuntimeAdapter for OpencodeAdapter {
         }
 
         if !ctx.initial_prompt.is_empty() {
-            cmd.args(["run", &ctx.initial_prompt]);
+            // `--` terminates flag parsing so a prompt starting with `-` cannot
+            // inject CLI flags into the spawned process.
+            cmd.args(["run", "--", &ctx.initial_prompt]);
         }
 
         let child = cmd.spawn().context("Failed to spawn opencode process")?;

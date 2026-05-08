@@ -48,12 +48,12 @@ pub enum LineKind {
     Json,
 }
 
-pub fn adapter_for_runtime(runtime: AgentRuntime) -> Box<dyn RuntimeAdapter> {
+pub fn adapter_for_runtime(runtime: AgentRuntime) -> anyhow::Result<Box<dyn RuntimeAdapter>> {
     match runtime {
-        AgentRuntime::ClaudeCode => Box::new(claude_code::ClaudeCodeAdapter::new()),
-        AgentRuntime::Opencode => Box::new(opencode::OpencodeAdapter::new()),
-        AgentRuntime::Pi => Box::new(pi::PiAdapter::new()),
-        AgentRuntime::Unspecified => panic!("Unspecified runtime"),
+        AgentRuntime::ClaudeCode => Ok(Box::new(claude_code::ClaudeCodeAdapter::new())),
+        AgentRuntime::Opencode => Ok(Box::new(opencode::OpencodeAdapter::new())),
+        AgentRuntime::Pi => Ok(Box::new(pi::PiAdapter::new())),
+        AgentRuntime::Unspecified => anyhow::bail!("Unspecified runtime received"),
     }
 }
 
