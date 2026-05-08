@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Component, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -27,11 +27,30 @@ pub struct SessionManager {
 }
 
 struct SessionHandle {
-    process: AgentProcess,
+    // Per-session mutex so send_input never holds the sessions map lock across I/O.
+    process: Arc<Mutex<AgentProcess>>,
     start_time: Instant,
     stdout_handle: JoinHandle<()>,
     stderr_handle: JoinHandle<()>,
     tenant_id: TenantId,
+}
+
+/// Validate that `rel` is a safe relative path (no `..`, no `.`, not absolute).
+/// Returns the joined absolute path on success.
+fn safe_join(base: &std::path::Path, rel: &str) -> Result<PathBuf> {
+    let rel_path = std::path::Path::new(rel);
+    if rel_path.is_absolute() {
+        anyhow::bail!("workspace_path must be relative, got absolute path");
+    }
+    for component in rel_path.components() {
+        match component {
+            Component::ParentDir | Component::CurDir => {
+                anyhow::bail!("workspace_path contains disallowed path components");
+            }
+            _ => {}
+        }
+    }
+    Ok(base.join(rel_path))
 }
 
 impl SessionManager {
@@ -52,7 +71,9 @@ impl SessionManager {
         session_id: &str,
         event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
     ) -> Result<()> {
-        let workspace_path = self.workspace_base.join(&cmd.workspace_path);
+        // SECURITY: validate workspace_path before joining to prevent path traversal.
+        let workspace_path = safe_join(self.workspace_base.as_path(), &cmd.workspace_path)
+            .with_context(|| format!("Rejected workspace_path: {:?}", cmd.workspace_path))?;
 
         std::fs::create_dir_all(&workspace_path)
             .with_context(|| format!("Failed to create workspace: {}", workspace_path.display()))?;
@@ -78,7 +99,7 @@ impl SessionManager {
         let runtime = AgentRuntime::try_from(cmd.runtime)
             .map_err(|_| anyhow::anyhow!("Invalid runtime value: {}", cmd.runtime))?;
 
-        let adapter = adapter_for_runtime(runtime);
+        let adapter = adapter_for_runtime(runtime)?;
         let mut process = adapter
             .spawn(&ctx)
             .await
@@ -101,12 +122,14 @@ impl SessionManager {
             adapter,
         );
 
+        let process_arc = Arc::new(Mutex::new(process));
+
         {
             let mut sessions = self.sessions.lock().await;
             sessions.insert(
                 session_id.to_string(),
                 SessionHandle {
-                    process,
+                    process: process_arc,
                     start_time: Instant::now(),
                     stdout_handle,
                     stderr_handle,
@@ -130,10 +153,18 @@ impl SessionManager {
     }
 
     pub async fn send_input(&self, session_id: &str, input: &AgentSessionInput) -> Result<()> {
-        let mut sessions = self.sessions.lock().await;
-        let handle = sessions.get_mut(session_id).context("Session not found")?;
-        let adapter = adapter_for_runtime(handle.process.runtime);
-        adapter.send_input(&mut handle.process, &input.input).await
+        // Acquire only the sessions map lock long enough to clone the per-session Arc.
+        // The per-session lock is then held for the I/O, not the whole sessions map.
+        let process = {
+            let sessions = self.sessions.lock().await;
+            sessions
+                .get(session_id)
+                .map(|h| Arc::clone(&h.process))
+                .context("Session not found")?
+        };
+        let mut proc = process.lock().await;
+        let adapter = adapter_for_runtime(proc.runtime)?;
+        adapter.send_input(&mut proc, &input.input).await
     }
 
     pub async fn terminate_session(
@@ -142,18 +173,21 @@ impl SessionManager {
         terminate: &AgentSessionTerminate,
         event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
     ) -> Result<()> {
-        let mut handle = {
+        let handle = {
             let mut sessions = self.sessions.lock().await;
             sessions.remove(session_id).context("Session not found")?
         };
 
-        let adapter = adapter_for_runtime(handle.process.runtime);
-        let _ = adapter.terminate(&mut handle.process, terminate.force).await;
+        let exit_code = {
+            let mut proc = handle.process.lock().await;
+            let adapter = adapter_for_runtime(proc.runtime)?;
+            let _ = adapter.terminate(&mut proc, terminate.force).await;
 
-        // Wait for process exit and capture exit code
-        let exit_code = match handle.process.child.wait().await {
-            Ok(status) => status.code().unwrap_or(-1),
-            Err(_) => -1,
+            // Wait for process exit and capture exit code
+            match proc.child.wait().await {
+                Ok(status) => status.code().unwrap_or(-1),
+                Err(_) => -1,
+            }
         };
 
         let duration_ms =
@@ -383,4 +417,34 @@ fn gc_workspaces(base: &PathBuf, ttl: std::time::Duration) {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_join_rejects_parent_traversal() {
+        let base = PathBuf::from("/data/workspaces");
+        assert!(safe_join(&base, "../etc/passwd").is_err());
+        assert!(safe_join(&base, "tenant/../../etc").is_err());
+        assert!(safe_join(&base, "/absolute/path").is_err());
+    }
+
+    #[test]
+    fn safe_join_accepts_valid_relative_paths() {
+        let base = PathBuf::from("/data/workspaces");
+        let result = safe_join(&base, "tenant-abc/session-xyz");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/data/workspaces/tenant-abc/session-xyz"));
+    }
+
+    #[test]
+    fn safe_join_accepts_simple_name() {
+        let base = PathBuf::from("/data/workspaces");
+        let result = safe_join(&base, "mysession");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/data/workspaces/mysession"));
+    }
+
 }

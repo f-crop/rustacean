@@ -10,11 +10,18 @@
 //! The full `initial_prompt` is forwarded via Kafka but **never stored
 //! verbatim in the database**. Only a ≤256-char Unicode preview is persisted
 //! in `input_prompt_preview` (migration 011).
+//!
+//! # Internal endpoint security
+//!
+//! The `/internal/*` routes require an `X-Internal-Secret` header whose value
+//! must match the `RB_INTERNAL_SECRET` environment variable.  The comparison is
+//! constant-time to prevent timing attacks.  If `RB_INTERNAL_SECRET` is unset,
+//! every internal request is rejected with 401.
 
 use axum::{
     Json,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use chrono::Utc;
@@ -30,7 +37,7 @@ use uuid::Uuid;
 use crate::{
     error::AppError,
     middleware::auth::{AuthContext, require_verified_session},
-    state::AppState,
+    state::{AppState, MAX_ACTIVE_SESSIONS_PER_PROCESS, SessionHandle},
 };
 
 // ---------------------------------------------------------------------------
@@ -45,6 +52,9 @@ const INITIAL_MESSAGE_MAX_BYTES: usize = 64 * 1024;
 
 /// Kafka topic for agent commands.
 const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
+
+/// Statuses that agent-runner is allowed to set via the internal callback.
+const VALID_AGENT_STATUSES: &[&str] = &["pending", "running", "terminated"];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +72,115 @@ fn parse_runtime(s: &str) -> Option<AgentRuntime> {
         "pi" => Some(AgentRuntime::Pi),
         _ => None,
     }
+}
+
+/// Validate that `workspace_path` is a safe relative path (no `..`, no absolute).
+/// Returns an error on invalid input so the session is never created.
+async fn db_insert_session_api_key(
+    pool: &sqlx::PgPool,
+    api_key_id: Uuid,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    session_id: Uuid,
+    key_hash: &str,
+    scopes_json: &serde_json::Value,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO control.api_keys \
+         (id, tenant_id, key_hash, name, scopes, created_by_user_id) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(api_key_id)
+    .bind(tenant_id)
+    .bind(key_hash)
+    .bind(format!("agent-session-{session_id}"))
+    .bind(scopes_json)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|e| {
+        tracing::error!("failed to insert session api_key: {e}");
+        AppError::Internal(anyhow::anyhow!("DB insert failed"))
+    })
+}
+
+struct NewAgentSession<'a> {
+    session_id: Uuid,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    runtime: &'a str,
+    preview: &'a str,
+    workspace_rel: &'a str,
+    api_key_id: Uuid,
+    now: chrono::DateTime<chrono::Utc>,
+}
+
+async fn db_insert_agent_session(
+    pool: &sqlx::PgPool,
+    row: &NewAgentSession<'_>,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r"INSERT INTO agents.agent_sessions
+            (id, tenant_id, user_id, runtime_kind, model, system_prompt,
+             status, token_budget, tokens_used, input_prompt_preview,
+             workspace_path, api_key_id, created_at)
+          VALUES ($1, $2, $3, $4, 'n/a', '',
+                  'pending', 100000, 0, $5, $6, $7, $8)",
+    )
+    .bind(row.session_id)
+    .bind(row.tenant_id)
+    .bind(row.user_id)
+    .bind(row.runtime)
+    .bind(row.preview)
+    .bind(row.workspace_rel)
+    .bind(row.api_key_id)
+    .bind(row.now)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|e| {
+        tracing::error!("failed to insert agent_session: {e}");
+        AppError::Internal(anyhow::anyhow!("DB insert failed"))
+    })
+}
+
+fn validate_workspace_path(path: &str) -> Result<(), AppError> {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        return Err(AppError::InvalidInput);
+    }
+    for component in p.components() {
+        use std::path::Component;
+        if matches!(component, Component::ParentDir | Component::CurDir) {
+            return Err(AppError::InvalidInput);
+        }
+    }
+    Ok(())
+}
+
+/// Constant-time byte comparison to prevent timing side-channels.
+fn ct_eq_bytes(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Validate the `X-Internal-Secret` header against the `RB_INTERNAL_SECRET`
+/// environment variable.  Returns `Err(AppError::Unauthorized)` when the header
+/// is missing, the env var is unset, or the values do not match.
+fn verify_internal_secret(headers: &HeaderMap) -> Result<(), AppError> {
+    let expected = std::env::var("RB_INTERNAL_SECRET")
+        .map_err(|_| AppError::Unauthorized)?;
+    let provided = headers
+        .get("x-internal-secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !ct_eq_bytes(expected.as_bytes(), provided.as_bytes()) {
+        return Err(AppError::Unauthorized);
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -121,21 +240,24 @@ pub async fn create_session(
         return Err(AppError::InvalidInput);
     }
 
-    // Enforce process-level session cap.
-    let _permit = state
-        .agent_registry
-        .try_acquire()
-        .ok_or(AppError::SessionCapExceeded)?;
+    // Derive and validate workspace path before any DB writes.
+    let workspace_rel = if let Some(ref path) = req.workspace_path {
+        validate_workspace_path(path)?;
+        path.clone()
+    } else {
+        // Default: tenant_id/session_id — safe by construction (UUIDs contain no `/..`).
+        format!("{}/{}", session.tenant_id, Uuid::new_v4())
+    };
+
+    // Enforce per-process session cap against the live registry rather than a
+    // per-request semaphore permit that would be released when this handler returns.
+    if state.agent_registry.active_count() >= MAX_ACTIVE_SESSIONS_PER_PROCESS {
+        return Err(AppError::SessionCapExceeded);
+    }
 
     let session_id = Uuid::new_v4();
     let now = Utc::now();
     let preview = prompt_preview(&req.initial_prompt);
-
-    // Derive workspace path: <tenant_id>/<session_id>
-    let workspace_rel = req
-        .workspace_path
-        .clone()
-        .unwrap_or_else(|| format!("{}/{}", session.tenant_id, session_id));
 
     // Generate a session-scoped API key for the spawned process.
     let raw_key = ApiKey::generate();
@@ -146,51 +268,21 @@ pub async fn create_session(
 
     drop(raw_key);
 
-    // INSERT session-scoped API key.
-    sqlx::query(
-        "INSERT INTO control.api_keys \
-         (id, tenant_id, key_hash, name, scopes, created_by_user_id) \
-         VALUES ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(api_key_id)
-    .bind(session.tenant_id)
-    .bind(&key_hash)
-    .bind(format!("agent-session-{session_id}"))
-    .bind(&scopes_json)
-    .bind(session.user_id)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("failed to insert session api_key: {e}");
-        AppError::Internal(anyhow::anyhow!("DB insert failed"))
-    })?;
+    db_insert_session_api_key(
+        &state.pool, api_key_id, session.tenant_id, session.user_id,
+        session_id, &key_hash, &scopes_json,
+    ).await?;
 
-    // INSERT agent_session row with status = 'pending'.
-    sqlx::query(
-        r"
-        INSERT INTO agents.agent_sessions
-            (id, tenant_id, user_id, runtime_kind, model, system_prompt,
-             status, token_budget, tokens_used, input_prompt_preview,
-             workspace_path, api_key_id, created_at)
-        VALUES ($1, $2, $3, $4, 'n/a', '',
-                'pending', 100000, 0, $5,
-                $6, $7, $8)
-        ",
-    )
-    .bind(session_id)
-    .bind(session.tenant_id)
-    .bind(session.user_id)
-    .bind(&req.runtime)
-    .bind(&preview)
-    .bind(&workspace_rel)
-    .bind(api_key_id)
-    .bind(now)
-    .execute(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("failed to insert agent_session: {e}");
-        AppError::Internal(anyhow::anyhow!("DB insert failed"))
-    })?;
+    db_insert_agent_session(&state.pool, &NewAgentSession {
+        session_id,
+        tenant_id: session.tenant_id,
+        user_id: session.user_id,
+        runtime: &req.runtime,
+        preview: &preview,
+        workspace_rel: &workspace_rel,
+        api_key_id,
+        now,
+    }).await?;
 
     // Publish SessionStart command to Kafka.
     let command = AgentSessionCommand {
@@ -217,6 +309,16 @@ pub async fn create_session(
     } else {
         return Err(AppError::KafkaNotConfigured);
     }
+
+    // Register the session in the in-memory registry so the cap is enforced
+    // for the lifetime of the session, not just this request handler.
+    state.agent_registry.insert(SessionHandle::new(
+        session_id,
+        session.tenant_id,
+        session.user_id,
+        req.runtime.clone(),
+        100_000,
+    ));
 
     tracing::info!(
         session_id = %session_id,
@@ -306,9 +408,17 @@ pub async fn delete_session(
 
 pub async fn patch_session_status(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(session_id): Path<Uuid>,
     Json(req): Json<PatchSessionStatusRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    verify_internal_secret(&headers)?;
+
+    // Reject unknown statuses to prevent arbitrary string injection into the DB.
+    if !VALID_AGENT_STATUSES.contains(&req.status.as_str()) {
+        return Err(AppError::InvalidInput);
+    }
+
     sqlx::query(
         "UPDATE agents.agent_sessions
          SET status = $1, pid = $2, exit_code = $3
@@ -322,6 +432,11 @@ pub async fn patch_session_status(
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
+    // Release the session slot in the registry when the process terminates.
+    if req.status == "terminated" {
+        let _ = state.agent_registry.remove(&session_id);
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -331,8 +446,11 @@ pub async fn patch_session_status(
 
 pub async fn delete_session_api_key(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
+    verify_internal_secret(&headers)?;
+
     // Look up the api_key_id from the session.
     let row: Option<(Option<Uuid>,)> = sqlx::query_as(
         "SELECT api_key_id FROM agents.agent_sessions WHERE id = $1",
@@ -401,5 +519,35 @@ mod tests {
     #[test]
     fn initial_message_max_bytes_is_64kib() {
         assert_eq!(INITIAL_MESSAGE_MAX_BYTES, 65_536);
+    }
+
+    #[test]
+    fn validate_workspace_path_rejects_traversal() {
+        assert!(validate_workspace_path("../etc/passwd").is_err());
+        assert!(validate_workspace_path("/absolute/path").is_err());
+        assert!(validate_workspace_path("a/../../b").is_err());
+        assert!(validate_workspace_path("./relative").is_err());
+    }
+
+    #[test]
+    fn validate_workspace_path_accepts_valid_paths() {
+        assert!(validate_workspace_path("tenant/session").is_ok());
+        assert!(validate_workspace_path("abc123").is_ok());
+        assert!(validate_workspace_path("tenant-id/session-id").is_ok());
+    }
+
+    #[test]
+    fn ct_eq_bytes_matches_equal_slices() {
+        assert!(ct_eq_bytes(b"secret", b"secret"));
+        assert!(!ct_eq_bytes(b"secret", b"other"));
+        assert!(!ct_eq_bytes(b"a", b"ab"));
+    }
+
+    #[test]
+    fn valid_agent_statuses_includes_expected() {
+        assert!(VALID_AGENT_STATUSES.contains(&"running"));
+        assert!(VALID_AGENT_STATUSES.contains(&"terminated"));
+        assert!(!VALID_AGENT_STATUSES.contains(&"unknown"));
+        assert!(!VALID_AGENT_STATUSES.contains(&"'DROP TABLE'"));
     }
 }

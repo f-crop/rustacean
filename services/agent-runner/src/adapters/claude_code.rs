@@ -29,7 +29,9 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             .env("RB_AGENT_TENANT_ID", &ctx.tenant_id);
 
         if !ctx.initial_prompt.is_empty() {
-            cmd.arg(&ctx.initial_prompt);
+            // `--` terminates flag parsing so a prompt starting with `-` cannot
+            // inject CLI flags into the spawned process.
+            cmd.arg("--").arg(&ctx.initial_prompt);
         }
 
         let child = cmd.spawn().context("Failed to spawn claude process")?;
