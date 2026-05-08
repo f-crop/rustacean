@@ -1,16 +1,22 @@
 use uuid::Uuid;
 
-mod ingest {
+mod generated {
     #![allow(clippy::all, clippy::pedantic, dead_code)]
     include!(concat!(env!("OUT_DIR"), "/rust_brain.v1.rs"));
 }
 
-pub use ingest::{
-    AuditEvent, EmbeddingPendingEvent, ExpandedFileEvent, GraphRelationEvent, IngestRequest,
+pub use generated::{
+    AgentCommand, AgentEvent, AgentEventType, AuditEvent,
+    EmbeddingPendingEvent, ExpandedFileEvent, GraphRelationEvent, IngestRequest,
     IngestStage, IngestStatus, IngestStatusEvent, ItemKind, ParsedItemEvent, RelationKind,
-    SourceFileEvent, Tombstone, TypecheckedItemEvent,
-    expanded_file_event, parsed_item_event, source_file_event, typechecked_item_event,
+    RuntimeKind, SourceFileEvent, StartSessionCommand, StopSessionCommand, Tombstone,
+    TypecheckedItemEvent, expanded_file_event, parsed_item_event, source_file_event,
+    typechecked_item_event,
 };
+
+pub mod agent_command {
+    pub use super::generated::agent_command::Payload;
+}
 
 /// Newtype over [`Uuid`] representing a tenant identifier.
 /// Prost-generated event types are re-exported from this crate (see [`IngestRequest`] etc.).
