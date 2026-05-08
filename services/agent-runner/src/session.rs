@@ -14,9 +14,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
-use crate::adapters::{
-    AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runtime,
-};
+use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runtime};
 
 pub struct SessionManager {
     sessions: Arc<Mutex<HashMap<String, SessionHandle>>>,
@@ -54,7 +52,11 @@ fn safe_join(base: &std::path::Path, rel: &str) -> Result<PathBuf> {
 }
 
 impl SessionManager {
-    pub fn new(workspace_base: PathBuf, control_api_base: String, http_client: reqwest::Client) -> Self {
+    pub fn new(
+        workspace_base: PathBuf,
+        control_api_base: String,
+        http_client: reqwest::Client,
+    ) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             workspace_base,
@@ -75,17 +77,18 @@ impl SessionManager {
         let workspace_path = safe_join(self.workspace_base.as_path(), &cmd.workspace_path)
             .with_context(|| format!("Rejected workspace_path: {:?}", cmd.workspace_path))?;
 
-        std::fs::create_dir_all(&workspace_path)
+        tokio::fs::create_dir_all(&workspace_path)
+            .await
             .with_context(|| format!("Failed to create workspace: {}", workspace_path.display()))?;
 
         // Enforce mode 0700 for tenant isolation
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&workspace_path, std::fs::Permissions::from_mode(0o700))
-                .with_context(|| {
-                    format!("Failed to set 0700 on {}", workspace_path.display())
-                })?;
+            let perms = std::fs::Permissions::from_mode(0o700);
+            tokio::fs::set_permissions(&workspace_path, perms)
+                .await
+                .with_context(|| format!("Failed to set 0700 on {}", workspace_path.display()))?;
         }
 
         let ctx = SessionCtx {
@@ -108,10 +111,19 @@ impl SessionManager {
         let pid = process.pid;
 
         // Report running status to control-api
-        self.update_session_status(session_id, "running", Some(i64::from(pid)), None).await;
+        self.update_session_status(session_id, "running", Some(i64::from(pid)), None)
+            .await;
 
-        let stdout = process.child.stdout.take().context("Process stdout not available")?;
-        let stderr = process.child.stderr.take().context("Process stderr not available")?;
+        let stdout = process
+            .child
+            .stdout
+            .take()
+            .context("Process stdout not available")?;
+        let stderr = process
+            .child
+            .stderr
+            .take()
+            .context("Process stderr not available")?;
 
         let (stdout_handle, stderr_handle) = self.spawn_output_handlers(
             session_id.to_string(),
@@ -177,6 +189,11 @@ impl SessionManager {
             let mut sessions = self.sessions.lock().await;
             sessions.remove(session_id).context("Session not found")?
         };
+
+        {
+            let mut counters = self.seq_counters.lock().await;
+            counters.remove(session_id);
+        }
 
         let exit_code = {
             let mut proc = handle.process.lock().await;
@@ -382,7 +399,10 @@ pub fn spawn_workspace_gc(workspace_base: PathBuf) {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
         loop {
             interval.tick().await;
-            gc_workspaces(&workspace_base, ttl);
+            let base = workspace_base.clone();
+            tokio::task::spawn_blocking(move || gc_workspaces(&base, ttl))
+                .await
+                .ok();
         }
     });
 }
@@ -436,7 +456,10 @@ mod tests {
         let base = PathBuf::from("/data/workspaces");
         let result = safe_join(&base, "tenant-abc/session-xyz");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), PathBuf::from("/data/workspaces/tenant-abc/session-xyz"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("/data/workspaces/tenant-abc/session-xyz")
+        );
     }
 
     #[test]
@@ -446,5 +469,4 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), PathBuf::from("/data/workspaces/mysession"));
     }
-
 }

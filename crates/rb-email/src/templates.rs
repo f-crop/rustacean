@@ -40,20 +40,20 @@ impl EmailTemplate {
     pub fn render(&self) -> Result<(String, String), EmailError> {
         match self {
             Self::VerifyEmail { link } => {
-                let ctx: HashMap<&str, &str> =
-                    [("link", link.as_str())].into_iter().collect();
+                let ctx: HashMap<&str, &str> = [("link", link.as_str())].into_iter().collect();
                 render_pair(VERIFY_EMAIL_TXT, VERIFY_EMAIL_HTML, &ctx)
             }
             Self::ResetPassword { link } => {
-                let ctx: HashMap<&str, &str> =
-                    [("link", link.as_str())].into_iter().collect();
+                let ctx: HashMap<&str, &str> = [("link", link.as_str())].into_iter().collect();
                 render_pair(RESET_PASSWORD_TXT, RESET_PASSWORD_HTML, &ctx)
             }
             Self::TenantInvite { link, tenant_name } => {
-                let ctx: HashMap<&str, &str> =
-                    [("link", link.as_str()), ("tenant_name", tenant_name.as_str())]
-                        .into_iter()
-                        .collect();
+                let ctx: HashMap<&str, &str> = [
+                    ("link", link.as_str()),
+                    ("tenant_name", tenant_name.as_str()),
+                ]
+                .into_iter()
+                .collect();
                 render_pair(TENANT_INVITE_TXT, TENANT_INVITE_HTML, &ctx)
             }
         }
@@ -67,7 +67,12 @@ impl EmailTemplate {
     pub fn to_email(&self, to: impl Into<String>) -> Result<Email, EmailError> {
         let subject = self.subject();
         let (text_body, html_body) = self.render()?;
-        Ok(Email { to: to.into(), subject, text_body, html_body })
+        Ok(Email {
+            to: to.into(),
+            subject,
+            text_body,
+            html_body,
+        })
     }
 }
 

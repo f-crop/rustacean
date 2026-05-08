@@ -8,11 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "migrate",
-    about = "rust-brain v2 migration runner",
-    version
-)]
+#[command(name = "migrate", about = "rust-brain v2 migration runner", version)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -70,8 +66,7 @@ struct KafkaArgs {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -94,7 +89,10 @@ async fn main() -> Result<()> {
             } else {
                 let result = kafka::apply_topics(&brokers, &config_path).await?;
                 if result.created == 0 && result.configs_applied == 0 {
-                    println!("kafka: all topics already up to date ({} skipped)", result.skipped);
+                    println!(
+                        "kafka: all topics already up to date ({} skipped)",
+                        result.skipped
+                    );
                 } else {
                     println!(
                         "kafka: created={} configs_applied={} skipped={}",
@@ -108,9 +106,7 @@ async fn main() -> Result<()> {
             let database_url = cli
                 .database_url
                 .or_else(|| std::env::var("DATABASE_URL").ok())
-                .context(
-                    "DATABASE_URL must be set (via --database-url or DATABASE_URL env var)",
-                )?;
+                .context("DATABASE_URL must be set (via --database-url or DATABASE_URL env var)")?;
 
             let pool = sqlx::postgres::PgPoolOptions::new()
                 .max_connections(5)

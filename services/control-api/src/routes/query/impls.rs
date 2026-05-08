@@ -78,8 +78,9 @@ pub async fn get_trait_impls(
 
     let graph = state.graph.as_deref().ok_or(AppError::GraphUnavailable)?;
 
-    let fqn_bytes =
-        URL_SAFE_NO_PAD.decode(fqn_b64.as_bytes()).map_err(|_| AppError::InvalidInput)?;
+    let fqn_bytes = URL_SAFE_NO_PAD
+        .decode(fqn_b64.as_bytes())
+        .map_err(|_| AppError::InvalidInput)?;
     let fqn = String::from_utf8(fqn_bytes).map_err(|_| AppError::InvalidInput)?;
 
     // Verify the repo belongs to this tenant.
@@ -109,7 +110,10 @@ pub async fn get_trait_impls(
         trait_fqn: fqn,
         impls: entries
             .into_iter()
-            .map(|e| ImplEntry { fqn: e.fqn, impl_kind: e.impl_kind })
+            .map(|e| ImplEntry {
+                fqn: e.fqn,
+                impl_kind: e.impl_kind,
+            })
             .collect(),
     }))
 }
@@ -169,7 +173,9 @@ mod tests {
 
     #[test]
     fn invalid_base64_maps_to_invalid_input() {
-        let err = URL_SAFE_NO_PAD.decode(b"not-valid!@#").map_err(|_| AppError::InvalidInput);
+        let err = URL_SAFE_NO_PAD
+            .decode(b"not-valid!@#")
+            .map_err(|_| AppError::InvalidInput);
         assert!(matches!(err, Err(AppError::InvalidInput)));
     }
 
@@ -179,7 +185,10 @@ mod tests {
             repo_id: Uuid::new_v4(),
             trait_fqn: "my_crate::MyTrait".to_owned(),
             impls: vec![
-                ImplEntry { fqn: "my_crate::Foo".to_owned(), impl_kind: "direct".to_owned() },
+                ImplEntry {
+                    fqn: "my_crate::Foo".to_owned(),
+                    impl_kind: "direct".to_owned(),
+                },
                 ImplEntry {
                     fqn: "my_crate::GenericFoo".to_owned(),
                     impl_kind: "blanket".to_owned(),

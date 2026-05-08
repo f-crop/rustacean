@@ -11,7 +11,7 @@
 use std::fmt::Write as _;
 use std::io::Write;
 
-use migrate::{apply_topics, load_topics_file, print_status, KafkaAdmin};
+use migrate::{KafkaAdmin, apply_topics, load_topics_file, print_status};
 use tempfile::NamedTempFile;
 
 fn test_brokers() -> Option<String> {
@@ -101,7 +101,11 @@ fn test_projector_has_12_partitions() {
         .join("topics.yaml");
 
     let tf = load_topics_file(&path).unwrap();
-    let proj = tf.topics.iter().find(|t| t.name == "rb.projector.events").unwrap();
+    let proj = tf
+        .topics
+        .iter()
+        .find(|t| t.name == "rb.projector.events")
+        .unwrap();
     assert_eq!(proj.partitions, 12);
 }
 
@@ -117,8 +121,15 @@ fn test_audit_has_90_day_retention() {
         .join("topics.yaml");
 
     let tf = load_topics_file(&path).unwrap();
-    let audit = tf.topics.iter().find(|t| t.name == "rb.audit.events").unwrap();
-    assert_eq!(audit.config.get("retention.ms").map(String::as_str), Some("7776000000"));
+    let audit = tf
+        .topics
+        .iter()
+        .find(|t| t.name == "rb.audit.events")
+        .unwrap();
+    assert_eq!(
+        audit.config.get("retention.ms").map(String::as_str),
+        Some("7776000000")
+    );
 }
 
 // ── integration tests (require TEST_KAFKA_BROKERS) ───────────────────────────
@@ -135,13 +146,23 @@ async fn test_create_topics_and_idempotent_rerun() {
     let yaml = make_topics_yaml(&[(&t1, 3, "86400000"), (&t2, 6, "172800000")]);
 
     // First run: should create both topics
-    let r1 = apply_topics(&brokers, yaml.path()).await.expect("first apply failed");
+    let r1 = apply_topics(&brokers, yaml.path())
+        .await
+        .expect("first apply failed");
     assert_eq!(r1.created, 2, "expected 2 topics created on first run");
 
     // Second run: idempotent — no new topics
-    let r2 = apply_topics(&brokers, yaml.path()).await.expect("second apply failed");
-    assert_eq!(r2.created, 0, "expected 0 topics created on second run (idempotent)");
-    assert_eq!(r2.configs_applied, 2, "expected configs re-applied on second run");
+    let r2 = apply_topics(&brokers, yaml.path())
+        .await
+        .expect("second apply failed");
+    assert_eq!(
+        r2.created, 0,
+        "expected 0 topics created on second run (idempotent)"
+    );
+    assert_eq!(
+        r2.configs_applied, 2,
+        "expected configs re-applied on second run"
+    );
 }
 
 #[tokio::test]
@@ -173,7 +194,9 @@ async fn test_status_shows_existing_topic() {
     let name = unique_topic("rb.test.status");
     let yaml = make_topics_yaml(&[(&name, 4, "3600000")]);
 
-    apply_topics(&brokers, yaml.path()).await.expect("apply failed");
+    apply_topics(&brokers, yaml.path())
+        .await
+        .expect("apply failed");
 
     let admin = KafkaAdmin::new(&brokers).expect("admin client creation failed");
     let tf = load_topics_file(yaml.path()).unwrap();

@@ -92,15 +92,10 @@ async fn embed_query(
     let url = format!("{}/api/embeddings", ollama_url.trim_end_matches('/'));
     let body = serde_json::json!({ "model": model, "prompt": query });
 
-    let resp = http
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::warn!("Ollama request failed: {e}");
-            AppError::ServiceUnavailable
-        })?;
+    let resp = http.post(&url).json(&body).send().await.map_err(|e| {
+        tracing::warn!("Ollama request failed: {e}");
+        AppError::ServiceUnavailable
+    })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -168,11 +163,20 @@ pub async fn search(
         return Err(AppError::InvalidInput);
     }
 
-    let qdrant = state.qdrant.as_deref().ok_or(AppError::ServiceUnavailable)?;
-    let ollama_url =
-        state.config.ollama_url.as_deref().ok_or(AppError::ServiceUnavailable)?;
+    let qdrant = state
+        .qdrant
+        .as_deref()
+        .ok_or(AppError::ServiceUnavailable)?;
+    let ollama_url = state
+        .config
+        .ollama_url
+        .as_deref()
+        .ok_or(AppError::ServiceUnavailable)?;
 
-    let limit = req.limit.unwrap_or(DEFAULT_SEARCH_LIMIT).clamp(1, MAX_SEARCH_LIMIT);
+    let limit = req
+        .limit
+        .unwrap_or(DEFAULT_SEARCH_LIMIT)
+        .clamp(1, MAX_SEARCH_LIMIT);
 
     let repo_id_filter = req.filters.as_ref().and_then(|f| f.repo_id);
 
@@ -193,18 +197,16 @@ pub async fn search(
     let vector = embed_query(&http, ollama_url, &state.config.embedding_model, &req.q).await?;
 
     let tenant_id = TenantId::from(tenant_id_uuid);
-    let opts = SearchOptions { limit, repo_id: repo_id_filter };
+    let opts = SearchOptions {
+        limit,
+        repo_id: repo_id_filter,
+    };
     let hits = semantic_search(qdrant, &tenant_id, &vector, opts).await?;
 
     let results: Vec<SearchResult> = hits
         .into_iter()
         .map(|h| {
-            let crate_name = h
-                .fqn
-                .split("::")
-                .next()
-                .unwrap_or(&h.fqn)
-                .to_owned();
+            let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
             SearchResult {
                 fqn: h.fqn,
                 crate_name,

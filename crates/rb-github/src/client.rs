@@ -1,7 +1,7 @@
 use reqwest::Client;
 use serde::Deserialize;
 
-use crate::{app_jwt::mint_app_jwt, error::GhError, GhApp};
+use crate::{GhApp, app_jwt::mint_app_jwt, error::GhError};
 
 #[derive(Debug, Deserialize)]
 pub struct AppIdentity {
@@ -79,7 +79,10 @@ pub(crate) async fn fetch_repo_by_id(
         return Err(GhError::ApiError { status, body });
     }
     let raw = resp.json::<GhRepoResponse>().await?;
-    Ok(RepoInfo { full_name: raw.full_name, default_branch: raw.default_branch })
+    Ok(RepoInfo {
+        full_name: raw.full_name,
+        default_branch: raw.default_branch,
+    })
 }
 
 pub async fn fetch_installation(
@@ -89,7 +92,9 @@ pub async fn fetch_installation(
 ) -> Result<InstallationInfo, GhError> {
     let jwt = mint_app_jwt(app.app_id, &app.encoding_key)?;
     let resp = http
-        .get(format!("https://api.github.com/app/installations/{installation_id}"))
+        .get(format!(
+            "https://api.github.com/app/installations/{installation_id}"
+        ))
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")

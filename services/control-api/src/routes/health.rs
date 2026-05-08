@@ -1,11 +1,7 @@
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use axum::{
-    Json,
-    extract::State,
-    response::IntoResponse,
-};
+use axum::{Json, extract::State, response::IntoResponse};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use utoipa::{OpenApi as _, ToSchema};
@@ -75,7 +71,12 @@ pub async fn health_check(State(state): State<AppState>) -> Json<HealthResponse>
 
     Json(HealthResponse {
         status: overall,
-        stores: StoreStatuses { postgres, neo4j, qdrant, kafka },
+        stores: StoreStatuses {
+            postgres,
+            neo4j,
+            qdrant,
+            kafka,
+        },
     })
 }
 
@@ -103,12 +104,7 @@ async fn check_neo4j(state: &AppState) -> &'static str {
     } else {
         format!("{addr}:7687")
     };
-    match tokio::time::timeout(
-        Duration::from_secs(2),
-        tokio::net::TcpStream::connect(addr),
-    )
-    .await
-    {
+    match tokio::time::timeout(Duration::from_secs(2), tokio::net::TcpStream::connect(addr)).await {
         Ok(Ok(_)) => "ok",
         _ => "error",
     }
@@ -119,19 +115,17 @@ async fn check_qdrant(state: &AppState) -> &'static str {
         return "unknown";
     };
     let url = format!("{}/healthz", base.trim_end_matches('/'));
-    match tokio::time::timeout(
-        Duration::from_secs(2),
-        state.http_client.get(&url).send(),
-    )
-    .await
-    {
+    match tokio::time::timeout(Duration::from_secs(2), state.http_client.get(&url).send()).await {
         Ok(Ok(resp)) if resp.status().is_success() => "ok",
         _ => "error",
     }
 }
 
 fn check_kafka_liveness(state: &AppState) -> impl std::future::Future<Output = &'static str> {
-    let last_ms = state.kafka_consistency.last_event_at_ms.load(Ordering::Relaxed);
+    let last_ms = state
+        .kafka_consistency
+        .last_event_at_ms
+        .load(Ordering::Relaxed);
     let age_secs = age_from_ms(last_ms);
     std::future::ready(if last_ms == 0 {
         "unknown"
@@ -188,7 +182,10 @@ pub async fn consistency_check(
 ) -> Result<impl IntoResponse, AppError> {
     check_admin(&state.pool, auth).await?;
 
-    let last_ms = state.kafka_consistency.last_event_at_ms.load(Ordering::Relaxed);
+    let last_ms = state
+        .kafka_consistency
+        .last_event_at_ms
+        .load(Ordering::Relaxed);
     let lag = state.kafka_consistency.lag_records.load(Ordering::Relaxed);
 
     let last_event_at: Option<DateTime<Utc>> = if last_ms > 0 {

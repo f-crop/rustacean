@@ -6,8 +6,7 @@ use extractor::{Relation, extract_relations};
 use rb_schemas::RelationKind;
 use std::path::Path;
 
-const FIXTURE_DIR: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/graph_inputs");
+const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/graph_inputs");
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(Path::new(FIXTURE_DIR).join(name))
@@ -24,7 +23,10 @@ fn kinds(rels: &[Relation]) -> Vec<RelationKind> {
 fn impls_fixture_display_relation() {
     let sig = "impl fmt::Display for Point";
     let rels = extract_relations("fixtures_impls::Point", sig, &[], "");
-    let impls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Impls).collect();
+    let impls: Vec<_> = rels
+        .iter()
+        .filter(|r| r.kind == RelationKind::Impls)
+        .collect();
     assert!(!impls.is_empty(), "expected at least one IMPLS relation");
     assert!(
         impls.iter().any(|r| r.to_fqn.contains("Display")),
@@ -36,7 +38,10 @@ fn impls_fixture_display_relation() {
 fn impls_fixture_clone_relation() {
     let sig = "impl Clone for Point";
     let rels = extract_relations("fixtures_impls::Point", sig, &[], "");
-    let impls: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Impls).collect();
+    let impls: Vec<_> = rels
+        .iter()
+        .filter(|r| r.kind == RelationKind::Impls)
+        .collect();
     assert!(!impls.is_empty(), "expected IMPLS relation for Clone");
     assert!(impls.iter().any(|r| r.to_fqn == "Clone"));
 }
@@ -48,8 +53,16 @@ fn derives_fixture_config_struct_all_derives() {
     let body = fixture("derives.rs");
     // Simulate processing the Config struct item
     let config_body = "#[derive(Clone, Debug, PartialEq, Eq, Hash)]\npub struct Config {\n    pub host: String,\n    pub port: u16,\n}";
-    let rels = extract_relations("fixtures_derives::Config", "struct Config", &[], config_body);
-    let derives: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Derives).collect();
+    let rels = extract_relations(
+        "fixtures_derives::Config",
+        "struct Config",
+        &[],
+        config_body,
+    );
+    let derives: Vec<_> = rels
+        .iter()
+        .filter(|r| r.kind == RelationKind::Derives)
+        .collect();
     assert_eq!(derives.len(), 5, "Config has 5 derives; got: {derives:?}");
     let to_fqns: Vec<&str> = derives.iter().map(|r| r.to_fqn.as_str()).collect();
     assert!(to_fqns.contains(&"Clone"), "missing Clone derive");
@@ -64,16 +77,30 @@ fn derives_fixture_config_struct_all_derives() {
 fn derives_fixture_enum_derives() {
     let body = "#[derive(Clone, Copy, Debug)]\npub enum Direction { North, South, East, West }";
     let rels = extract_relations("fixtures_derives::Direction", "enum Direction", &[], body);
-    let derives: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::Derives).collect();
-    assert_eq!(derives.len(), 3, "Direction has 3 derives; got: {derives:?}");
+    let derives: Vec<_> = rels
+        .iter()
+        .filter(|r| r.kind == RelationKind::Derives)
+        .collect();
+    assert_eq!(
+        derives.len(),
+        3,
+        "Direction has 3 derives; got: {derives:?}"
+    );
 }
 
 #[test]
 fn derives_fixture_trait_supertrait_relations() {
     let sig = "trait Describable: Clone + std::fmt::Display";
     let rels = extract_relations("fixtures_derives::Describable", sig, &[], "");
-    let extends: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::ExtendsTrait).collect();
-    assert_eq!(extends.len(), 2, "Describable has 2 supertraits; got: {extends:?}");
+    let extends: Vec<_> = rels
+        .iter()
+        .filter(|r| r.kind == RelationKind::ExtendsTrait)
+        .collect();
+    assert_eq!(
+        extends.len(),
+        2,
+        "Describable has 2 supertraits; got: {extends:?}"
+    );
     let to_fqns: Vec<&str> = extends.iter().map(|r| r.to_fqn.as_str()).collect();
     assert!(to_fqns.contains(&"Clone"), "missing Clone supertrait");
     // std::fmt::Display — first_ident_segment returns the full path for multi-segment
@@ -94,14 +121,19 @@ fn bounds_fixture_process_fn_bounded_by() {
         &bounds,
         "",
     );
-    let bounded: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::BoundedBy).collect();
+    let bounded: Vec<_> = rels
+        .iter()
+        .filter(|r| r.kind == RelationKind::BoundedBy)
+        .collect();
     assert_eq!(bounded.len(), 3, "process has 3 bounds; got: {bounded:?}");
     let to_fqns: Vec<&str> = bounded.iter().map(|r| r.to_fqn.as_str()).collect();
     assert!(to_fqns.contains(&"Clone"));
     assert!(to_fqns.contains(&"Debug"));
     assert!(to_fqns.contains(&"Display"));
     assert!(
-        bounded.iter().all(|r| r.from_fqn == "fixtures_bounds::process::T"),
+        bounded
+            .iter()
+            .all(|r| r.from_fqn == "fixtures_bounds::process::T"),
         "from_fqn must include the item FQN; got: {bounded:?}"
     );
 }
@@ -115,8 +147,15 @@ fn bounds_fixture_container_struct_bounded() {
         &bounds,
         "",
     );
-    let bounded: Vec<_> = rels.iter().filter(|r| r.kind == RelationKind::BoundedBy).collect();
-    assert_eq!(bounded.len(), 2, "Container bounds: Clone + Send; got: {bounded:?}");
+    let bounded: Vec<_> = rels
+        .iter()
+        .filter(|r| r.kind == RelationKind::BoundedBy)
+        .collect();
+    assert_eq!(
+        bounded.len(),
+        2,
+        "Container bounds: Clone + Send; got: {bounded:?}"
+    );
 }
 
 // ── cross-cutting ─────────────────────────────────────────────────────────────
@@ -124,7 +163,10 @@ fn bounds_fixture_container_struct_bounded() {
 #[test]
 fn empty_item_no_relations() {
     let rels = extract_relations("src_lib::empty", "fn empty()", &[], "");
-    assert!(rels.is_empty(), "plain fn with no bounds/impl should emit no relations");
+    assert!(
+        rels.is_empty(),
+        "plain fn with no bounds/impl should emit no relations"
+    );
 }
 
 #[test]
@@ -147,29 +189,38 @@ fn all_kinds_present_in_fixture_corpus() {
 
     // IMPLS
     let rels = extract_relations("p::Point", "impl Display for Point", &[], "");
-    for r in &rels { seen.insert(r.kind); }
+    for r in &rels {
+        seen.insert(r.kind);
+    }
 
     // EXTENDS_TRAIT
     let rels = extract_relations("p::Animal", "trait Animal: Clone", &[], "");
-    for r in &rels { seen.insert(r.kind); }
+    for r in &rels {
+        seen.insert(r.kind);
+    }
 
     // BOUNDED_BY
     let rels = extract_relations("p::f", "fn f<T>()", &["T: Clone".to_owned()], "");
-    for r in &rels { seen.insert(r.kind); }
+    for r in &rels {
+        seen.insert(r.kind);
+    }
 
     // DERIVES
-    let rels = extract_relations(
-        "p::S",
-        "struct S",
-        &[],
-        "#[derive(Clone)] pub struct S {}",
-    );
-    for r in &rels { seen.insert(r.kind); }
+    let rels = extract_relations("p::S", "struct S", &[], "#[derive(Clone)] pub struct S {}");
+    for r in &rels {
+        seen.insert(r.kind);
+    }
 
-    assert!(seen.contains(&RelationKind::Impls),        "IMPLS not seen");
-    assert!(seen.contains(&RelationKind::ExtendsTrait),  "EXTENDS_TRAIT not seen");
-    assert!(seen.contains(&RelationKind::BoundedBy),     "BOUNDED_BY not seen");
-    assert!(seen.contains(&RelationKind::Derives),       "DERIVES not seen");
+    assert!(seen.contains(&RelationKind::Impls), "IMPLS not seen");
+    assert!(
+        seen.contains(&RelationKind::ExtendsTrait),
+        "EXTENDS_TRAIT not seen"
+    );
+    assert!(
+        seen.contains(&RelationKind::BoundedBy),
+        "BOUNDED_BY not seen"
+    );
+    assert!(seen.contains(&RelationKind::Derives), "DERIVES not seen");
 }
 
 #[test]

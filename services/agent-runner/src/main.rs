@@ -9,8 +9,8 @@ mod consumer;
 mod session;
 
 fn validate_boot_env() -> Result<PathBuf> {
-    let workspace_base = std::env::var("RB_AGENT_WORKSPACE_BASE")
-        .unwrap_or_else(|_| "/data/workspaces".to_string());
+    let workspace_base =
+        std::env::var("RB_AGENT_WORKSPACE_BASE").unwrap_or_else(|_| "/data/workspaces".to_string());
 
     let workspace_path = PathBuf::from(&workspace_base);
     std::fs::create_dir_all(&workspace_path)?;
@@ -40,7 +40,9 @@ async fn main() -> Result<()> {
                 .context("RB_INTERNAL_SECRET contains invalid header characters")?;
             default_headers.insert("x-internal-secret", val);
         } else {
-            tracing::warn!("RB_INTERNAL_SECRET not set — internal callbacks will be rejected by control-api");
+            tracing::warn!(
+                "RB_INTERNAL_SECRET not set — internal callbacks will be rejected by control-api"
+            );
         }
         reqwest::Client::builder()
             .default_headers(default_headers)

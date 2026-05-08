@@ -54,6 +54,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         qdrant_url: None,
         ollama_url: None,
         embedding_model: "nomic-embed-text".to_owned(),
+        internal_secret: Some("test-internal-secret".to_owned()),
+        internal_listen_addr: "127.0.0.1:0".to_owned(),
     };
     let state = AppState {
         pool: pool.clone(),
@@ -74,6 +76,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
         agent_commands_producer: None,
+        internal_secret: "test-internal-secret".to_owned(),
     };
     Some((state, pool))
 }
@@ -164,7 +167,11 @@ async fn integration_logout_full_flow() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::NO_CONTENT, "logout must return 204");
+    assert_eq!(
+        resp.status(),
+        StatusCode::NO_CONTENT,
+        "logout must return 204"
+    );
 
     let clear = resp
         .headers()
@@ -197,7 +204,10 @@ async fn integration_logout_full_flow() {
     .fetch_one(&pool)
     .await
     .expect("auth_events count must succeed");
-    assert_eq!(logout_count, 1, "exactly one logout auth_events row expected");
+    assert_eq!(
+        logout_count, 1,
+        "exactly one logout auth_events row expected"
+    );
 
     // 7. Re-logout with the same (now invalid) cookie → 401, no duplicate event.
     let resp = app

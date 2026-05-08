@@ -6,14 +6,34 @@ mod ingest {
 }
 
 pub use ingest::{
-    AuditEvent, EmbeddingPendingEvent, ExpandedFileEvent, GraphRelationEvent, IngestRequest,
-    IngestStage, IngestStatus, IngestStatusEvent, ItemKind, ParsedItemEvent, RelationKind,
-    SourceFileEvent, Tombstone, TypecheckedItemEvent,
-    expanded_file_event, parsed_item_event, source_file_event, typechecked_item_event,
+    AgentErrorCategory,
     // Agent types (ADR-009 Option B)
-    AgentEvent, AgentEventKind, AgentErrorCategory, AgentRuntime,
-    AgentSessionCommand, AgentSessionInput, AgentSessionStart, AgentSessionTerminate,
+    AgentEvent,
+    AgentEventKind,
+    AgentRuntime,
+    AgentSessionCommand,
+    AgentSessionInput,
+    AgentSessionStart,
+    AgentSessionTerminate,
+    AuditEvent,
+    EmbeddingPendingEvent,
+    ExpandedFileEvent,
+    GraphRelationEvent,
+    IngestRequest,
+    IngestStage,
+    IngestStatus,
+    IngestStatusEvent,
+    ItemKind,
+    ParsedItemEvent,
+    RelationKind,
+    SourceFileEvent,
+    Tombstone,
+    TypecheckedItemEvent,
     agent_session_command,
+    expanded_file_event,
+    parsed_item_event,
+    source_file_event,
+    typechecked_item_event,
 };
 
 /// Newtype over [`Uuid`] representing a tenant identifier.

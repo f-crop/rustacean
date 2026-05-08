@@ -233,7 +233,10 @@ async fn isolation_drop_a_leaves_b_intact() {
     pool.drop_schema(&ctx_a).await.unwrap();
 
     assert!(!pool.schema_exists(&ctx_a).await.unwrap(), "A must be gone");
-    assert!(pool.schema_exists(&ctx_b).await.unwrap(), "B must survive A's drop");
+    assert!(
+        pool.schema_exists(&ctx_b).await.unwrap(),
+        "B must survive A's drop"
+    );
 
     pool.drop_schema(&ctx_b).await.unwrap();
 }
@@ -250,16 +253,20 @@ async fn isolation_qualify_routes_to_correct_schema() {
     create_test_table(&pool, &ctx_a).await;
     create_test_table(&pool, &ctx_b).await;
 
-    let count_a: i64 =
-        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {}", ctx_a.qualify("_iso_test")))
-            .fetch_one(pool.control())
-            .await
-            .unwrap();
-    let count_b: i64 =
-        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {}", ctx_b.qualify("_iso_test")))
-            .fetch_one(pool.control())
-            .await
-            .unwrap();
+    let count_a: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}",
+        ctx_a.qualify("_iso_test")
+    ))
+    .fetch_one(pool.control())
+    .await
+    .unwrap();
+    let count_b: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}",
+        ctx_b.qualify("_iso_test")
+    ))
+    .fetch_one(pool.control())
+    .await
+    .unwrap();
     assert_eq!(count_a, 1, "qualify must route to A");
     assert_eq!(count_b, 1, "qualify must route to B, not A");
 
@@ -279,7 +286,10 @@ async fn isolation_control_queries_unaffected_by_tenant_schemas() {
         .fetch_one(pool.control())
         .await
         .unwrap();
-    assert!(n > 0, "control pool must be unaffected by tenant schema operations");
+    assert!(
+        n > 0,
+        "control pool must be unaffected by tenant schema operations"
+    );
 
     pool.drop_schema(&ctx).await.unwrap();
 }
@@ -305,7 +315,10 @@ async fn tenant_schema_name_matches_pg_pattern() {
     .fetch_one(pool.control())
     .await
     .unwrap();
-    assert!(found, "schema name must match the ^tenant_[0-9a-f]{{24}}$ pg pattern");
+    assert!(
+        found,
+        "schema name must match the ^tenant_[0-9a-f]{{24}}$ pg pattern"
+    );
 
     pool.drop_schema(&ctx).await.unwrap();
 }

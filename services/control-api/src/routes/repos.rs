@@ -3,12 +3,7 @@
 //! - `GET  /v1/repos`          — List connected repos for the tenant (REQ-GH-07).
 //! - `POST /v1/repos/{id}/ingest` — Trigger an ingestion run (REQ-GH-08).
 
-use axum::{
-    Json,
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-};
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{DateTime, Utc};
 use rb_github::GhError;
 use serde::{Deserialize, Serialize};
@@ -214,8 +209,24 @@ pub async fn list_repos(
     let repos = rows
         .into_iter()
         .map(
-            |(repo_id, full_name, default_branch, status, connected_by, connected_at, installation_id)| {
-                RepoItem { repo_id, full_name, default_branch, status, connected_by, connected_at, installation_id }
+            |(
+                repo_id,
+                full_name,
+                default_branch,
+                status,
+                connected_by,
+                connected_at,
+                installation_id,
+            )| {
+                RepoItem {
+                    repo_id,
+                    full_name,
+                    default_branch,
+                    status,
+                    connected_by,
+                    connected_at,
+                    installation_id,
+                }
             },
         )
         .collect();

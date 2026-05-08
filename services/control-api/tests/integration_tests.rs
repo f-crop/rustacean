@@ -27,8 +27,7 @@ fn test_state() -> AppState {
         password: String::new(),
         from_address: "test@example.com".to_owned(),
     };
-    let email_sender =
-        from_transport("noop", &smtp).expect("noop transport must succeed");
+    let email_sender = from_transport("noop", &smtp).expect("noop transport must succeed");
     let hasher = PasswordHasher::from_config(64, 1, 1).expect("hasher must build");
     AppState {
         pool,
@@ -49,6 +48,7 @@ fn test_state() -> AppState {
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
         agent_commands_producer: None,
+        internal_secret: "test-internal-secret".to_owned(),
     }
 }
 
@@ -134,13 +134,21 @@ async fn openapi_json_body_is_valid_openapi() {
     let raw = collect_body(response.into_body()).await;
     let spec: serde_json::Value = serde_json::from_slice(&raw).expect("body must be valid JSON");
 
-    let version = spec["openapi"].as_str().expect("'openapi' field must be a string");
+    let version = spec["openapi"]
+        .as_str()
+        .expect("'openapi' field must be a string");
     assert!(
         version.starts_with("3."),
         "expected OpenAPI 3.x, got {version}"
     );
-    assert!(spec["info"].is_object(), "'info' must be present and an object");
-    assert!(spec["paths"].is_object(), "'paths' must be present and an object");
+    assert!(
+        spec["info"].is_object(),
+        "'info' must be present and an object"
+    );
+    assert!(
+        spec["paths"].is_object(),
+        "'paths' must be present and an object"
+    );
 }
 
 #[tokio::test]
@@ -336,6 +344,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         qdrant_url: None,
         ollama_url: None,
         embedding_model: "nomic-embed-text".to_owned(),
+        internal_secret: Some("test-internal-secret".to_owned()),
+        internal_listen_addr: "127.0.0.1:0".to_owned(),
     };
     let state = AppState {
         pool: pool.clone(),
@@ -356,6 +366,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
         agent_commands_producer: None,
+        internal_secret: "test-internal-secret".to_owned(),
     };
     Some((state, pool))
 }
@@ -422,8 +433,14 @@ async fn integration_login_full_flow() {
         .expect("Set-Cookie header must be present")
         .to_str()
         .unwrap();
-    assert!(cookie.contains("rb_session="), "cookie must contain rb_session token");
-    assert!(cookie.contains("Secure"), "cookie must carry the Secure flag");
+    assert!(
+        cookie.contains("rb_session="),
+        "cookie must contain rb_session token"
+    );
+    assert!(
+        cookie.contains("Secure"),
+        "cookie must carry the Secure flag"
+    );
     assert!(cookie.contains("HttpOnly"), "cookie must carry HttpOnly");
 
     let raw = collect_body(resp.into_body()).await;
@@ -507,7 +524,11 @@ async fn integration_login_rate_limit() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "6th attempt must be rate-limited");
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "6th attempt must be rate-limited"
+    );
 }
 
 /// Signup response must set `rb_session` cookie with Secure + `HttpOnly` flags.
@@ -517,7 +538,10 @@ async fn integration_signup_cookie_has_secure_flag() {
         return;
     };
     let app = build(state);
-    let email = format!("integ-signup-secure-{}@test.example", Uuid::new_v4().simple());
+    let email = format!(
+        "integ-signup-secure-{}@test.example",
+        Uuid::new_v4().simple()
+    );
     let password = "correct-horse-battery-staple";
 
     let resp = app
@@ -544,7 +568,16 @@ async fn integration_signup_cookie_has_secure_flag() {
         .expect("Set-Cookie header must be present on signup")
         .to_str()
         .unwrap();
-    assert!(cookie.contains("rb_session="), "cookie must contain rb_session token");
-    assert!(cookie.contains("Secure"), "signup cookie must carry the Secure flag");
-    assert!(cookie.contains("HttpOnly"), "signup cookie must carry HttpOnly");
+    assert!(
+        cookie.contains("rb_session="),
+        "cookie must contain rb_session token"
+    );
+    assert!(
+        cookie.contains("Secure"),
+        "signup cookie must carry the Secure flag"
+    );
+    assert!(
+        cookie.contains("HttpOnly"),
+        "signup cookie must carry HttpOnly"
+    );
 }

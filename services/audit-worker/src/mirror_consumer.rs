@@ -39,9 +39,7 @@ pub fn spawn(pool: &Arc<PgPool>) -> Result<JoinHandle<()>> {
                         "success"
                     };
 
-                    if let Err(e) =
-                        insert_status_mirror(&pool, ev, action, outcome).await
-                    {
+                    if let Err(e) = insert_status_mirror(&pool, ev, action, outcome).await {
                         tracing::error!(
                             ingest_request_id = %ev.ingest_request_id,
                             tenant_id = %ev.tenant_id,
@@ -80,13 +78,10 @@ async fn insert_status_mirror(
     action: &str,
     outcome: &str,
 ) -> Result<()> {
-    let tenant_id: Uuid = ev
-        .tenant_id
-        .parse()
-        .unwrap_or_else(|_| Uuid::nil());
+    let tenant_id: Uuid = ev.tenant_id.parse().unwrap_or_else(|_| Uuid::nil());
     let ingest_run_id: Option<Uuid> = ev.ingest_request_id.parse().ok();
-    let occurred_at = DateTime::from_timestamp_millis(ev.occurred_at_ms)
-        .unwrap_or_else(chrono::Utc::now);
+    let occurred_at =
+        DateTime::from_timestamp_millis(ev.occurred_at_ms).unwrap_or_else(chrono::Utc::now);
 
     let payload = serde_json::json!({
         "ingest_request_id": ev.ingest_request_id,
@@ -134,30 +129,47 @@ mod tests {
 
     #[test]
     fn processing_maps_to_started() {
-        assert_eq!(status_to_action(IngestStatus::Processing as i32), "ingest.stage.started");
+        assert_eq!(
+            status_to_action(IngestStatus::Processing as i32),
+            "ingest.stage.started"
+        );
     }
 
     #[test]
     fn done_maps_to_completed() {
-        assert_eq!(status_to_action(IngestStatus::Done as i32), "ingest.stage.completed");
+        assert_eq!(
+            status_to_action(IngestStatus::Done as i32),
+            "ingest.stage.completed"
+        );
     }
 
     #[test]
     fn failed_maps_to_failed() {
-        assert_eq!(status_to_action(IngestStatus::Failed as i32), "ingest.stage.failed");
+        assert_eq!(
+            status_to_action(IngestStatus::Failed as i32),
+            "ingest.stage.failed"
+        );
     }
 
     #[test]
     fn failed_outcome_is_failure() {
         let status = IngestStatus::Failed as i32;
-        let outcome = if status == IngestStatus::Failed as i32 { "failure" } else { "success" };
+        let outcome = if status == IngestStatus::Failed as i32 {
+            "failure"
+        } else {
+            "success"
+        };
         assert_eq!(outcome, "failure");
     }
 
     #[test]
     fn done_outcome_is_success() {
         let status = IngestStatus::Done as i32;
-        let outcome = if status == IngestStatus::Failed as i32 { "failure" } else { "success" };
+        let outcome = if status == IngestStatus::Failed as i32 {
+            "failure"
+        } else {
+            "success"
+        };
         assert_eq!(outcome, "success");
     }
 

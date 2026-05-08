@@ -41,16 +41,15 @@ pub async fn session_events(
         AuthContext::Anonymous => return Err(AppError::Unauthorized),
     };
 
-    let row: Option<(Uuid, Uuid)> = sqlx::query_as(
-        "SELECT tenant_id, user_id FROM agents.agent_sessions WHERE id = $1",
-    )
-    .bind(session_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("DB error in session_events: {e}");
-        AppError::Internal(anyhow::anyhow!("DB query failed"))
-    })?;
+    let row: Option<(Uuid, Uuid)> =
+        sqlx::query_as("SELECT tenant_id, user_id FROM agents.agent_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("DB error in session_events: {e}");
+                AppError::Internal(anyhow::anyhow!("DB query failed"))
+            })?;
 
     let (session_tenant_id, session_owner_id) = row.ok_or(AppError::NotFound)?;
 
@@ -78,7 +77,9 @@ pub async fn session_events(
         .filter(|s| !s.is_empty())
         .map(|s| EventId::from(s.to_owned()));
 
-    Ok(state.sse_bus.subscribe_session(&tenant_id, &session_id, last_event_id.as_ref()))
+    Ok(state
+        .sse_bus
+        .subscribe_session(&tenant_id, &session_id, last_event_id.as_ref()))
 }
 
 #[cfg(test)]
@@ -163,7 +164,7 @@ mod tests {
         let user_id = Uuid::new_v4();
         let session_owner_id = user_id;
         let session = make_session(user_id, Uuid::new_v4(), true);
-        
+
         let is_owner = match AuthContext::Session(session) {
             AuthContext::Session(info) => info.user_id == session_owner_id,
             _ => false,
@@ -176,7 +177,7 @@ mod tests {
         let user_id = Uuid::new_v4();
         let session_owner_id = Uuid::new_v4();
         let session = make_session(user_id, Uuid::new_v4(), true);
-        
+
         let is_owner = match AuthContext::Session(session) {
             AuthContext::Session(info) => info.user_id == session_owner_id,
             _ => false,
@@ -189,7 +190,7 @@ mod tests {
         let user_id = Uuid::new_v4();
         let session_owner_id = user_id;
         let api_key = make_api_key(user_id, Uuid::new_v4(), vec![Scope::Read]);
-        
+
         let is_owner = match AuthContext::ApiKey(api_key) {
             AuthContext::ApiKey(info) => {
                 info.user_id == session_owner_id || info.scopes.contains(&Scope::Admin)
@@ -204,7 +205,7 @@ mod tests {
         let user_id = Uuid::new_v4();
         let session_owner_id = Uuid::new_v4();
         let api_key = make_api_key(user_id, Uuid::new_v4(), vec![Scope::Admin]);
-        
+
         let is_owner = match AuthContext::ApiKey(api_key) {
             AuthContext::ApiKey(info) => {
                 info.user_id == session_owner_id || info.scopes.contains(&Scope::Admin)
@@ -219,7 +220,7 @@ mod tests {
         let user_id = Uuid::new_v4();
         let session_owner_id = Uuid::new_v4();
         let api_key = make_api_key(user_id, Uuid::new_v4(), vec![Scope::Read, Scope::Write]);
-        
+
         let is_owner = match AuthContext::ApiKey(api_key) {
             AuthContext::ApiKey(info) => {
                 info.user_id == session_owner_id || info.scopes.contains(&Scope::Admin)

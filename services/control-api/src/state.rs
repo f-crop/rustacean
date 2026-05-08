@@ -197,6 +197,8 @@ pub struct AppState {
     pub hasher: Arc<PasswordHasher>,
     pub login_rate_limiter: Arc<LoginRateLimiter>,
     pub config: Arc<Config>,
+    /// Cached copy of `RB_INTERNAL_SECRET` for internal endpoint auth.
+    pub internal_secret: String,
     /// GitHub App handle. `None` when `RB_GH_APP_ID` / `RB_GH_APP_PRIVATE_KEY`
     /// are not configured; GitHub routes return 503 in that case.
     pub gh: Option<Arc<GhApp>>,

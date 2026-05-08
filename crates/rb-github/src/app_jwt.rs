@@ -60,6 +60,10 @@ mod tests {
         );
         let key = EncodingKey::from_rsa_pem(pem.as_bytes()).expect("test key should parse");
         let jwt = mint_app_jwt(12345, &key).expect("mint should succeed");
-        assert_eq!(jwt.split('.').count(), 3, "JWT must have three dot-separated parts");
+        assert_eq!(
+            jwt.split('.').count(),
+            3,
+            "JWT must have three dot-separated parts"
+        );
     }
 }

@@ -6,8 +6,8 @@ use rb_schemas::AgentRuntime;
 use tokio::io::AsyncWriteExt;
 
 use super::{
-    AgentProcess, LineKind, ParsedLine, RuntimeAdapter, SessionCtx,
-    build_base_command, check_binary, write_mcp_config,
+    AgentProcess, LineKind, ParsedLine, RuntimeAdapter, SessionCtx, build_base_command,
+    check_binary, write_mcp_config,
 };
 
 pub struct OpencodeAdapter {
@@ -33,10 +33,14 @@ impl OpencodeAdapter {
         let opencode_dir = workspace.join(".opencode");
         std::fs::create_dir_all(&opencode_dir)?;
         let config_path = opencode_dir.join("config.json");
-        std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)
-            .with_context(|| {
-                format!("Failed to write opencode config to {}", config_path.display())
-            })?;
+        std::fs::write(&config_path, serde_json::to_string_pretty(&config)?).with_context(
+            || {
+                format!(
+                    "Failed to write opencode config to {}",
+                    config_path.display()
+                )
+            },
+        )?;
         Ok(())
     }
 
@@ -86,7 +90,11 @@ impl RuntimeAdapter for OpencodeAdapter {
         let child = cmd.spawn().context("Failed to spawn opencode process")?;
         let pid = child.id().context("Failed to get process ID")?;
 
-        Ok(AgentProcess { child, pid, runtime: AgentRuntime::Opencode })
+        Ok(AgentProcess {
+            child,
+            pid,
+            runtime: AgentRuntime::Opencode,
+        })
     }
 
     async fn send_input(&self, proc: &mut AgentProcess, input: &str) -> Result<()> {
@@ -105,9 +113,16 @@ impl RuntimeAdapter for OpencodeAdapter {
         {
             use nix::sys::signal::{Signal, kill};
             use nix::unistd::Pid;
-            let signal = if force { Signal::SIGKILL } else { Signal::SIGTERM };
-            kill(Pid::from_raw(i32::try_from(proc.pid).unwrap_or(i32::MAX)), signal)
-                .context("Failed to send signal")?;
+            let signal = if force {
+                Signal::SIGKILL
+            } else {
+                Signal::SIGTERM
+            };
+            kill(
+                Pid::from_raw(i32::try_from(proc.pid).unwrap_or(i32::MAX)),
+                signal,
+            )
+            .context("Failed to send signal")?;
         }
         #[cfg(not(unix))]
         proc.child.kill().await?;
@@ -120,9 +135,15 @@ impl RuntimeAdapter for OpencodeAdapter {
             return None;
         }
         if trimmed.starts_with('{') {
-            Some(ParsedLine { kind: LineKind::Json, payload: trimmed.to_string() })
+            Some(ParsedLine {
+                kind: LineKind::Json,
+                payload: trimmed.to_string(),
+            })
         } else {
-            Some(ParsedLine { kind: LineKind::Text, payload: line.to_string() })
+            Some(ParsedLine {
+                kind: LineKind::Text,
+                payload: line.to_string(),
+            })
         }
     }
 }

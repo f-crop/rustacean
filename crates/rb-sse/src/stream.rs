@@ -174,7 +174,8 @@ fn build_inner_stream(
                     Ok(_) => {}
 
                     Err(RecvError::Lagged(n)) => {
-                        metrics::counter!("rb_sse_dropped_total", "reason" => "lagged").increment(n);
+                        metrics::counter!("rb_sse_dropped_total", "reason" => "lagged")
+                            .increment(n);
                         s.done = true;
                         return Some((Ok(SseEnvelope::stream_reset().to_axum_event()), s));
                     }

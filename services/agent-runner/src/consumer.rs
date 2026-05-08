@@ -35,17 +35,13 @@ pub fn spawn(
 
     spawn_workspace_gc(workspace_base);
 
-    let (event_tx, mut event_rx) =
-        tokio::sync::mpsc::channel::<(TenantId, AgentEvent)>(1000);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<(TenantId, AgentEvent)>(1000);
 
     let producer_clone = producer.clone();
     tokio::spawn(async move {
         while let Some((_tenant_id, event)) = event_rx.recv().await {
             let key = format!("{}.{}", event.session_id, event.seq);
-            let tenant_id: TenantId = event
-                .tenant_id
-                .parse()
-                .unwrap_or_else(|_| TenantId::new());
+            let tenant_id: TenantId = event.tenant_id.parse().unwrap_or_else(|_| TenantId::new());
             let envelope = EventEnvelope::new(tenant_id, event);
             if let Err(e) = producer_clone
                 .publish(TOPIC_AGENT_EVENTS, key.as_bytes(), envelope)
@@ -59,7 +55,10 @@ pub fn spawn(
         }
     });
 
-    let ctx = Arc::new(ConsumerCtx { session_manager, producer });
+    let ctx = Arc::new(ConsumerCtx {
+        session_manager,
+        producer,
+    });
 
     let handle = tokio::spawn({
         let event_tx = event_tx.clone();
@@ -148,7 +147,10 @@ async fn emit_error_event(
     };
     let key = format!("{}.{}", session_id, event.seq);
     let envelope = EventEnvelope::new(tenant_id, event);
-    if let Err(e) = producer.publish(TOPIC_AGENT_EVENTS, key.as_bytes(), envelope).await {
+    if let Err(e) = producer
+        .publish(TOPIC_AGENT_EVENTS, key.as_bytes(), envelope)
+        .await
+    {
         tracing::error!("Failed to publish error event: {e}");
     }
 }

@@ -5,7 +5,10 @@
 
 use utoipa::OpenApi;
 
-use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, me, query, repos, tenants, tenants::delete as tenant_delete};
+use crate::routes::{
+    api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, me, query, repos,
+    tenants, tenants::delete as tenant_delete,
+};
 
 #[derive(OpenApi)]
 #[openapi(

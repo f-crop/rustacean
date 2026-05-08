@@ -182,7 +182,10 @@ mod tests {
     fn manifest_with_features(name: &str, features: &[(&str, &[&str])]) -> CargoManifest {
         let mut f: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (k, vs) in features {
-            f.insert((*k).to_owned(), vs.iter().map(|s| (*s).to_owned()).collect());
+            f.insert(
+                (*k).to_owned(),
+                vs.iter().map(|s| (*s).to_owned()).collect(),
+            );
         }
         CargoManifest {
             package: Some(PackageMetadata {

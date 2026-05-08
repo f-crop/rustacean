@@ -1,6 +1,8 @@
 use argon2::{
     Argon2, Params, Version,
-    password_hash::{PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString, rand_core::OsRng},
+    password_hash::{
+        PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString, rand_core::OsRng,
+    },
 };
 
 use crate::error::AuthError;
@@ -86,7 +88,10 @@ mod tests {
     #[test]
     fn hash_produces_phc_string() {
         let h = hasher().hash("correct-horse-battery-staple").unwrap();
-        assert!(h.starts_with("$argon2id$"), "must be an argon2id PHC string");
+        assert!(
+            h.starts_with("$argon2id$"),
+            "must be an argon2id PHC string"
+        );
     }
 
     #[test]

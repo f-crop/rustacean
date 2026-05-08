@@ -112,10 +112,7 @@ pub async fn run(
     }
 }
 
-async fn process_clone(
-    ctx: &CloneCtx,
-    envelope: &EventEnvelope<IngestRequest>,
-) -> Result<()> {
+async fn process_clone(ctx: &CloneCtx, envelope: &EventEnvelope<IngestRequest>) -> Result<()> {
     let req = &envelope.payload;
     let tenant_id = envelope.tenant_id;
     let ingest_run_id = &req.ingest_run_id;
@@ -164,11 +161,7 @@ async fn process_clone(
 }
 
 /// Resolves a clone URL: GH App token when configured, `GITHUB_PAT` or plain HTTPS otherwise.
-async fn resolve_clone_url(
-    ctx: &CloneCtx,
-    tenant_id: TenantId,
-    repo_id: Uuid,
-) -> Result<String> {
+async fn resolve_clone_url(ctx: &CloneCtx, tenant_id: TenantId, repo_id: Uuid) -> Result<String> {
     let row: (String, Option<i64>) = sqlx::query_as(
         "SELECT r.full_name, gi.github_installation_id \
          FROM control.repos r \
@@ -201,7 +194,9 @@ async fn resolve_clone_url(
     if pat.is_empty() {
         Ok(format!("https://github.com/{full_name}.git"))
     } else {
-        Ok(format!("https://x-access-token:{pat}@github.com/{full_name}.git"))
+        Ok(format!(
+            "https://x-access-token:{pat}@github.com/{full_name}.git"
+        ))
     }
 }
 
@@ -228,7 +223,8 @@ async fn git_clone(url: &str, target: &Path) -> Result<()> {
         tokio::process::Command::new("git")
             .args([
                 "clone",
-                "--depth", "50",
+                "--depth",
+                "50",
                 "--filter=blob:none",
                 "--no-tags",
                 "--single-branch",
@@ -249,10 +245,7 @@ async fn git_clone(url: &str, target: &Path) -> Result<()> {
     .context("failed to spawn git")?;
 
     if !status.success() {
-        anyhow::bail!(
-            "git clone exited with code {}",
-            status.code().unwrap_or(-1)
-        );
+        anyhow::bail!("git clone exited with code {}", status.code().unwrap_or(-1));
     }
     Ok(())
 }
@@ -274,9 +267,8 @@ fn collect_rs_files(dir: &Path) -> Result<Vec<RsFile>> {
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("rs"))
     {
         let abs_path = entry.path();
-        let content = std::fs::read(abs_path).with_context(|| {
-            format!("failed to read {}", abs_path.display())
-        })?;
+        let content = std::fs::read(abs_path)
+            .with_context(|| format!("failed to read {}", abs_path.display()))?;
 
         let sha256 = hex::encode(Sha256::digest(&content));
         let size = content.len() as u64;
@@ -312,12 +304,7 @@ async fn package_and_store_blob(
     let sha256 = hex::encode(Sha256::digest(&archive_bytes));
     let size = archive_bytes.len() as u64;
 
-    let blob_ref = BlobRef::new(
-        tenant_id.as_uuid(),
-        &sha256,
-        CONTENT_TYPE_TAR_ZST,
-        size,
-    );
+    let blob_ref = BlobRef::new(tenant_id.as_uuid(), &sha256, CONTENT_TYPE_TAR_ZST, size);
     let uri = blob_ref.to_uri();
 
     ctx.blob_store
@@ -330,7 +317,6 @@ async fn package_and_store_blob(
 
 /// Creates an in-memory tar.zst archive of `dir`.
 fn create_tar_zst(dir: &Path) -> Result<Vec<u8>> {
-
     let compressed = Vec::new();
     let mut encoder = zstd::Encoder::new(compressed, 3).context("zstd encoder init failed")?;
 
@@ -364,12 +350,8 @@ async fn emit_source_files(
             let file_sha = file.sha256.clone();
             let size = file.size;
             let content = file.content.clone();
-            let blob_ref_obj = BlobRef::new(
-                tenant_id.as_uuid(),
-                &file_sha,
-                CONTENT_TYPE_RUST,
-                size,
-            );
+            let blob_ref_obj =
+                BlobRef::new(tenant_id.as_uuid(), &file_sha, CONTENT_TYPE_RUST, size);
             let uri = blob_ref_obj.to_uri();
             ctx.blob_store
                 .put(&blob_ref_obj, Bytes::from(content))
@@ -394,7 +376,9 @@ async fn emit_source_files(
         ctx.source_producer
             .publish(TOPIC_SOURCE_FILES, key.as_bytes(), envelope)
             .await
-            .with_context(|| format!("failed to publish SourceFileEvent: {}", file.relative_path))?;
+            .with_context(|| {
+                format!("failed to publish SourceFileEvent: {}", file.relative_path)
+            })?;
     }
     Ok(())
 }
@@ -418,8 +402,7 @@ async fn emit_expand_command(
         branch: req.branch.clone(),
     };
 
-    let envelope = rb_kafka::EventEnvelope::new(tenant_id, expand_req)
-        .with_blob_ref(blob_uri);
+    let envelope = rb_kafka::EventEnvelope::new(tenant_id, expand_req).with_blob_ref(blob_uri);
 
     let key = format!("{}.{}", req.tenant_id, req.repo_id);
     ctx.expand_producer
@@ -489,10 +472,12 @@ mod tests {
 
     #[test]
     fn redact_token_replaces_credential() {
-        let url =
-            "https://x-access-token:ghp_secret123@github.com/owner/repo.git";
+        let url = "https://x-access-token:ghp_secret123@github.com/owner/repo.git";
         let redacted = redact_token(url);
-        assert!(!redacted.contains("ghp_secret123"), "token must be redacted");
+        assert!(
+            !redacted.contains("ghp_secret123"),
+            "token must be redacted"
+        );
         assert!(redacted.contains("<token>"), "placeholder must be present");
         assert!(redacted.contains("github.com/owner/repo.git"));
     }
@@ -578,7 +563,11 @@ mod tests {
             TOPIC_PROJECTOR_EVENTS,
         ];
         let unique: std::collections::HashSet<_> = topics.iter().collect();
-        assert_eq!(unique.len(), topics.len(), "all topic constants must be unique");
+        assert_eq!(
+            unique.len(),
+            topics.len(),
+            "all topic constants must be unique"
+        );
     }
 
     #[test]

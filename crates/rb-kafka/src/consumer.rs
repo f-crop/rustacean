@@ -106,11 +106,10 @@ impl<E: ProstMessage + Default> Consumer<E> {
                 // before any .await point.
                 let consume_span = {
                     let extractor = KafkaHeaderExtractor(&headers);
-                    let _cx_guard =
-                        opentelemetry::global::get_text_map_propagator(|prop| {
-                            prop.extract(&extractor)
-                        })
-                        .attach();
+                    let _cx_guard = opentelemetry::global::get_text_map_propagator(|prop| {
+                        prop.extract(&extractor)
+                    })
+                    .attach();
                     let key_str = m
                         .key()
                         .map(|k| String::from_utf8_lossy(k).into_owned())

@@ -73,8 +73,7 @@ async fn handle_envelope(
     let ingest_run_id = ev.ingest_run_id.clone();
 
     // Cap enforcement for TypeInstance nodes (ADR-007 §13.7).
-    let kind = RelationKind::try_from(ev.kind)
-        .unwrap_or(RelationKind::Unspecified);
+    let kind = RelationKind::try_from(ev.kind).unwrap_or(RelationKind::Unspecified);
     if matches!(
         kind,
         RelationKind::MonomorphizedFrom | RelationKind::TypeArgBinds
@@ -88,8 +87,13 @@ async fn handle_envelope(
                     "projector_neo4j: monomorph_cap_exceeded — DLQing event"
                 );
                 counter!("rb_projector_neo4j_cap_exceeded_total").increment(1);
-                emit_failed_status(producer, &tenant_id, &ingest_run_id, "monomorph_cap_exceeded")
-                    .await;
+                emit_failed_status(
+                    producer,
+                    &tenant_id,
+                    &ingest_run_id,
+                    "monomorph_cap_exceeded",
+                )
+                .await;
                 // Commit so the consumer does not redeliver the capped event indefinitely.
                 // Operator must bump RB_MONOMORPH_NODE_CAP to resume processing.
                 if let Err(e) = consumer.commit(&envelope).await {
@@ -141,7 +145,10 @@ async fn handle_envelope(
                 "outcome" => "dlq_multi_statement"
             )
             .increment(1);
-            if let Err(e) = consumer.nack_to_dlq(&envelope, "multi-statement-cypher").await {
+            if let Err(e) = consumer
+                .nack_to_dlq(&envelope, "multi-statement-cypher")
+                .await
+            {
                 tracing::error!("projector_neo4j: DLQ failed: {e}");
             }
             if let Err(e) = consumer.commit(&envelope).await {
@@ -184,7 +191,10 @@ async fn emit_done_status(
     };
     let env = EventEnvelope::new(*tenant_id, status_ev);
     let key = tenant_id.to_string();
-    if let Err(e) = producer.publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env).await {
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env)
+        .await
+    {
         tracing::error!("projector_neo4j: failed to publish done status event: {e}");
     }
 }
@@ -209,7 +219,10 @@ async fn emit_failed_status(
     };
     let env = EventEnvelope::new(*tenant_id, status_ev);
     let key = tenant_id.to_string();
-    if let Err(e) = producer.publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env).await {
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env)
+        .await
+    {
         tracing::error!("projector_neo4j: failed to publish status event: {e}");
     }
 }

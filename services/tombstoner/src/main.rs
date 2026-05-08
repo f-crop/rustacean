@@ -14,7 +14,9 @@ fn validate_boot_env() -> Result<()> {
     if db_url.is_empty() {
         errors.push("DATABASE_URL: required but missing".to_owned());
     } else if !db_url.starts_with("postgres") {
-        errors.push(format!("DATABASE_URL: expected postgres DSN, got {db_url:?}"));
+        errors.push(format!(
+            "DATABASE_URL: expected postgres DSN, got {db_url:?}"
+        ));
     }
 
     let neo4j_password = std::env::var("NEO4J_PASSWORD").unwrap_or_default();
@@ -26,7 +28,11 @@ fn validate_boot_env() -> Result<()> {
         anyhow::bail!(
             "tombstoner boot validation failed ({} error(s)):\n{}",
             errors.len(),
-            errors.iter().map(|e| format!("  - {e}")).collect::<Vec<_>>().join("\n")
+            errors
+                .iter()
+                .map(|e| format!("  - {e}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
     Ok(())
@@ -38,8 +44,7 @@ async fn main() -> Result<()> {
 
     let _guard = rb_tracing::init("tombstoner")?;
 
-    let database_url = std::env::var("DATABASE_URL")
-        .context("DATABASE_URL is required")?;
+    let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
 
     let pg = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
@@ -48,11 +53,9 @@ async fn main() -> Result<()> {
         .context("failed to connect to PostgreSQL")?;
     let pool = Arc::new(TenantPool::new(pg));
 
-    let neo4j_uri = std::env::var("NEO4J_URI")
-        .unwrap_or_else(|_| "bolt://neo4j:7687".to_owned());
+    let neo4j_uri = std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://neo4j:7687".to_owned());
     let neo4j_user = std::env::var("NEO4J_USER").unwrap_or_else(|_| "neo4j".to_owned());
-    let neo4j_password =
-        std::env::var("NEO4J_PASSWORD").context("NEO4J_PASSWORD is required")?;
+    let neo4j_password = std::env::var("NEO4J_PASSWORD").context("NEO4J_PASSWORD is required")?;
 
     let graph = TenantGraph::connect(&neo4j_uri, &neo4j_user, &neo4j_password)
         .await

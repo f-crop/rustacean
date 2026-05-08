@@ -22,9 +22,7 @@ use rb_schemas::AgentSessionCommand;
 
 use crate::{
     config::Config,
-    ingest_consumer,
-    middleware,
-    routes,
+    ingest_consumer, middleware, routes,
     state::{AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore},
 };
 
@@ -87,9 +85,10 @@ pub async fn run(config: Config) -> Result<()> {
     let tombstone_producer = build_producer(Producer::new(&producer_cfg), "tombstone_producer");
 
     // Connect to Neo4j.  Failure is non-fatal — graph endpoints degrade to 503.
-    let graph = if let (Some(uri), Some(password)) =
-        (config.neo4j_uri.as_deref(), config.neo4j_password.as_deref())
-    {
+    let graph = if let (Some(uri), Some(password)) = (
+        config.neo4j_uri.as_deref(),
+        config.neo4j_password.as_deref(),
+    ) {
         match TenantGraph::connect(uri, &config.neo4j_user, password).await {
             Ok(g) => {
                 tracing::info!("neo4j connected at {uri}");
@@ -140,13 +139,19 @@ pub async fn run(config: Config) -> Result<()> {
         mcp_sessions: McpSessionStore,
         agent_registry: AgentRegistry::new(),
         agent_commands_producer,
+        internal_secret: config.internal_secret.clone().unwrap_or_default(),
     };
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do
     // not prevent the HTTP server from starting — the SSE endpoint degrades
     // gracefully when Kafka is unavailable (no events; long-poll returns empty).
     let consumer_cfg = ConsumerCfg::new("control-api-sse");
-    match ingest_consumer::spawn(&consumer_cfg, sse_bus, Arc::new(state.pool.clone()), kafka_consistency) {
+    match ingest_consumer::spawn(
+        &consumer_cfg,
+        sse_bus,
+        Arc::new(state.pool.clone()),
+        kafka_consistency,
+    ) {
         Ok(_handle) => tracing::info!("ingest_consumer started"),
         Err(e) => tracing::warn!("ingest_consumer failed to start (Kafka unavailable?): {e}"),
     }
@@ -157,7 +162,10 @@ pub async fn run(config: Config) -> Result<()> {
         .allow_headers(Any);
 
     let app = routes::build(state)
-        .route("/metrics", get(move || async move { metrics_handle.render() }))
+        .route(
+            "/metrics",
+            get(move || async move { metrics_handle.render() }),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(cors)
@@ -176,10 +184,7 @@ pub async fn run(config: Config) -> Result<()> {
     Ok(())
 }
 
-fn build_producer<P, Err: std::fmt::Display>(
-    result: Result<P, Err>,
-    name: &str,
-) -> Option<Arc<P>> {
+fn build_producer<P, Err: std::fmt::Display>(result: Result<P, Err>, name: &str) -> Option<Arc<P>> {
     match result {
         Ok(p) => {
             tracing::info!("{name} connected to Kafka");

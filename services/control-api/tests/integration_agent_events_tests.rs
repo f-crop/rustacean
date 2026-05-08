@@ -67,6 +67,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         qdrant_url: None,
         ollama_url: None,
         embedding_model: "nomic-embed-text".to_owned(),
+        internal_secret: Some("test-internal-secret".to_owned()),
+        internal_listen_addr: "127.0.0.1:0".to_owned(),
     };
     let state = AppState {
         pool: pool.clone(),
@@ -87,6 +89,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
         agent_commands_producer: None,
+        internal_secret: "test-internal-secret".to_owned(),
     };
     Some((state, pool))
 }
@@ -239,7 +242,10 @@ async fn ac2_events_stream_returns_sse_for_session_owner() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/agents/sessions/{}/events", fixtures.session_id))
+                .uri(format!(
+                    "/v1/agents/sessions/{}/events",
+                    fixtures.session_id
+                ))
                 .header("accept", "text/event-stream")
                 .header("cookie", format!("rb_session={}", fixtures.session_token))
                 .body(Body::empty())
@@ -287,7 +293,10 @@ async fn ac3_events_stream_nonexistent_session_returns_404() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/agents/sessions/{}/events", nonexistent_session_id))
+                .uri(format!(
+                    "/v1/agents/sessions/{}/events",
+                    nonexistent_session_id
+                ))
                 .header("accept", "text/event-stream")
                 .header("cookie", format!("rb_session={}", fixtures.session_token))
                 .body(Body::empty())

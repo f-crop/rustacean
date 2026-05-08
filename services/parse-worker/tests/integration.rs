@@ -52,7 +52,11 @@ fn simple_fixture_syn_line_numbers_populated() {
     let src = fixture("simple.rs");
     let items = syn_extract(&src).unwrap();
     for item in &items {
-        assert!(item.line_start > 0, "line_start must be ≥1 for {}", item.name);
+        assert!(
+            item.line_start > 0,
+            "line_start must be ≥1 for {}",
+            item.name
+        );
         assert!(
             item.line_end >= item.line_start,
             "line_end must be ≥ line_start for {}",
@@ -69,7 +73,10 @@ fn simple_fixture_multi_line_items_span_full_body() {
     let items = syn_extract(&src).unwrap();
 
     // Config struct is lines 1-4 in simple.rs (4 lines including closing brace).
-    let config = items.iter().find(|i| i.name == "Config").expect("Config must exist");
+    let config = items
+        .iter()
+        .find(|i| i.name == "Config")
+        .expect("Config must exist");
     assert!(
         config.line_end > config.line_start,
         "Config struct must span multiple lines (line_start={}, line_end={})",
@@ -78,7 +85,10 @@ fn simple_fixture_multi_line_items_span_full_body() {
     );
 
     // connect fn is lines 6-8 in simple.rs.
-    let connect = items.iter().find(|i| i.name == "connect").expect("connect must exist");
+    let connect = items
+        .iter()
+        .find(|i| i.name == "connect")
+        .expect("connect must exist");
     assert!(
         connect.line_end > connect.line_start,
         "connect fn must span multiple lines (line_start={}, line_end={})",
@@ -131,7 +141,9 @@ fn bad_syntax_fixture_tree_sitter_recovers_items() {
     let items = ts_extract(&src);
     // tree-sitter should find at least one of the valid items
     assert!(
-        items.iter().any(|i| i.name == "valid_before_error" || i.name == "ValidAfterError"),
+        items
+            .iter()
+            .any(|i| i.name == "valid_before_error" || i.name == "ValidAfterError"),
         "tree-sitter should recover at least one item from bad_syntax.rs, got: {items:?}"
     );
 }
@@ -143,7 +155,10 @@ fn src_factor_fixture_syn_extracts_all_expected_items() {
     let src = fixture("src_factor.rs");
     let items = syn_extract(&src).expect("src_factor.rs must parse cleanly");
     let names: Vec<_> = items.iter().map(|i| i.name.as_str()).collect();
-    assert!(names.contains(&"ZERO_DECIMAL_PAIR"), "expected ZERO_DECIMAL_PAIR const");
+    assert!(
+        names.contains(&"ZERO_DECIMAL_PAIR"),
+        "expected ZERO_DECIMAL_PAIR const"
+    );
     assert!(names.contains(&"Factor"), "expected Factor struct");
     assert!(names.contains(&"zero_factor"), "expected zero_factor fn");
 }

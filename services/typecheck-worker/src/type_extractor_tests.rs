@@ -6,7 +6,10 @@ fn extracts_fn_signature() {
     let items = extract_typed_items(src);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].name, "add");
-    assert_eq!(items[0].resolved_type_signature, "fn add(x: i32, y: i32) -> i32");
+    assert_eq!(
+        items[0].resolved_type_signature,
+        "fn add(x: i32, y: i32) -> i32"
+    );
     assert!(items[0].trait_bounds.is_empty());
 }
 
@@ -14,7 +17,10 @@ fn extracts_fn_signature() {
 fn extracts_async_fn_signature() {
     let src = "pub async fn fetch() -> String { String::new() }";
     let items = extract_typed_items(src);
-    assert_eq!(items[0].resolved_type_signature, "async fn fetch() -> String");
+    assert_eq!(
+        items[0].resolved_type_signature,
+        "async fn fetch() -> String"
+    );
 }
 
 #[test]
@@ -41,8 +47,15 @@ fn extracts_struct_signature() {
 fn extracts_generic_struct_with_bounds() {
     let src = "pub struct Wrapper<T: Clone + Send>(T);";
     let items = extract_typed_items(src);
-    assert_eq!(items[0].resolved_type_signature, "struct Wrapper<T: Clone + Send>");
-    assert!(items[0].trait_bounds.contains(&"T: Clone + Send".to_owned()));
+    assert_eq!(
+        items[0].resolved_type_signature,
+        "struct Wrapper<T: Clone + Send>"
+    );
+    assert!(
+        items[0]
+            .trait_bounds
+            .contains(&"T: Clone + Send".to_owned())
+    );
 }
 
 #[test]
@@ -58,7 +71,10 @@ fn extracts_trait_with_supertraits() {
     let src = "pub trait Animal: Clone + Send { fn name(&self) -> &str; }";
     let items = extract_typed_items(src);
     assert_eq!(items[0].name, "Animal");
-    assert_eq!(items[0].resolved_type_signature, "trait Animal: Clone + Send");
+    assert_eq!(
+        items[0].resolved_type_signature,
+        "trait Animal: Clone + Send"
+    );
 }
 
 #[test]
@@ -90,16 +106,22 @@ fn extracts_type_alias() {
     let src = "pub type Result<T> = std::result::Result<T, Error>;";
     let items = extract_typed_items(src);
     assert_eq!(items[0].name, "Result");
-    assert!(items[0].resolved_type_signature.starts_with("type Result<T> = "));
+    assert!(
+        items[0]
+            .resolved_type_signature
+            .starts_with("type Result<T> = ")
+    );
 }
 
 #[test]
 fn extracts_where_clause_bounds() {
     let src = "pub fn process<T>(val: T) where T: Clone + Debug {}";
     let items = extract_typed_items(src);
-    assert!(items[0]
-        .trait_bounds
-        .contains(&"T: Clone + Debug".to_owned()));
+    assert!(
+        items[0]
+            .trait_bounds
+            .contains(&"T: Clone + Debug".to_owned())
+    );
 }
 
 #[test]
@@ -148,7 +170,10 @@ fn item_struct_span_covers_full_body() {
 fn item_impl_span_covers_full_body() {
     let src = "impl Foo {\n    pub fn new() -> Self {\n        Foo {}\n    }\n}";
     let items = extract_typed_items(src);
-    let impl_item = items.iter().find(|i| i.name == "impl Foo").expect("impl Foo not found");
+    let impl_item = items
+        .iter()
+        .find(|i| i.name == "impl Foo")
+        .expect("impl Foo not found");
     assert!(
         impl_item.line_end > impl_item.line_start,
         "multi-line impl: line_end ({}) must be > line_start ({})",
@@ -189,7 +214,9 @@ fn fmt_type_result() {
     let src = "pub fn f() -> Result<i32, Error> { Ok(0) }";
     let items = extract_typed_items(src);
     assert!(
-        items[0].resolved_type_signature.contains("Result<i32, Error>")
+        items[0]
+            .resolved_type_signature
+            .contains("Result<i32, Error>")
     );
 }
 

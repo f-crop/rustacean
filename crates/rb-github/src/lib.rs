@@ -13,10 +13,10 @@ pub use error::GhError;
 pub use repos::{RepoItem, RepoPage};
 pub use secret::Secret;
 pub use state_token::hash_token;
-pub use token_cache::{CachedToken, MintFuture, TokenCache, TokenMinter, SAFETY_MARGIN};
+pub use token_cache::{CachedToken, MintFuture, SAFETY_MARGIN, TokenCache, TokenMinter};
 pub use webhook::{
     Account, Installation, InstallationEvent, InstallationPayload, InstallationReposPayload,
-    InstallationRepositoriesEvent, RepoRef, ReplayCache, verify_signature,
+    InstallationRepositoriesEvent, ReplayCache, RepoRef, verify_signature,
 };
 
 use std::sync::Arc;
@@ -105,10 +105,13 @@ impl GhApp {
         }
         let identity = client::fetch_app_identity(self, &self.http).await?;
         self.identity_cache.insert((), identity).await;
-        self.identity_cache.get(&()).await.ok_or_else(|| GhError::ApiError {
-            status: 500,
-            body: "identity cache miss immediately after insert".to_owned(),
-        })
+        self.identity_cache
+            .get(&())
+            .await
+            .ok_or_else(|| GhError::ApiError {
+                status: 500,
+                body: "identity cache miss immediately after insert".to_owned(),
+            })
     }
 
     /// Returns a usable installation access token, minting if absent or
@@ -118,7 +121,10 @@ impl GhApp {
     ///
     /// Returns [`GhError`] if the App JWT cannot be minted or the GitHub
     /// `POST /app/installations/{id}/access_tokens` call fails.
-    pub async fn installation_token(&self, installation_id: i64) -> Result<Secret<String>, GhError> {
+    pub async fn installation_token(
+        &self,
+        installation_id: i64,
+    ) -> Result<Secret<String>, GhError> {
         self.token_cache.get_or_mint(installation_id).await
     }
 
@@ -130,7 +136,11 @@ impl GhApp {
     /// Returns [`GhError::ApiError { status: 404, .. }`] when the repo does not
     /// exist or is not accessible through this installation. Other GitHub API
     /// errors and token-minting failures propagate as [`GhError`].
-    pub async fn fetch_repo(&self, installation_id: i64, repo_id: i64) -> Result<RepoInfo, GhError> {
+    pub async fn fetch_repo(
+        &self,
+        installation_id: i64,
+        repo_id: i64,
+    ) -> Result<RepoInfo, GhError> {
         let token = self.installation_token(installation_id).await?;
         client::fetch_repo_by_id(&self.http, token.expose(), repo_id).await
     }
@@ -157,7 +167,10 @@ impl GhApp {
     ///
     /// Returns [`GhError`] if the App JWT cannot be minted or the GitHub API
     /// call fails.
-    pub async fn fetch_installation(&self, installation_id: i64) -> Result<client::InstallationInfo, GhError> {
+    pub async fn fetch_installation(
+        &self,
+        installation_id: i64,
+    ) -> Result<client::InstallationInfo, GhError> {
         client::fetch_installation(self, &self.http, installation_id).await
     }
 
@@ -184,7 +197,9 @@ impl Clone for AppIdentity {
         Self {
             id: self.id,
             slug: self.slug.clone(),
-            owner: AppOwner { login: self.owner.login.clone() },
+            owner: AppOwner {
+                login: self.owner.login.clone(),
+            },
         }
     }
 }

@@ -159,8 +159,7 @@ mod tests {
         // ADR-008 §6: the shared collection name is a constant, not derived from
         // tenant/repo identifiers.
         assert_eq!(
-            "rb_embeddings",
-            "rb_embeddings",
+            "rb_embeddings", "rb_embeddings",
             "collection name must be the shared rb_embeddings collection"
         );
     }
@@ -186,7 +185,10 @@ mod tests {
             emitted_at_ms: 0,
         };
         assert!(!ev.repo_id.is_empty());
-        assert!(ev.repo_id.parse::<uuid::Uuid>().is_ok(), "repo_id must be a valid UUID");
+        assert!(
+            ev.repo_id.parse::<uuid::Uuid>().is_ok(),
+            "repo_id must be a valid UUID"
+        );
     }
 
     #[test]

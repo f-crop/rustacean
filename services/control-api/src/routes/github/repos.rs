@@ -1,9 +1,9 @@
 //! `GET /v1/github/installations/{id}/available-repos` (REQ-GH-03).
 
 use axum::{
+    Json,
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::auth::{require_verified_session, AuthContext},
+    middleware::auth::{AuthContext, require_verified_session},
     state::AppState,
 };
 
@@ -25,8 +25,12 @@ pub struct QueryParams {
     include_archived: bool,
 }
 
-fn default_page() -> u32 { 1 }
-fn default_per_page() -> u32 { 30 }
+fn default_page() -> u32 {
+    1
+}
+fn default_per_page() -> u32 {
+    30
+}
 
 #[derive(Serialize, ToSchema)]
 pub struct RepoItemResponse {

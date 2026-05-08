@@ -245,7 +245,10 @@ mod tests {
 
     #[test]
     fn json_to_bolt_null() {
-        assert!(matches!(json_to_bolt(&JsonValue::Null), Ok(BoltType::Null(_))));
+        assert!(matches!(
+            json_to_bolt(&JsonValue::Null),
+            Ok(BoltType::Null(_))
+        ));
     }
 
     #[test]

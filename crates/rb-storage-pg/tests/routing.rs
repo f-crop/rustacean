@@ -58,10 +58,17 @@ async fn routing_qualify_returns_schema_dot_table() {
     let _ = make_pool(&url).await;
     let ctx = new_ctx();
     let qualified = ctx.qualify("repos");
-    assert!(qualified.starts_with("tenant_"), "must start with tenant_ prefix");
+    assert!(
+        qualified.starts_with("tenant_"),
+        "must start with tenant_ prefix"
+    );
     assert!(qualified.contains('.'), "must contain a dot separator");
     let parts: Vec<&str> = qualified.splitn(2, '.').collect();
-    assert_eq!(parts[0], ctx.schema_name(), "left of dot must be schema name");
+    assert_eq!(
+        parts[0],
+        ctx.schema_name(),
+        "left of dot must be schema name"
+    );
     assert_eq!(parts[1], "repos", "right of dot must be table name");
 }
 
@@ -82,12 +89,17 @@ async fn routing_insert_count_in_a_is_zero_in_b() {
         .await
         .unwrap();
 
-    let count_b: i64 =
-        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {}", ctx_b.qualify("_routing_test")))
-            .fetch_one(pool.control())
-            .await
-            .unwrap();
-    assert_eq!(count_b, 0, "tenant B must see zero rows inserted into tenant A");
+    let count_b: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}",
+        ctx_b.qualify("_routing_test")
+    ))
+    .fetch_one(pool.control())
+    .await
+    .unwrap();
+    assert_eq!(
+        count_b, 0,
+        "tenant B must see zero rows inserted into tenant A"
+    );
 
     pool.drop_schema(&ctx_a).await.unwrap();
     pool.drop_schema(&ctx_b).await.unwrap();
@@ -123,7 +135,10 @@ async fn routing_update_affects_only_origin_tenant() {
         .fetch_one(pool.control())
         .await
         .unwrap();
-    assert_eq!(val_b, 20, "UPDATE in tenant A must not affect tenant B's row");
+    assert_eq!(
+        val_b, 20,
+        "UPDATE in tenant A must not affect tenant B's row"
+    );
 
     pool.drop_schema(&ctx_a).await.unwrap();
     pool.drop_schema(&ctx_b).await.unwrap();
@@ -159,7 +174,10 @@ async fn routing_delete_in_a_does_not_affect_b() {
         .fetch_one(pool.control())
         .await
         .unwrap();
-    assert_eq!(count_b, 1, "DELETE in tenant A must not remove tenant B's rows");
+    assert_eq!(
+        count_b, 1,
+        "DELETE in tenant A must not remove tenant B's rows"
+    );
 
     pool.drop_schema(&ctx_a).await.unwrap();
     pool.drop_schema(&ctx_b).await.unwrap();
@@ -226,7 +244,11 @@ async fn routing_multiple_tables_route_to_same_schema() {
         .fetch_one(pool.control())
         .await
         .unwrap();
-        assert_eq!(schema, ctx.schema_name(), "{table} must live in the tenant schema");
+        assert_eq!(
+            schema,
+            ctx.schema_name(),
+            "{table} must live in the tenant schema"
+        );
     }
 
     pool.drop_schema(&ctx).await.unwrap();
@@ -281,7 +303,10 @@ async fn routing_bulk_insert_isolated_from_other_tenant() {
     create_routing_table(&pool, &ctx_b).await;
 
     let tbl_a = ctx_a.qualify("_routing_test");
-    let values: String = (1_i32..=50).map(|i| format!("({i})")).collect::<Vec<_>>().join(",");
+    let values: String = (1_i32..=50)
+        .map(|i| format!("({i})"))
+        .collect::<Vec<_>>()
+        .join(",");
     sqlx::query(&format!("INSERT INTO {tbl_a} (val) VALUES {values}"))
         .execute(pool.control())
         .await
@@ -291,13 +316,18 @@ async fn routing_bulk_insert_isolated_from_other_tenant() {
         .fetch_one(pool.control())
         .await
         .unwrap();
-    let count_b: i64 =
-        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {}", ctx_b.qualify("_routing_test")))
-            .fetch_one(pool.control())
-            .await
-            .unwrap();
+    let count_b: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}",
+        ctx_b.qualify("_routing_test")
+    ))
+    .fetch_one(pool.control())
+    .await
+    .unwrap();
     assert_eq!(count_a, 50, "tenant A must have all 50 rows");
-    assert_eq!(count_b, 0, "tenant B must have zero rows after bulk insert into A");
+    assert_eq!(
+        count_b, 0,
+        "tenant B must have zero rows after bulk insert into A"
+    );
 
     pool.drop_schema(&ctx_a).await.unwrap();
     pool.drop_schema(&ctx_b).await.unwrap();

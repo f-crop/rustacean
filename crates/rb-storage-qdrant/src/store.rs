@@ -107,8 +107,10 @@ impl TenantVectorStore {
             });
         }
 
-        let json: serde_json::Value =
-            resp.json().await.map_err(|e| QdrantError::Parse(e.to_string()))?;
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| QdrantError::Parse(e.to_string()))?;
 
         let results = json
             .get("result")
@@ -123,9 +125,9 @@ impl TenantVectorStore {
                 .map(|f| f as f32)
                 .ok_or_else(|| QdrantError::Parse("missing 'score' field".into()))?;
 
-            let payload = item.get("payload").ok_or_else(|| {
-                QdrantError::Parse("missing 'payload' field".into())
-            })?;
+            let payload = item
+                .get("payload")
+                .ok_or_else(|| QdrantError::Parse("missing 'payload' field".into()))?;
 
             let fqn = payload
                 .get("fqn")
@@ -139,7 +141,11 @@ impl TenantVectorStore {
                 .ok_or_else(|| QdrantError::Parse("missing payload.repo_id".into()))?
                 .to_owned();
 
-            hits.push(SearchHit { fqn, repo_id: repo_id_str, score });
+            hits.push(SearchHit {
+                fqn,
+                repo_id: repo_id_str,
+                score,
+            });
         }
 
         Ok(hits)

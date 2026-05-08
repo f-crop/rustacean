@@ -67,7 +67,10 @@ async fn write_type_instance_relation(
         .run(
             tenant_id,
             "MERGE (n:TypeDef {fqn: $fqn, repo_id: $repo_id})",
-            &[("fqn", ev.to_fqn.as_str()), ("repo_id", ev.repo_id.as_str())],
+            &[
+                ("fqn", ev.to_fqn.as_str()),
+                ("repo_id", ev.repo_id.as_str()),
+            ],
         )
         .await?;
 
@@ -103,7 +106,10 @@ async fn write_dyn_dispatch_relation(
             tenant_id,
             "MERGE (n:DynTraitUsage {fqn: $fqn, repo_id: $repo_id}) \
              ON CREATE SET n.world = 'closed'",
-            &[("fqn", ev.from_fqn.as_str()), ("repo_id", ev.repo_id.as_str())],
+            &[
+                ("fqn", ev.from_fqn.as_str()),
+                ("repo_id", ev.repo_id.as_str()),
+            ],
         )
         .await?;
 
@@ -112,7 +118,10 @@ async fn write_dyn_dispatch_relation(
         .run(
             tenant_id,
             "MERGE (n:ImplBlock {fqn: $fqn, repo_id: $repo_id})",
-            &[("fqn", ev.to_fqn.as_str()), ("repo_id", ev.repo_id.as_str())],
+            &[
+                ("fqn", ev.to_fqn.as_str()),
+                ("repo_id", ev.repo_id.as_str()),
+            ],
         )
         .await?;
 
@@ -145,14 +154,20 @@ async fn write_item_relation(
         .run(
             tenant_id,
             "MERGE (n:Item {fqn: $fqn, repo_id: $repo_id})",
-            &[("fqn", ev.from_fqn.as_str()), ("repo_id", ev.repo_id.as_str())],
+            &[
+                ("fqn", ev.from_fqn.as_str()),
+                ("repo_id", ev.repo_id.as_str()),
+            ],
         )
         .await?;
     graph
         .run(
             tenant_id,
             "MERGE (n:Item {fqn: $fqn, repo_id: $repo_id})",
-            &[("fqn", ev.to_fqn.as_str()), ("repo_id", ev.repo_id.as_str())],
+            &[
+                ("fqn", ev.to_fqn.as_str()),
+                ("repo_id", ev.repo_id.as_str()),
+            ],
         )
         .await?;
 
@@ -236,12 +251,18 @@ mod tests {
 
     #[test]
     fn hash_fqn_is_deterministic() {
-        assert_eq!(hash_fqn("std::vec::Vec<i32>"), hash_fqn("std::vec::Vec<i32>"));
+        assert_eq!(
+            hash_fqn("std::vec::Vec<i32>"),
+            hash_fqn("std::vec::Vec<i32>")
+        );
     }
 
     #[test]
     fn hash_fqn_differs_for_different_inputs() {
-        assert_ne!(hash_fqn("std::vec::Vec<i32>"), hash_fqn("std::vec::Vec<u64>"));
+        assert_ne!(
+            hash_fqn("std::vec::Vec<i32>"),
+            hash_fqn("std::vec::Vec<u64>")
+        );
     }
 
     #[test]

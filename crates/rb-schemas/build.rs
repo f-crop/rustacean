@@ -22,7 +22,7 @@ fn main() {
         [&ingest_proto, &audit_proto, &pipeline_proto, &agent_proto],
         [&proto_root],
     )
-        .expect("protobuf compilation failed");
+    .expect("protobuf compilation failed");
 
     prost_build::Config::new()
         .compile_fds(fds)

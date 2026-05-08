@@ -48,7 +48,11 @@ pub(super) fn paginate(
         })
         .collect();
 
-    let next_cursor = if end < total { Some(encode_cursor(end)) } else { None };
+    let next_cursor = if end < total {
+        Some(encode_cursor(end))
+    } else {
+        None
+    };
 
     // Collect unique nodes referenced by this page's edges.
     let mut seen_fqns: HashSet<&str> = HashSet::new();
@@ -71,7 +75,13 @@ pub(super) fn paginate(
         }
     }
 
-    TraversalResult { root, nodes, edges: page_edges, cycles_detected, next_cursor }
+    TraversalResult {
+        root,
+        nodes,
+        edges: page_edges,
+        cycles_detected,
+        next_cursor,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -82,13 +92,19 @@ pub(super) fn paginate(
 mod tests {
     use std::collections::HashMap;
 
-    use super::super::types::{EdgeProvenance, TraversalOptions};
     use super::super::bfs::RawEdge;
     use super::super::types::TraversalNode;
+    use super::super::types::{EdgeProvenance, TraversalOptions};
     use super::*;
 
     fn make_node(fqn: &str) -> TraversalNode {
-        TraversalNode { fqn: fqn.into(), name: None, kind: None, file_path: None, line: None }
+        TraversalNode {
+            fqn: fqn.into(),
+            name: None,
+            kind: None,
+            file_path: None,
+            line: None,
+        }
     }
 
     #[test]
@@ -134,12 +150,19 @@ mod tests {
             make_node("root"),
             &edges,
             &HashMap::new(),
-            &TraversalOptions { depth: 3, limit: 3, offset: 0 },
+            &TraversalOptions {
+                depth: 3,
+                limit: 3,
+                offset: 0,
+            },
             false,
         );
         assert_eq!(result.edges.len(), 3);
         assert!(result.next_cursor.is_some());
-        assert_eq!(decode_cursor(result.next_cursor.as_deref().unwrap()), Some(3));
+        assert_eq!(
+            decode_cursor(result.next_cursor.as_deref().unwrap()),
+            Some(3)
+        );
     }
 
     #[test]
@@ -157,7 +180,11 @@ mod tests {
             make_node("root"),
             &edges,
             &HashMap::new(),
-            &TraversalOptions { depth: 3, limit: 10, offset: 0 },
+            &TraversalOptions {
+                depth: 3,
+                limit: 10,
+                offset: 0,
+            },
             false,
         );
         assert_eq!(result.edges.len(), 5);
