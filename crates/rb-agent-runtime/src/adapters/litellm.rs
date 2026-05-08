@@ -132,7 +132,7 @@ impl LiteLlmRuntime {
         let chat_url = format!("{}/chat/completions", self.base_url);
 
         loop {
-            let is_cancelled = *cancel_rx.borrow();
+            let is_cancelled = { *cancel_rx.borrow() };
             if is_cancelled {
                 self.cancel_map.remove(&ctx.session_id);
                 return Err(RuntimeError::Cancelled);
