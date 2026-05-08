@@ -3,3 +3,9 @@
 compose/.no-auto-rebuild
 compose/*.env
 scripts/.state-reconcile-baseline
+
+# Test / E2E artifacts — never commit these
+frontend/axe-results/
+frontend/playwright-report/
+frontend/test-results/
+test-results/
