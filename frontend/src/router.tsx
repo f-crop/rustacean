@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 import { AppShell, GlobalSuspenseFallback } from "@/components/AppShell";
 import { ActivityPage } from "@/pages/ActivityPage";
+import { AgentExecutionPage } from "@/pages/AgentExecutionPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { CodeWorkspacePage } from "@/pages/CodeWorkspacePage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
@@ -135,6 +136,12 @@ const activityRoute = createRoute({
   component: ActivityPage,
 });
 
+const agentExecutionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: routes.agentExecution,
+  component: AgentExecutionPage,
+});
+
 const catchAllRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -158,6 +165,7 @@ const routeTree = rootRoute.addChildren([
   ingestionRoute,
   codeWorkspaceRoute,
   activityRoute,
+  agentExecutionRoute,
   catchAllRoute,
 ]);
 
