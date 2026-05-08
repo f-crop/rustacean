@@ -3,23 +3,32 @@ use std::sync::{
     atomic::{AtomicI64, AtomicU64, Ordering},
 };
 
-use crate::crypto::OauthTokenCipher;
-
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use rb_auth::{LoginRateLimiter, PasswordHasher};
-pub use rb_mcp::McpSessionStore;
 use rb_email::EmailSender;
 use rb_github::GhApp;
 use rb_kafka::Producer;
 use rb_query::ModuleTreeCache;
-use rb_schemas::{IngestRequest, Tombstone};
+use rb_schemas::{AgentSessionCommand, IngestRequest, Tombstone};
 use rb_sse::EventBus;
 use rb_storage_neo4j::TenantGraph;
 use rb_storage_qdrant::TenantVectorStore;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
+
+/// Placeholder for the MCP session store — kept for binary compatibility
+/// during migration.  Will be removed when MCP routes are fully retired.
+#[derive(Clone, Default)]
+pub struct McpSessionStore;
+
+impl McpSessionStore {
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 use crate::config::Config;
 
@@ -214,14 +223,10 @@ pub struct AppState {
     pub neo4j_uri: Option<String>,
     /// Kafka consistency state updated by `ingest_consumer` on each consumed message.
     pub kafka_consistency: Arc<KafkaConsistencyState>,
-    /// In-process MCP session table (ADR-009 Phase 1).
+    /// In-process MCP session table (kept for compat — will be removed).
     pub mcp_sessions: McpSessionStore,
-    /// In-process agent session registry (ADR-009 Phase 1).
+    /// In-process agent session registry — semaphore enforces per-process cap.
     pub agent_registry: AgentRegistry,
-    /// AES-256-GCM cipher for OAuth token encryption (RUSAA-862).
-    /// `None` when `RB_OAUTH_ENCRYPT_KEY` is not configured (development only).
-    pub token_cipher: Option<Arc<OauthTokenCipher>>,
-    /// Previous-key cipher used during a rotation window.
-    /// `None` when `RB_OAUTH_ENCRYPT_KEY_PREV` is not configured.
-    pub token_cipher_prev: Option<Arc<OauthTokenCipher>>,
+    /// Kafka producer for `rb.agent.commands`. `None` when Kafka is not reachable.
+    pub agent_commands_producer: Option<Arc<Producer<AgentSessionCommand>>>,
 }

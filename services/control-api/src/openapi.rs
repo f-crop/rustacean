@@ -5,7 +5,7 @@
 
 use utoipa::OpenApi;
 
-use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete};
+use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, me, query, repos, tenants, tenants::delete as tenant_delete};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -49,7 +49,6 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         query::search::search,
         query::traversal::get_callers,
         query::traversal::get_callees,
-        mcp::mcp_handler,
     ),
     components(
         schemas(
@@ -140,7 +139,7 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         (name = "repos", description = "Connected repository management"),
         (name = "ingestions", description = "Manual ingestion trigger and run management"),
         (name = "query", description = "Data-plane query endpoints (ADR-008 Wave 6)"),
-        (name = "mcp", description = "Model Context Protocol endpoint — JSON-RPC 2.0 over HTTP (ADR-009 Wave 7)"),
+        (name = "agents", description = "Agent session management (ADR-009 Option B — process-spawning)"),
     ),
 )]
 pub struct ApiDoc;

@@ -116,8 +116,7 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
-        token_cipher: None,
-        token_cipher_prev: None,
+        agent_commands_producer: None,
     }
 }
 
@@ -141,8 +140,7 @@ fn state_without_gh() -> AppState {
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
-        token_cipher: None,
-        token_cipher_prev: None,
+        agent_commands_producer: None,
     }
 }
 

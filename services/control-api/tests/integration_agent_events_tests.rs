@@ -67,15 +67,6 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         qdrant_url: None,
         ollama_url: None,
         embedding_model: "nomic-embed-text".to_owned(),
-        claude_oauth_client_id: None,
-        litellm_url: None,
-        litellm_open_code_key: None,
-        litellm_pi_key: None,
-        oauth_encrypt_key: None,
-        oauth_encrypt_key_id: "oauth-claude-v1".to_owned(),
-        oauth_encrypt_key_prev: None,
-        oauth_encrypt_key_prev_id: "none".to_owned(),
-        oauth_rotate_keys_on_boot: false,
     };
     let state = AppState {
         pool: pool.clone(),
@@ -95,8 +86,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
-        token_cipher: None,
-        token_cipher_prev: None,
+        agent_commands_producer: None,
     };
     Some((state, pool))
 }
