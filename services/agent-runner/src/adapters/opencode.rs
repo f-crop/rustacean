@@ -25,22 +25,22 @@ impl OpencodeAdapter {
         }
     }
 
-    fn write_opencode_config(&self, workspace: &std::path::Path) -> Result<()> {
+    async fn write_opencode_config(&self, workspace: &std::path::Path) -> Result<()> {
         let config = serde_json::json!({
             "provider": self.default_provider,
             "model": self.default_model,
         });
         let opencode_dir = workspace.join(".opencode");
-        std::fs::create_dir_all(&opencode_dir)?;
+        tokio::fs::create_dir_all(&opencode_dir).await?;
         let config_path = opencode_dir.join("config.json");
-        std::fs::write(&config_path, serde_json::to_string_pretty(&config)?).with_context(
-            || {
+        tokio::fs::write(&config_path, serde_json::to_string_pretty(&config)?)
+            .await
+            .with_context(|| {
                 format!(
                     "Failed to write opencode config to {}",
                     config_path.display()
                 )
-            },
-        )?;
+            })?;
         Ok(())
     }
 
@@ -69,8 +69,10 @@ impl RuntimeAdapter for OpencodeAdapter {
     async fn spawn(&self, ctx: &SessionCtx) -> Result<AgentProcess> {
         check_binary("opencode").await?;
         write_mcp_config(&ctx.workspace_path, &ctx.api_key, &ctx.tenant_id)
+            .await
             .context("Failed to write MCP config")?;
         self.write_opencode_config(&ctx.workspace_path)
+            .await
             .context("Failed to write opencode config")?;
 
         let mut cmd = build_base_command("opencode", &ctx.workspace_path);

@@ -74,7 +74,11 @@ pub(crate) async fn check_binary(binary: &str) -> Result<()> {
     }
 }
 
-pub fn write_mcp_config(workspace: &std::path::Path, api_key: &str, tenant_id: &str) -> Result<()> {
+pub async fn write_mcp_config(
+    workspace: &std::path::Path,
+    api_key: &str,
+    tenant_id: &str,
+) -> Result<()> {
     let mcp_config = serde_json::json!({
         "mcpServers": {
             "rust-brain": {
@@ -91,7 +95,8 @@ pub fn write_mcp_config(workspace: &std::path::Path, api_key: &str, tenant_id: &
     });
 
     let mcp_path = workspace.join(".mcp.json");
-    std::fs::write(&mcp_path, serde_json::to_string_pretty(&mcp_config)?)
+    tokio::fs::write(&mcp_path, serde_json::to_string_pretty(&mcp_config)?)
+        .await
         .with_context(|| format!("Failed to write .mcp.json to {}", mcp_path.display()))?;
     Ok(())
 }

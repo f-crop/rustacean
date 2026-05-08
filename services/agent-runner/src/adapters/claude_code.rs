@@ -21,6 +21,7 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
     async fn spawn(&self, ctx: &SessionCtx) -> Result<AgentProcess> {
         check_binary("claude").await?;
         write_mcp_config(&ctx.workspace_path, &ctx.api_key, &ctx.tenant_id)
+            .await
             .context("Failed to write MCP config")?;
 
         let mut cmd = build_base_command("claude", &ctx.workspace_path);
