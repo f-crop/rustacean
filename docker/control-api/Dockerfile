@@ -24,6 +24,7 @@ COPY services/projector-pg/Cargo.toml    services/projector-pg/Cargo.toml
 COPY services/projector-neo4j/Cargo.toml services/projector-neo4j/Cargo.toml
 COPY services/tombstoner/Cargo.toml      services/tombstoner/Cargo.toml
 COPY services/expand-worker/Cargo.toml   services/expand-worker/Cargo.toml
+COPY services/agent-runner/Cargo.toml    services/agent-runner/Cargo.toml
 COPY crates/rb-parse-syn/Cargo.toml           crates/rb-parse-syn/Cargo.toml
 COPY crates/rb-parse-tree-sitter/Cargo.toml   crates/rb-parse-tree-sitter/Cargo.toml
 COPY services/parse-worker/Cargo.toml         services/parse-worker/Cargo.toml
