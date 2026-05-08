@@ -1,11 +1,12 @@
-import { useEventStream, type StreamedEvent } from "@/hooks/useEventStream";
+import type { EventStreamReadyState, StreamedEvent } from "@/hooks/useEventStream";
 
 interface ExecutionStreamProps {
-  readonly streamUrl: string;
+  readonly events: ReadonlyArray<StreamedEvent>;
+  readonly lastEventId: string | null;
+  readonly readyState: EventStreamReadyState;
 }
 
-export function ExecutionStream({ streamUrl }: ExecutionStreamProps): JSX.Element {
-  const { events, lastEventId, readyState } = useEventStream(streamUrl);
+export function ExecutionStream({ events, lastEventId, readyState }: ExecutionStreamProps): JSX.Element {
 
   const agentEvents = events.filter(
     (e) => e.type !== "stream-reset",

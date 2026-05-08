@@ -37,10 +37,13 @@ interface AgentExecutionInnerProps {
 function AgentExecutionInner({ tenantId }: AgentExecutionInnerProps): JSX.Element {
   const apiBase = import.meta.env.VITE_API_BASE_URL ?? "";
 
+  // useRecentIngestions fetches from the backend's ingestion-runs table,
+  // which backs the "Agent Execution" view — each ingestion run corresponds
+  // to an agent execution session.
   const recentSessions = useRecentIngestions(tenantId);
   const invalidateSessions = useInvalidateRecentIngestions();
 
-  const { events } = useEventStream(`${apiBase}/v1/ingest/events`);
+  const { events, lastEventId, readyState } = useEventStream(`${apiBase}/v1/ingest/events`);
 
   useEffect(() => {
     const latestIngest = events
@@ -93,7 +96,7 @@ function AgentExecutionInner({ tenantId }: AgentExecutionInnerProps): JSX.Elemen
           >
             Execution Stream
           </h2>
-          <ExecutionStream streamUrl={`${apiBase}/v1/ingest/events`} />
+          <ExecutionStream events={events} lastEventId={lastEventId} readyState={readyState} />
         </section>
       </div>
     </PageContainer>
