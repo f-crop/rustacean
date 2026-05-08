@@ -1,5 +1,5 @@
--- Control schema: Wave 7 — Agent execution backend (RUSAA-84 / ADR-009 Phase 1)
--- Tables: agent_sessions, agent_events (range-partitioned), oauth_tokens
+-- Control schema: Wave 7 — Agent execution backend (ADR-009 Phase 1)
+-- Tables: agent_sessions, agent_events (range-partitioned)
 -- Roles: rb_agent_writer, rb_oauth_writer
 -- Constraint: tenant_id immutability trigger on agent_sessions
 
