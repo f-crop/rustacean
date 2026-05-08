@@ -77,7 +77,7 @@ fn parse_runtime(s: &str) -> Option<AgentRuntime> {
 /// Validate that `workspace_path` is a safe relative path (no `..`, no absolute).
 /// Returns an error on invalid input so the session is never created.
 async fn db_insert_session_api_key(
-    pool: &sqlx::PgPool,
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     api_key_id: Uuid,
     tenant_id: Uuid,
     user_id: Uuid,
@@ -96,7 +96,7 @@ async fn db_insert_session_api_key(
     .bind(format!("agent-session-{session_id}"))
     .bind(scopes_json)
     .bind(user_id)
-    .execute(pool)
+    .execute(executor)
     .await
     .map(|_| ())
     .map_err(|e| {
@@ -117,7 +117,7 @@ struct NewAgentSession<'a> {
 }
 
 async fn db_insert_agent_session(
-    pool: &sqlx::PgPool,
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     row: &NewAgentSession<'_>,
 ) -> Result<(), AppError> {
     sqlx::query(
@@ -136,7 +136,7 @@ async fn db_insert_agent_session(
     .bind(row.workspace_rel)
     .bind(row.api_key_id)
     .bind(row.now)
-    .execute(pool)
+    .execute(executor)
     .await
     .map(|_| ())
     .map_err(|e| {
@@ -239,8 +239,15 @@ pub async fn create_session(
 
     drop(raw_key);
 
+    // Wrap both inserts in a single transaction so a failure in the second
+    // insert rolls back the first — prevents orphaned `api_keys` rows.
+    let mut tx = state.pool.begin().await.map_err(|e| {
+        tracing::error!("failed to start DB transaction: {e}");
+        AppError::Internal(anyhow::anyhow!("TX start failed: {e}"))
+    })?;
+
     db_insert_session_api_key(
-        &state.pool,
+        &mut *tx,
         api_key_id,
         session.tenant_id,
         session.user_id,
@@ -251,7 +258,7 @@ pub async fn create_session(
     .await?;
 
     db_insert_agent_session(
-        &state.pool,
+        &mut *tx,
         &NewAgentSession {
             session_id,
             tenant_id: session.tenant_id,
@@ -264,6 +271,11 @@ pub async fn create_session(
         },
     )
     .await?;
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!("failed to commit DB transaction: {e}");
+        AppError::Internal(anyhow::anyhow!("TX commit failed: {e}"))
+    })?;
 
     // Publish SessionStart command to Kafka.
     let command = AgentSessionCommand {
