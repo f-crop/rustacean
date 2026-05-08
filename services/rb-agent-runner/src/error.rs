@@ -18,6 +18,7 @@ pub enum RunnerError {
     ProcessSpawn(String),
 
     /// Process execution failed.
+    #[allow(dead_code)]
     #[error("process execution failed: {0}")]
     ProcessExecution(String),
 
@@ -26,10 +27,12 @@ pub enum RunnerError {
     InvalidRuntimeKind(String),
 
     /// Workspace initialization failed.
+    #[allow(dead_code)]
     #[error("workspace initialization failed: {0}")]
     WorkspaceInit(String),
 
     /// Session not found.
+    #[allow(dead_code)]
     #[error("session not found: {0}")]
     SessionNotFound(uuid::Uuid),
 
@@ -38,6 +41,7 @@ pub enum RunnerError {
     NotImplemented(String),
 
     /// Configuration error.
+    #[allow(dead_code)]
     #[error("configuration error: {0}")]
     Config(String),
 
