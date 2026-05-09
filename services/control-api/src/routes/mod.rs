@@ -4,7 +4,6 @@ pub mod audit;
 pub mod auth;
 pub mod auth_logout;
 pub mod auth_password_reset;
-pub mod auth_password_reset;
 pub mod auth_verify;
 pub mod github;
 pub mod health;

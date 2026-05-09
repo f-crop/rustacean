@@ -7,6 +7,7 @@ use rb_schemas::{GraphRelationEvent, IngestStatusEvent, TypecheckedItemEvent};
 
 mod consumer;
 mod extractor;
+mod extractor_calls;
 
 fn validate_boot_env() -> Result<()> {
     let blob_store = std::env::var("RB_BLOB_STORE").unwrap_or_else(|_| "filesystem".to_owned());
