@@ -2911,7 +2911,8 @@
         "enum": [
           "read",
           "write",
-          "admin"
+          "admin",
+          "agent"
         ]
       },
       "SearchFilters": {

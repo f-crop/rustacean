@@ -286,7 +286,8 @@ impl SessionManager {
             }
         };
 
-        let duration_ms = i64::try_from(handle.start_time.elapsed().as_millis()).unwrap_or(i64::MAX);
+        let duration_ms =
+            i64::try_from(handle.start_time.elapsed().as_millis()).unwrap_or(i64::MAX);
 
         handle.stdout_handle.abort();
         handle.stderr_handle.abort();
@@ -574,7 +575,10 @@ fn gc_workspaces(base: &PathBuf, ttl: Duration) {
             let path = session_entry.path();
 
             let Ok(relative_path) = path.strip_prefix(base) else {
-                tracing::warn!("GC: skipping path outside workspace base: {}", path.display());
+                tracing::warn!(
+                    "GC: skipping path outside workspace base: {}",
+                    path.display()
+                );
                 continue;
             };
             let components: Vec<_> = relative_path.components().collect();
