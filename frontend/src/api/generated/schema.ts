@@ -1247,7 +1247,7 @@ export interface components {
          * @description Access scope for an API key.
          * @enum {string}
          */
-        readonly Scope: "read" | "write" | "admin";
+        readonly Scope: "read" | "write" | "admin" | "agent";
         /** @description Optional filters applied on top of the vector similarity ranking. */
         readonly SearchFilters: {
             /**

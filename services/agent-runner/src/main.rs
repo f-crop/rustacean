@@ -7,6 +7,7 @@ use rb_schemas::AgentSessionCommand;
 mod adapters;
 mod consumer;
 mod session;
+mod workspace_gc;
 
 fn validate_boot_env() -> Result<PathBuf> {
     let workspace_base =
