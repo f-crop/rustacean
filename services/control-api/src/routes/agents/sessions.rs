@@ -196,6 +196,7 @@ pub struct CreateSessionResponse {
     ),
     tag = "agents"
 )]
+#[allow(clippy::too_many_lines)]
 pub async fn create_session(
     State(state): State<AppState>,
     auth: AuthContext,
@@ -218,13 +219,10 @@ pub async fn create_session(
         format!("{}/{}", session.tenant_id, Uuid::new_v4())
     };
 
-    // Acquire a slot from the semaphore to atomically enforce the per-process cap.
-    // This prevents race conditions where concurrent requests could both pass the
-    // check and exceed MAX_ACTIVE_SESSIONS_PER_PROCESS.
-    let _permit = state
-        .agent_registry
-        .try_acquire()
-        .ok_or(AppError::SessionCapExceeded)?;
+    // C4: Acquire slot via atomic counter to ensure cap is held for session lifetime.
+    if !state.agent_registry.try_increment() {
+        return Err(AppError::SessionCapExceeded);
+    }
 
     let session_id = Uuid::new_v4();
     let now = Utc::now();
@@ -292,13 +290,23 @@ pub async fn create_session(
     let envelope = EventEnvelope::new(tenant_id, command);
 
     if let Some(producer) = state.agent_commands_producer.as_ref() {
-        producer
+        if let Err(e) = producer
             .publish(TOPIC_AGENT_COMMANDS, session_id.as_bytes(), envelope)
             .await
-            .map_err(|e| {
-                tracing::error!("failed to publish SessionStart: {e}");
-                AppError::Internal(anyhow::anyhow!("Kafka publish failed"))
-            })?;
+        {
+            tracing::error!("failed to publish SessionStart: {e}");
+
+            let _ = sqlx::query("DELETE FROM agents.agent_sessions WHERE id = $1")
+                .bind(session_id)
+                .execute(&state.pool)
+                .await;
+            let _ = sqlx::query("DELETE FROM control.api_keys WHERE id = $1")
+                .bind(api_key_id)
+                .execute(&state.pool)
+                .await;
+
+            return Err(AppError::Internal(anyhow::anyhow!("Kafka publish failed")));
+        }
     } else {
         return Err(AppError::KafkaNotConfigured);
     }

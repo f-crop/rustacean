@@ -12,6 +12,11 @@ use tokio::task::JoinHandle;
 
 use crate::session::{SessionManager, spawn_workspace_gc};
 
+pub struct ConsumerHandle {
+    pub handle: JoinHandle<()>,
+    pub session_manager: Arc<SessionManager>,
+}
+
 pub const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
 const TOPIC_AGENT_EVENTS: &str = "rb.agent.events";
 
@@ -25,7 +30,7 @@ pub fn spawn(
     workspace_base: PathBuf,
     control_api_base: String,
     http_client: reqwest::Client,
-) -> Result<JoinHandle<()>> {
+) -> Result<ConsumerHandle> {
     let session_manager = Arc::new(SessionManager::new(
         workspace_base.clone(),
         control_api_base,
@@ -41,7 +46,6 @@ pub fn spawn(
     tokio::spawn(async move {
         while let Some((_tenant_id, event)) = event_rx.recv().await {
             let key = format!("{}.{}", event.session_id, event.seq);
-            // H8: Avoid unwrap by using proper error handling for tenant_id parsing
             let tenant_id: TenantId = match event.tenant_id.parse() {
                 Ok(id) => id,
                 Err(e) => {
@@ -62,6 +66,7 @@ pub fn spawn(
         }
     });
 
+    let session_manager_clone = Arc::clone(&session_manager);
     let ctx = Arc::new(ConsumerCtx {
         session_manager,
         producer,
@@ -89,7 +94,10 @@ pub fn spawn(
         }
     });
 
-    Ok(handle)
+    Ok(ConsumerHandle {
+        handle,
+        session_manager: session_manager_clone,
+    })
 }
 
 async fn handle_command(

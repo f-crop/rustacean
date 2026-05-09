@@ -67,21 +67,11 @@ pub(crate) fn build_base_command(binary: &str, workspace: &PathBuf) -> Command {
     cmd
 }
 
-pub(crate) async fn check_binary(binary: &str) -> Result<()> {
-    match Command::new("which").arg(binary).output().await {
-        Ok(output) if output.status.success() => Ok(()),
-        _ => anyhow::bail!("Binary '{binary}' not found in PATH"),
-    }
-}
-
 pub async fn write_mcp_config(
     workspace: &std::path::Path,
-    _api_key: &str,
+    api_key: &str,
     tenant_id: &str,
 ) -> Result<()> {
-    // C3: Do not write API key to disk - use environment variable reference instead
-    // The actual API key should be passed via RB_AGENT_API_KEY environment variable
-    // set by the adapter when spawning the process, not written to config files
     let api_base = std::env::var("RUST_BRAIN_API_BASE")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
@@ -96,7 +86,7 @@ pub async fn write_mcp_config(
                 "command": "npx",
                 "args": ["-y", "@modelcontextprotocol/server-rust-brain"],
                 "env": {
-                    "RUST_BRAIN_API_KEY": "${RUST_BRAIN_API_KEY}",
+                    "RUST_BRAIN_API_KEY": api_key,
                     "RUST_BRAIN_TENANT_ID": tenant_id,
                     "RUST_BRAIN_API_BASE": api_base
                 }

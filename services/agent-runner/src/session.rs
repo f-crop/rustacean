@@ -226,6 +226,29 @@ impl SessionManager {
         adapter.send_input(&mut proc, &input.input).await
     }
 
+    pub async fn terminate_all(&self) {
+        let session_ids: Vec<String> = {
+            let sessions = self.sessions.lock().await;
+            sessions.keys().cloned().collect()
+        };
+
+        for session_id in session_ids {
+            let process = {
+                let sessions = self.sessions.lock().await;
+                sessions.get(&session_id).map(|h| Arc::clone(&h.process))
+            };
+
+            if let Some(proc_arc) = process {
+                let mut proc = proc_arc.lock().await;
+                if let Ok(adapter) = adapter_for_runtime(proc.runtime) {
+                    let _ = adapter.terminate(&mut proc, false).await;
+                    let timeout = Duration::from_secs(PROCESS_TERMINATE_TIMEOUT_SECS);
+                    let _ = tokio::time::timeout(timeout, proc.child.wait()).await;
+                }
+            }
+        }
+    }
+
     pub async fn terminate_session(
         &self,
         session_id: &str,

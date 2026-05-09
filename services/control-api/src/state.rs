@@ -1,6 +1,6 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicI64, AtomicU64, Ordering},
+    atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 
 use chrono::{DateTime, Utc};
@@ -15,7 +15,6 @@ use rb_sse::EventBus;
 use rb_storage_neo4j::TenantGraph;
 use rb_storage_qdrant::TenantVectorStore;
 use sqlx::PgPool;
-use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 /// Placeholder for the MCP session store — kept for binary compatibility
@@ -115,16 +114,10 @@ impl SessionHandle {
 }
 
 /// In-memory registry of active agent sessions.
-///
-/// - Tracks all running sessions with their token budgets.
-/// - Enforces `MAX_ACTIVE_SESSIONS_PER_PROCESS` via a semaphore.
-/// - Cheap to clone (Arc-backed).
 #[derive(Clone)]
 pub struct AgentRegistry {
     sessions: Arc<DashMap<Uuid, SessionHandle>>,
-    /// Semaphore cap at `MAX_ACTIVE_SESSIONS_PER_PROCESS`.
-    semaphore: Arc<Semaphore>,
-    /// Global token budget meter (sum of tokens used across all live sessions).
+    active_count_atomic: Arc<AtomicUsize>,
     global_tokens_used: Arc<AtomicI64>,
 }
 
@@ -133,26 +126,46 @@ impl AgentRegistry {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
-            semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_SESSIONS_PER_PROCESS)),
+            active_count_atomic: Arc::new(AtomicUsize::new(0)),
             global_tokens_used: Arc::new(AtomicI64::new(0)),
         }
     }
 
-    /// Try to acquire a slot.  Returns `None` if at the process cap.
     #[must_use]
-    pub fn try_acquire(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
-        self.semaphore.try_acquire().ok()
+    #[allow(clippy::single_match)]
+    pub fn try_increment(&self) -> bool {
+        loop {
+            let current = self.active_count_atomic.load(Ordering::Relaxed);
+            if current >= MAX_ACTIVE_SESSIONS_PER_PROCESS {
+                return false;
+            }
+            match self.active_count_atomic.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return true,
+                Err(_) => {}
+            }
+        }
     }
 
-    /// Insert a new session handle (call after acquiring semaphore slot).
+    fn decrement(&self) {
+        self.active_count_atomic.fetch_sub(1, Ordering::Relaxed);
+    }
+
     pub fn insert(&self, handle: SessionHandle) {
         self.sessions.insert(handle.session_id, handle);
     }
 
-    /// Remove a completed/failed session.
     #[must_use]
     pub fn remove(&self, session_id: &Uuid) -> Option<SessionHandle> {
-        self.sessions.remove(session_id).map(|(_, h)| h)
+        let result = self.sessions.remove(session_id).map(|(_, h)| h);
+        if result.is_some() {
+            self.decrement();
+        }
+        result
     }
 
     /// Return a clone of the handle for the given session, if active.

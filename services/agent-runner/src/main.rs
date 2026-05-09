@@ -54,11 +54,13 @@ async fn main() -> Result<()> {
             .context("Failed to build HTTP client")?
     };
 
-    let handle = consumer::spawn(consumer, workspace_base, control_api_base, http_client)?;
+    let consumer_handle = consumer::spawn(consumer, workspace_base, control_api_base, http_client)?;
 
     shutdown_signal().await;
-    tracing::info!("Shutdown signal received — stopping consumer");
-    handle.abort();
+    tracing::info!("Shutdown signal received — terminating active sessions");
+    consumer_handle.session_manager.terminate_all().await;
+    tracing::info!("Terminating consumer");
+    consumer_handle.handle.abort();
 
     Ok(())
 }
