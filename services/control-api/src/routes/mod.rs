@@ -3,6 +3,8 @@ pub mod api_keys;
 pub mod audit;
 pub mod auth;
 pub mod auth_logout;
+pub mod auth_password_reset;
+pub mod auth_password_reset;
 pub mod auth_verify;
 pub mod github;
 pub mod health;
@@ -26,8 +28,9 @@ use crate::routes::{
     },
     api_keys::{create_api_key, list_api_keys, revoke_api_key},
     audit::list_audit_events,
-    auth::{forgot_password, login, reset_password, signup},
+    auth::{login, signup},
     auth_logout::logout,
+    auth_password_reset::{forgot_password, reset_password},
     auth_verify::verify_email,
     github::health::github_app_health,
     github::install::{github_callback, github_install_url},

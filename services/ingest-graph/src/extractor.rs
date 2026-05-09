@@ -11,6 +11,10 @@ use std::collections::HashSet;
 use rb_schemas::RelationKind;
 use syn::visit::Visit;
 
+mod extractor_calls;
+
+pub(crate) use extractor_calls::extract_call_relations;
+
 /// A single directed graph relation extracted from one item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Relation {
@@ -52,20 +56,14 @@ pub(crate) fn extract_relations(
 ///
 /// Inherent impls (`impl Foo`) are ignored — they produce no IMPLS relation.
 fn extract_impl_relation(fqn: &str, sig: &str, out: &mut Vec<Relation>) {
-    // The signature must start with "impl" and contain " for ".
     if !sig.starts_with("impl") {
         return;
     }
     let Some(for_pos) = sig.find(" for ") else {
         return;
     };
-
-    // Trait part: everything between "impl" (+ optional generics) and " for ".
     let trait_part = sig[..for_pos].trim_start_matches("impl").trim();
-    // Strip leading generic params: `<T: Clone> Trait<T>` → `Trait<T>`.
     let trait_name = strip_leading_generics(trait_part);
-
-    // Type part: everything after " for ".
     let type_part = sig[for_pos + 5..].trim();
     let type_name = first_ident_segment(type_part);
 
@@ -73,7 +71,6 @@ fn extract_impl_relation(fqn: &str, sig: &str, out: &mut Vec<Relation>) {
         return;
     }
 
-    // Prefer the canonical FQN if this item's name already encodes the impl.
     let from = if fqn.contains(" as ") || type_name == strip_generics(type_part) {
         type_name.to_owned()
     } else {
@@ -94,8 +91,6 @@ fn extract_supertrait_relations(fqn: &str, sig: &str, out: &mut Vec<Relation>) {
     if !sig.starts_with("trait ") {
         return;
     }
-    // Locate the colon that introduces supertraits.
-    // Format: `trait Name<Generics>: Supertrait1 + Supertrait2`
     let Some(colon_pos) = sig.find(": ") else {
         return;
     };
@@ -122,9 +117,7 @@ fn extract_bound_relations(fqn: &str, bounds: &[String], out: &mut Vec<Relation>
         };
         let type_param = bound_str[..colon_pos].trim();
         let bounds_part = bound_str[colon_pos + 2..].trim();
-
         let from = format!("{fqn}::{type_param}");
-
         for b in bounds_part.split('+') {
             let bound_name = first_ident_segment(b.trim());
             if !bound_name.is_empty() {
@@ -199,77 +192,6 @@ impl<'ast> Visit<'ast> for DeriveVisitor {
     }
 }
 
-// ── CALLS ──────────────────────────────────────────────────────────────────────
-
-/// Parse `body` with `syn` to find direct function call expressions.
-///
-/// Emits (`fqn`, `callee_fqn`, CALLS) for each unique callee found in the body.
-/// Best-effort: unqualified single-segment calls are resolved to the same module
-/// as the caller (e.g. `bar()` in `src_mod::caller` → `src_mod::bar`).
-/// Calls via `self`, `super`, `crate`, `std`, `core`, or `alloc` are skipped.
-fn extract_call_relations(fqn: &str, body: &str, out: &mut Vec<Relation>) {
-    let file: syn::File = match syn::parse_str(body) {
-        Ok(f) => f,
-        Err(_) => return,
-    };
-    let caller_module = fqn.rsplit_once("::").map_or("", |(m, _)| m).to_owned();
-    let mut visitor = CallVisitor {
-        caller_fqn: fqn.to_owned(),
-        caller_module,
-        relations: Vec::new(),
-        seen: HashSet::new(),
-    };
-    visitor.visit_file(&file);
-    out.extend(visitor.relations);
-}
-
-struct CallVisitor {
-    caller_fqn: String,
-    caller_module: String,
-    relations: Vec<Relation>,
-    seen: HashSet<String>,
-}
-
-impl<'ast> Visit<'ast> for CallVisitor {
-    fn visit_expr_call(&mut self, node: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(path_expr) = node.func.as_ref() {
-            if let Some(first) = path_expr.path.segments.first() {
-                let f = first.ident.to_string();
-                if matches!(
-                    f.as_str(),
-                    "self" | "super" | "crate" | "std" | "core" | "alloc"
-                ) {
-                    syn::visit::visit_expr_call(self, node);
-                    return;
-                }
-            }
-            let segs: Vec<String> = path_expr
-                .path
-                .segments
-                .iter()
-                .map(|s| s.ident.to_string())
-                .collect();
-            if segs.is_empty() {
-                syn::visit::visit_expr_call(self, node);
-                return;
-            }
-            let callee_fqn = if segs.len() == 1 && !self.caller_module.is_empty() {
-                format!("{}::{}", self.caller_module, segs[0])
-            } else {
-                segs.join("::")
-            };
-            if callee_fqn != self.caller_fqn && self.seen.insert(callee_fqn.clone()) {
-                self.relations.push(Relation {
-                    from_fqn: self.caller_fqn.clone(),
-                    to_fqn: callee_fqn,
-                    kind: RelationKind::Calls,
-                });
-            }
-        }
-        syn::visit::visit_expr_call(self, node);
-    }
-}
-
 // ── String helpers ─────────────────────────────────────────────────────────────
 
 /// Return the first path segment (identifier) from a type string.
@@ -278,13 +200,11 @@ impl<'ast> Visit<'ast> for CallVisitor {
 /// `<T as Clone>` → `T`.
 fn first_ident_segment(s: &str) -> &str {
     let s = s.trim();
-    // Skip leading angle-bracketed part like `<T as Trait>`.
     let s = if s.starts_with('<') {
         s.find('>').map_or(s, |i| s[i + 1..].trim())
     } else {
         s
     };
-    // Take everything up to the first `<`, `(`, ` `, or `{`.
     let end = s.find(['<', '(', ' ', '{', '>']).unwrap_or(s.len());
     &s[..end]
 }
@@ -297,7 +217,6 @@ fn strip_leading_generics(s: &str) -> &str {
     if !s.starts_with('<') {
         return s;
     }
-    // Walk past the balanced `<…>`.
     let mut depth = 0i32;
     for (i, c) in s.char_indices() {
         match c {
@@ -333,8 +252,7 @@ fn fmt_path_simple(path: &syn::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── impl relation ─────────────────────────────────────────────────────────
+    use super::extract_call_relations;
 
     #[test]
     fn impl_for_emits_impls_relation() {
@@ -364,8 +282,6 @@ mod tests {
         );
     }
 
-    // ── supertrait relations ──────────────────────────────────────────────────
-
     #[test]
     fn trait_supertrait_emits_extends_trait() {
         let rels = extract_relations("src_lib::Animal", "trait Animal: Clone + Send", &[], "");
@@ -382,8 +298,6 @@ mod tests {
         let rels = extract_relations("src_lib::Marker", "trait Marker", &[], "");
         assert!(rels.is_empty());
     }
-
-    // ── bounded-by relations ──────────────────────────────────────────────────
 
     #[test]
     fn bound_single_emits_bounded_by() {
@@ -433,8 +347,6 @@ mod tests {
         assert_eq!(bounded.len(), 2);
     }
 
-    // ── derive relations ──────────────────────────────────────────────────────
-
     #[test]
     fn derive_struct_emits_derives() {
         let body = "#[derive(Clone, Debug)] pub struct Foo { pub x: i32 }";
@@ -470,11 +382,8 @@ mod tests {
     #[test]
     fn derive_invalid_body_produces_no_panic() {
         let rels = extract_relations("src_lib::X", "struct X", &[], "fn broken( {");
-        // Must not panic; derives may be empty
         let _ = rels;
     }
-
-    // ── combined ─────────────────────────────────────────────────────────────
 
     #[test]
     fn combined_all_relation_kinds() {
@@ -488,8 +397,6 @@ mod tests {
         assert!(rels.iter().any(|r| r.kind == RelationKind::BoundedBy));
         assert!(rels.iter().any(|r| r.kind == RelationKind::Derives));
     }
-
-    // ── CALLS relations ───────────────────────────────────────────────────────
 
     #[test]
     fn calls_simple_unqualified_resolves_to_same_module() {
@@ -582,8 +489,6 @@ mod tests {
         let rels = extract_relations("src_mod::caller", "", &[], "fn broken( {");
         let _ = rels;
     }
-
-    // ── helpers ───────────────────────────────────────────────────────────────
 
     #[test]
     fn first_ident_segment_simple() {
