@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use rb_schemas::RelationKind;
 use syn::visit::Visit;
 
-use super::Relation;
+use crate::extractor::Relation;
 
 /// Parse `body` with `syn` to find direct function call expressions.
 ///

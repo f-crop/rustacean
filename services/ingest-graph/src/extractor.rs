@@ -11,9 +11,7 @@ use std::collections::HashSet;
 use rb_schemas::RelationKind;
 use syn::visit::Visit;
 
-mod extractor_calls;
-
-pub(crate) use extractor_calls::extract_call_relations;
+pub(crate) use crate::extractor_calls::extract_call_relations;
 
 /// A single directed graph relation extracted from one item.
 #[derive(Debug, Clone, PartialEq, Eq)]

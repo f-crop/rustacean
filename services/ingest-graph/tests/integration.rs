@@ -1,6 +1,8 @@
 // Pull in extractor directly from the binary source.
 #[path = "../src/extractor.rs"]
 mod extractor;
+#[path = "../src/extractor_calls.rs"]
+mod extractor_calls;
 
 use extractor::{Relation, extract_relations};
 use rb_schemas::RelationKind;
