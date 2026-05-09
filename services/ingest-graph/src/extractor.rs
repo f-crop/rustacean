@@ -6,8 +6,6 @@
 //!   3. Source body (if present) — derive attributes parsed with `syn`.
 //!   4. Source body (if present) — function call expressions parsed with `syn` (CALLS).
 
-use std::collections::HashSet;
-
 use rb_schemas::RelationKind;
 use syn::visit::Visit;
 
