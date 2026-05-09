@@ -10,11 +10,10 @@ pub use members::{
 use axum::{
     Json,
     extract::{Path, State},
-    http::StatusCode,
     response::IntoResponse,
 };
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
