@@ -86,9 +86,9 @@ pub async fn write_mcp_config(
                 "command": "npx",
                 "args": ["-y", "@modelcontextprotocol/server-rust-brain"],
                 "env": {
-                    "RUST_BRAIN_API_KEY": api_key,
-                    "RUST_BRAIN_TENANT_ID": tenant_id,
-                    "RUST_BRAIN_API_BASE": api_base
+                    "RB_AGENT_API_KEY": api_key,
+                    "RB_AGENT_TENANT_ID": tenant_id,
+                    "RB_AGENT_API_BASE": api_base
                 }
             }
         }
