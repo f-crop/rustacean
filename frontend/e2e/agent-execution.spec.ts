@@ -26,7 +26,7 @@ async function mockRecentIngestions(
   page: import("@playwright/test").Page,
   runs: unknown[] = [],
 ): Promise<void> {
-  await page.route("**/v1/ingestions/recent", (route) =>
+  await page.route("**/v1/ingestions/recent*", (route) =>
     route.fulfill({ json: { runs } }),
   );
 }
