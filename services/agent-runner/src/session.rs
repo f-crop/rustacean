@@ -71,13 +71,12 @@ impl SessionManager {
         http_client: reqwest::Client,
     ) -> Self {
         let seq_counters = Arc::new(Mutex::new(HashMap::new()));
-        
+
         // H9: Spawn periodic garbage collection for seq_counters to prevent unbounded growth
         let seq_counters_gc = Arc::clone(&seq_counters);
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                std::time::Duration::from_secs(SEQ_COUNTER_GC_INTERVAL_SECS)
-            );
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_secs(SEQ_COUNTER_GC_INTERVAL_SECS));
             loop {
                 interval.tick().await;
                 let mut counters = seq_counters_gc.lock().await;
@@ -90,7 +89,7 @@ impl SessionManager {
                 }
             }
         });
-        
+
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             workspace_base,
@@ -112,7 +111,7 @@ impl SessionManager {
                 "initial_prompt exceeds maximum length of {MAX_INITIAL_PROMPT_LEN} bytes"
             );
         }
-        
+
         // SECURITY: validate workspace_path before joining to prevent path traversal.
         let workspace_path = safe_join(self.workspace_base.as_path(), &cmd.workspace_path)
             .with_context(|| format!("Rejected workspace_path: {:?}", cmd.workspace_path))?;
@@ -490,7 +489,7 @@ impl SessionManager {
         // H4: Use distinct seq range to avoid collision with error events
         // Error events use i64::MIN + 1, terminated uses i64::MIN + 2
         const TERMINATED_SEQ: i64 = i64::MIN + 2;
-        
+
         let payload = serde_json::json!({
             "exit_code": exit_code,
             "duration_ms": duration_ms,
@@ -536,8 +535,6 @@ pub fn spawn_workspace_gc(workspace_base: PathBuf) {
     });
 }
 
-
-
 fn gc_workspaces(base: &PathBuf, ttl: std::time::Duration) {
     let now = std::time::SystemTime::now();
     let Ok(tenant_dirs) = std::fs::read_dir(base) else {
@@ -553,16 +550,19 @@ fn gc_workspaces(base: &PathBuf, ttl: std::time::Duration) {
             tracing::warn!("GC: skipping suspicious tenant directory: {}", tenant_str);
             continue;
         }
-        
+
         let Ok(session_dirs) = std::fs::read_dir(tenant_entry.path()) else {
             continue;
         };
         for session_entry in session_dirs.flatten() {
             let path = session_entry.path();
-            
+
             // H5: Validate session directory is within expected tenant structure
             let Ok(relative_path) = path.strip_prefix(base) else {
-                tracing::warn!("GC: skipping path outside workspace base: {}", path.display());
+                tracing::warn!(
+                    "GC: skipping path outside workspace base: {}",
+                    path.display()
+                );
                 continue;
             };
             let components: Vec<_> = relative_path.components().collect();
@@ -570,7 +570,7 @@ fn gc_workspaces(base: &PathBuf, ttl: std::time::Duration) {
                 tracing::warn!("GC: skipping unexpected path structure: {}", path.display());
                 continue;
             }
-            
+
             let Ok(meta) = std::fs::metadata(&path) else {
                 continue;
             };

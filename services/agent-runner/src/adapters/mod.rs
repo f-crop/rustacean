@@ -82,6 +82,14 @@ pub async fn write_mcp_config(
     // C3: Do not write API key to disk - use environment variable reference instead
     // The actual API key should be passed via RB_AGENT_API_KEY environment variable
     // set by the adapter when spawning the process, not written to config files
+    let api_base = std::env::var("RUST_BRAIN_API_BASE")
+        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+
+    // C4: Validate URL scheme to prevent SSRF attacks
+    if !api_base.starts_with("http://") && !api_base.starts_with("https://") {
+        anyhow::bail!("RUST_BRAIN_API_BASE must use http:// or https:// scheme, got: {api_base}",);
+    }
+
     let mcp_config = serde_json::json!({
         "mcpServers": {
             "rust-brain": {
@@ -90,8 +98,7 @@ pub async fn write_mcp_config(
                 "env": {
                     "RUST_BRAIN_API_KEY": "${RUST_BRAIN_API_KEY}",
                     "RUST_BRAIN_TENANT_ID": tenant_id,
-                    "RUST_BRAIN_API_BASE": std::env::var("RUST_BRAIN_API_BASE")
-                        .unwrap_or_else(|_| "http://localhost:8080".to_string())
+                    "RUST_BRAIN_API_BASE": api_base
                 }
             }
         }

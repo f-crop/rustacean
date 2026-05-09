@@ -148,7 +148,7 @@ async fn emit_error_event(
 ) {
     // H4: Error events use i64::MIN + 1, distinct from terminated (i64::MIN + 2)
     const ERROR_SEQ: i64 = i64::MIN + 1;
-    
+
     let payload = serde_json::json!({
         "message": error.to_string(),
         "category": AgentErrorCategory::SpawnFailed as i32

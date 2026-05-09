@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
 async fn shutdown_signal() {
     let ctrl_c = async {
         match tokio::signal::ctrl_c().await {
-            Ok(()) => {},
+            Ok(()) => {}
             Err(e) => {
                 tracing::error!("Failed to install CTRL+C handler: {e}");
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
