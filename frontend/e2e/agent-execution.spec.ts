@@ -26,7 +26,7 @@ async function mockRecentIngestions(
   page: import("@playwright/test").Page,
   runs: unknown[] = [],
 ): Promise<void> {
-  await page.route("**/v1/tenants/*/ingestions/recent", (route) =>
+  await page.route("**/v1/ingestions/recent", (route) =>
     route.fulfill({ json: { runs } }),
   );
 }
@@ -106,7 +106,9 @@ test.describe("Agent Execution — live events", () => {
     await mockRecentIngestions(page, [
       {
         id: "run-001",
+        repo_id: "repo-1",
         status: "succeeded",
+        created_at: "2024-01-01T00:00:00Z",
         started_at: "2024-01-01T00:00:00Z",
         finished_at: "2024-01-01T00:01:00Z",
         trace_id: "trace-abc123",
