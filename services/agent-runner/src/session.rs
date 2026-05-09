@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Component, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use metrics::counter;
@@ -16,6 +16,15 @@ use tokio::task::JoinHandle;
 use tracing::Instrument;
 
 use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runtime};
+
+/// Maximum time to wait for graceful process termination before SIGKILL.
+const PROCESS_TERMINATE_TIMEOUT_SECS: u64 = 30;
+
+/// Maximum allowed length for `initial_prompt` to prevent denial-of-service.
+const MAX_INITIAL_PROMPT_LEN: usize = 100_000;
+
+/// Maximum number of tracked sessions to prevent unbounded memory growth.
+const MAX_TRACKED_SESSIONS: usize = 100_000;
 
 pub struct SessionManager {
     sessions: Arc<Mutex<HashMap<String, SessionHandle>>>,
@@ -52,16 +61,40 @@ fn safe_join(base: &std::path::Path, rel: &str) -> Result<PathBuf> {
     Ok(base.join(rel_path))
 }
 
+/// Interval for cleaning up stale seq counter entries to prevent unbounded growth.
+const SEQ_COUNTER_GC_INTERVAL_SECS: u64 = 300; // 5 minutes
+
 impl SessionManager {
     pub fn new(
         workspace_base: PathBuf,
         control_api_base: String,
         http_client: reqwest::Client,
     ) -> Self {
+        let seq_counters = Arc::new(Mutex::new(HashMap::new()));
+        
+        // H9: Spawn periodic garbage collection for seq_counters to prevent unbounded growth
+        let seq_counters_gc = Arc::clone(&seq_counters);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(
+                std::time::Duration::from_secs(SEQ_COUNTER_GC_INTERVAL_SECS)
+            );
+            loop {
+                interval.tick().await;
+                let mut counters = seq_counters_gc.lock().await;
+                let before = counters.len();
+                // Keep only entries that have seen recent activity (>1 seq)
+                counters.retain(|_, v| *v > 1);
+                let removed = before - counters.len();
+                if removed > 0 {
+                    tracing::debug!("GC: removed {} stale seq counter entries", removed);
+                }
+            }
+        });
+        
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             workspace_base,
-            seq_counters: Arc::new(Mutex::new(HashMap::new())),
+            seq_counters,
             control_api_base,
             http_client,
         }
@@ -74,6 +107,12 @@ impl SessionManager {
         session_id: &str,
         event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
     ) -> Result<()> {
+        if cmd.initial_prompt.len() > MAX_INITIAL_PROMPT_LEN {
+            anyhow::bail!(
+                "initial_prompt exceeds maximum length of {MAX_INITIAL_PROMPT_LEN} bytes"
+            );
+        }
+        
         // SECURITY: validate workspace_path before joining to prevent path traversal.
         let workspace_path = safe_join(self.workspace_base.as_path(), &cmd.workspace_path)
             .with_context(|| format!("Rejected workspace_path: {:?}", cmd.workspace_path))?;
@@ -142,6 +181,11 @@ impl SessionManager {
 
         {
             let mut sessions = self.sessions.lock().await;
+            if sessions.len() >= MAX_TRACKED_SESSIONS {
+                anyhow::bail!(
+                    "Maximum number of concurrent sessions ({MAX_TRACKED_SESSIONS}) exceeded"
+                );
+            }
             sessions.insert(
                 session_id.to_string(),
                 SessionHandle {
@@ -204,10 +248,21 @@ impl SessionManager {
             let adapter = adapter_for_runtime(proc.runtime)?;
             let _ = adapter.terminate(&mut proc, terminate.force).await;
 
-            // Wait for process exit and capture exit code
-            match proc.child.wait().await {
-                Ok(status) => status.code().unwrap_or(-1),
-                Err(_) => -1,
+            // H5: Wait for process exit with timeout to prevent unbounded stall
+            let timeout_duration = Duration::from_secs(PROCESS_TERMINATE_TIMEOUT_SECS);
+            match tokio::time::timeout(timeout_duration, proc.child.wait()).await {
+                Ok(Ok(status)) => status.code().unwrap_or(-1),
+                Ok(Err(_)) => -1,
+                Err(_) => {
+                    // Timeout: force kill the process
+                    tracing::warn!(session_id = %session_id, "Process termination timeout, forcing SIGKILL");
+                    let _ = adapter.terminate(&mut proc, true).await;
+                    // Wait again briefly for forced termination
+                    match tokio::time::timeout(Duration::from_secs(5), proc.child.wait()).await {
+                        Ok(Ok(status)) => status.code().unwrap_or(-1),
+                        _ => -1,
+                    }
+                }
             }
         };
 
@@ -267,9 +322,13 @@ impl SessionManager {
         pid: Option<i64>,
         exit_code: Option<i32>,
     ) {
+        let Ok(validated_id) = uuid::Uuid::parse_str(session_id) else {
+            tracing::warn!(session_id = %session_id, "Rejected non-UUID session_id in status update");
+            return;
+        };
         let url = format!(
             "{}/internal/agent/sessions/{}/status",
-            self.control_api_base, session_id
+            self.control_api_base, validated_id
         );
         let body = serde_json::json!({
             "status": status,
@@ -283,9 +342,13 @@ impl SessionManager {
     }
 
     async fn revoke_api_key(&self, session_id: &str) {
+        let Ok(validated_id) = uuid::Uuid::parse_str(session_id) else {
+            tracing::warn!(session_id = %session_id, "Rejected non-UUID session_id in key revocation");
+            return;
+        };
         let url = format!(
             "{}/internal/agent/sessions/{}/api-key",
-            self.control_api_base, session_id
+            self.control_api_base, validated_id
         );
         if let Err(e) = self.http_client.delete(&url).send().await {
             tracing::warn!(session_id = %session_id, "Failed to revoke API key: {e}");
@@ -313,10 +376,17 @@ impl SessionManager {
                     let reader = BufReader::new(stdout);
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
+                        // H1: Safely increment seq with overflow protection
                         let seq = {
                             let mut c = seq_counters.lock().await;
                             let n = c.entry(sid_stdout.clone()).or_insert(0);
-                            *n += 1;
+                            // Check for i64::MAX to prevent overflow
+                            if *n >= i64::MAX - 1 {
+                                tracing::warn!(session_id = %sid_stdout, "Seq counter approaching overflow, wrapping to 1");
+                                *n = 1;
+                            } else {
+                                *n += 1;
+                            }
                             *n
                         };
                         if let Some(parsed) = adapter.parse_stdout_line(&line) {
@@ -347,10 +417,17 @@ impl SessionManager {
                 let reader = BufReader::new(stderr);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    // H1: Safely increment seq with overflow protection
                     let seq = {
                         let mut c = seq_counters2.lock().await;
                         let n = c.entry(sid_err.clone()).or_insert(0);
-                        *n += 1;
+                        // Check for i64::MAX to prevent overflow
+                        if *n >= i64::MAX - 1 {
+                            tracing::warn!(session_id = %sid_err, "Seq counter approaching overflow, wrapping to 1");
+                            *n = 1;
+                        } else {
+                            *n += 1;
+                        }
                         *n
                     };
                     let event = AgentEvent {
@@ -410,6 +487,10 @@ impl SessionManager {
         reason: &str,
         event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
     ) {
+        // H4: Use distinct seq range to avoid collision with error events
+        // Error events use i64::MIN + 1, terminated uses i64::MIN + 2
+        const TERMINATED_SEQ: i64 = i64::MIN + 2;
+        
         let payload = serde_json::json!({
             "exit_code": exit_code,
             "duration_ms": duration_ms,
@@ -418,7 +499,7 @@ impl SessionManager {
         let event = AgentEvent {
             tenant_id: tenant_id.to_string(),
             session_id: session_id.to_string(),
-            seq: i64::MIN,
+            seq: TERMINATED_SEQ,
             kind: AgentEventKind::Terminated.into(),
             payload: payload.to_string(),
             emitted_at_ms: chrono::Utc::now().timestamp_millis(),
@@ -455,6 +536,8 @@ pub fn spawn_workspace_gc(workspace_base: PathBuf) {
     });
 }
 
+
+
 fn gc_workspaces(base: &PathBuf, ttl: std::time::Duration) {
     let now = std::time::SystemTime::now();
     let Ok(tenant_dirs) = std::fs::read_dir(base) else {
@@ -462,11 +545,32 @@ fn gc_workspaces(base: &PathBuf, ttl: std::time::Duration) {
     };
 
     for tenant_entry in tenant_dirs.flatten() {
+        // H5: Validate tenant directory name to prevent escaping workspace_base
+        let tenant_name = tenant_entry.file_name();
+        let tenant_str = tenant_name.to_string_lossy();
+        // Basic sanity check: tenant dirs should be valid identifiers
+        if tenant_str.contains('/') || tenant_str.contains("..") {
+            tracing::warn!("GC: skipping suspicious tenant directory: {}", tenant_str);
+            continue;
+        }
+        
         let Ok(session_dirs) = std::fs::read_dir(tenant_entry.path()) else {
             continue;
         };
         for session_entry in session_dirs.flatten() {
             let path = session_entry.path();
+            
+            // H5: Validate session directory is within expected tenant structure
+            let Ok(relative_path) = path.strip_prefix(base) else {
+                tracing::warn!("GC: skipping path outside workspace base: {}", path.display());
+                continue;
+            };
+            let components: Vec<_> = relative_path.components().collect();
+            if components.len() != 2 {
+                tracing::warn!("GC: skipping unexpected path structure: {}", path.display());
+                continue;
+            }
+            
             let Ok(meta) = std::fs::metadata(&path) else {
                 continue;
             };

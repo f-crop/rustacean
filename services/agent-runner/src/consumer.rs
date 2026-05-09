@@ -41,7 +41,14 @@ pub fn spawn(
     tokio::spawn(async move {
         while let Some((_tenant_id, event)) = event_rx.recv().await {
             let key = format!("{}.{}", event.session_id, event.seq);
-            let tenant_id: TenantId = event.tenant_id.parse().unwrap_or_else(|_| TenantId::new());
+            // H8: Avoid unwrap by using proper error handling for tenant_id parsing
+            let tenant_id: TenantId = match event.tenant_id.parse() {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::error!(session_id = %event.session_id, error = %e, "Failed to parse tenant_id from event");
+                    continue;
+                }
+            };
             let envelope = EventEnvelope::new(tenant_id, event);
             if let Err(e) = producer_clone
                 .publish(TOPIC_AGENT_EVENTS, key.as_bytes(), envelope)
@@ -123,6 +130,12 @@ async fn handle_command(
             tracing::error!(session_id = %session_id, "Command failed: {e}");
             counter!("rb_agent_commands_total", "outcome" => "err").increment(1);
             emit_error_event(&ctx.producer, tenant_id, &session_id, &e).await;
+            // H1: Commit the offset even on unrecoverable errors to prevent infinite retry.
+            // The error has been logged and emitted as an event; dropping the message
+            // here would cause Kafka to redeliver it forever, blocking the partition.
+            if let Err(commit_err) = consumer.commit(&envelope).await {
+                tracing::warn!(session_id = %session_id, "Commit after error failed: {commit_err}");
+            }
         }
     }
 }
@@ -133,6 +146,9 @@ async fn emit_error_event(
     session_id: &str,
     error: &anyhow::Error,
 ) {
+    // H4: Error events use i64::MIN + 1, distinct from terminated (i64::MIN + 2)
+    const ERROR_SEQ: i64 = i64::MIN + 1;
+    
     let payload = serde_json::json!({
         "message": error.to_string(),
         "category": AgentErrorCategory::SpawnFailed as i32
@@ -140,7 +156,7 @@ async fn emit_error_event(
     let event = AgentEvent {
         tenant_id: tenant_id.to_string(),
         session_id: session_id.to_string(),
-        seq: i64::MIN + 1,
+        seq: ERROR_SEQ,
         kind: AgentEventKind::Error.into(),
         payload: payload.to_string(),
         emitted_at_ms: chrono::Utc::now().timestamp_millis(),

@@ -120,8 +120,10 @@ impl RuntimeAdapter for OpencodeAdapter {
             } else {
                 Signal::SIGTERM
             };
-            // Linux PIDs are constrained to fit in i32; use fallback on overflow.
-            let pid_i32 = i32::try_from(proc.pid).unwrap_or(i32::MAX);
+            // H3: Never fallback to i32::MAX — would send signal to wrong process.
+            // Linux PIDs are constrained to fit in i32; overflow is impossible on valid systems.
+            let pid_i32 = i32::try_from(proc.pid)
+                .map_err(|_| anyhow::anyhow!("PID {} exceeds i32 range", proc.pid))?;
             kill(Pid::from_raw(pid_i32), signal).context("Failed to send signal")?;
         }
         #[cfg(not(unix))]

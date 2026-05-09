@@ -22,6 +22,7 @@ pub enum Scope {
     Read,
     Write,
     Admin,
+    Agent,
 }
 
 impl Scope {
@@ -30,6 +31,7 @@ impl Scope {
             "read" => Some(Scope::Read),
             "write" => Some(Scope::Write),
             "admin" => Some(Scope::Admin),
+            "agent" => Some(Scope::Agent),
             _ => None,
         }
     }

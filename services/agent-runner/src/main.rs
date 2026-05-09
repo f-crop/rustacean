@@ -32,7 +32,8 @@ async fn main() -> Result<()> {
     let control_api_base = std::env::var("RB_CONTROL_API_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
-    // Attach the shared secret header to every internal control-api callback.
+    // H6: Attach the shared secret header to every internal control-api callback
+    // with timeouts to prevent hanging on slow/unresponsive control-api
     let http_client = {
         let mut default_headers = reqwest::header::HeaderMap::new();
         if let Ok(secret) = std::env::var("RB_INTERNAL_SECRET") {
@@ -46,6 +47,9 @@ async fn main() -> Result<()> {
         }
         reqwest::Client::builder()
             .default_headers(default_headers)
+            // H6: Add timeouts to prevent indefinite hangs
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .context("Failed to build HTTP client")?
     };
@@ -61,17 +65,26 @@ async fn main() -> Result<()> {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install CTRL+C handler");
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {},
+            Err(e) => {
+                tracing::error!("Failed to install CTRL+C handler: {e}");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                sigterm.recv().await;
+            }
+            Err(e) => {
+                tracing::error!("Failed to install SIGTERM handler: {e}");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
     };
 
     #[cfg(not(unix))]
