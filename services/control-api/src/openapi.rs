@@ -6,12 +6,17 @@
 use utoipa::OpenApi;
 
 use crate::routes::{
-    api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github, health, ingest, me, query, repos,
-    tenants, tenants::delete as tenant_delete, tenants::members as tenant_members,
+    agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github, health, ingest, me, query,
+    repos, tenants, tenants::delete as tenant_delete, tenants::members as tenant_members,
 };
 
 #[derive(OpenApi)]
 #[openapi(
+    info(
+        title = "rust-brain control API",
+        description = "Control-plane API for rust-brain: auth, tenant management, API key, GitHub integration, and agent session endpoints.",
+        contact(name = "rust-brain", url = "https://github.com/jarnura/rustacean"),
+    ),
     paths(
         audit::list_audit_events,
         health::health_check,
@@ -52,6 +57,9 @@ use crate::routes::{
         query::search::search,
         query::traversal::get_callers,
         query::traversal::get_callees,
+        agents::sessions::create_session,
+        agents::sessions::delete_session,
+        agents::events::session_events,
     ),
     components(
         schemas(
@@ -111,6 +119,8 @@ use crate::routes::{
             query::search::SearchResponse,
             query::traversal::TraversalResponse,
             query::usages::UsagesResponse,
+            agents::sessions::CreateSessionRequest,
+            agents::sessions::CreateSessionResponse,
         )
     ),
     tags(
@@ -122,7 +132,10 @@ use crate::routes::{
         (name = "tenants", description = "Tenant and membership"),
         (name = "repos", description = "Repository connections"),
         (name = "ingest", description = "Ingestion pipeline"),
-        (name = "query", description = "Code graph queries")
+        (name = "github", description = "GitHub App integration"),
+        (name = "query", description = "Code graph queries"),
+        (name = "search", description = "Semantic code search"),
+        (name = "agents", description = "Agent session management (ADR-009 Option B)")
     )
 )]
 pub struct ApiDoc;

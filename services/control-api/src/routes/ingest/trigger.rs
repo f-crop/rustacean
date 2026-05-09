@@ -78,7 +78,7 @@ pub struct TriggerIngestionResponse {
         (status = 409, description = "Ingestion already in-flight (ingest_run_already_in_flight)"),
         (status = 503, description = "Kafka producer not available (kafka_not_configured, kafka_unavailable)"),
     ),
-    tag = "ingestions"
+    tag = "ingest"
 )]
 pub async fn trigger_ingestion(
     State(state): State<AppState>,

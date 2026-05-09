@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "rust-brain control API",
-    "description": "Control-plane API for rust-brain: auth, tenant management, and API key endpoints.",
+    "description": "Control-plane API for rust-brain: auth, tenant management, API key, GitHub integration, and agent session endpoints.",
     "contact": {
       "name": "rust-brain",
       "url": "https://github.com/jarnura/rustacean"
@@ -60,10 +60,116 @@
         }
       }
     },
+    "/v1/agents/sessions": {
+      "post": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "create_session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Session created, pending agent-runner pickup"
+          },
+          "400": {
+            "description": "Invalid runtime or fields"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "429": {
+            "description": "Process session cap reached"
+          },
+          "503": {
+            "description": "Kafka unavailable"
+          }
+        }
+      }
+    },
+    "/v1/agents/sessions/{id}": {
+      "delete": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "delete_session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Termination queued"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Not your session"
+          },
+          "404": {
+            "description": "Session not found"
+          },
+          "503": {
+            "description": "Kafka unavailable"
+          }
+        }
+      }
+    },
+    "/v1/agents/sessions/{id}/events": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "operationId": "session_events",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions to access this session"
+          },
+          "404": {
+            "description": "Session not found"
+          }
+        }
+      }
+    },
     "/v1/api-keys": {
       "get": {
         "tags": [
-          "api_keys"
+          "api-keys"
         ],
         "summary": "List all active (non-revoked) API keys for the current session's tenant.",
         "description": "Plaintext keys are never returned — only metadata.\nRequires an active session.",
@@ -86,7 +192,7 @@
       },
       "post": {
         "tags": [
-          "api_keys"
+          "api-keys"
         ],
         "summary": "Create a new API key for the current session's tenant.",
         "description": "The plaintext key is returned exactly once in the `key` field.\nSubsequent reads from `GET /v1/api-keys` will not include the plaintext.\nRequires an active session.",
@@ -124,7 +230,7 @@
     "/v1/api-keys/{id}": {
       "delete": {
         "tags": [
-          "api_keys"
+          "api-keys"
         ],
         "summary": "Revoke an API key.",
         "description": "Any authenticated member of the tenant may revoke any key belonging to\nthat tenant. Revocation is immediate and irreversible.\nRequires an active session.",
@@ -678,7 +784,7 @@
     "/v1/ingestions/recent": {
       "get": {
         "tags": [
-          "ingestions"
+          "ingest"
         ],
         "summary": "List recent ingestion runs for the caller's tenant.",
         "description": "Returns up to `limit` runs ordered newest-first.  Used by the\nActivity Dashboard (REQ-FE-07) and Trace Viewer index (REQ-FE-08).",
@@ -721,7 +827,7 @@
     "/v1/ingestions/{ingestion_run_id}/stages": {
       "get": {
         "tags": [
-          "ingestions"
+          "ingest"
         ],
         "summary": "Retrieve the stage timeline for an ingestion run (trace viewer fallback).",
         "description": "Reads `pipeline_stage_runs` ordered by stage sequence.  The cross-tenant\nisolation check joins `ingestion_runs` to verify `tenant_id` matches the\ncaller's session/key.  Returns 404 when the run does not exist or belongs\nto a different tenant.",
@@ -954,7 +1060,7 @@
     "/v1/repos/{repo_id}/ingestions": {
       "post": {
         "tags": [
-          "ingestions"
+          "ingest"
         ],
         "summary": "Trigger a manual ingestion run for a connected repository.",
         "description": "Creates an `ingestion_runs` row (status `queued`) and one\n`pipeline_stage_runs` row per stage (status `pending`), then publishes an\n`IngestRequest` to `rb.ingest.clone.commands`.\n\nReturns 409 if an ingestion is already queued or running for this repo.\nReturns 503 if the Kafka producer is unavailable.",
@@ -2045,6 +2151,44 @@
             "items": {
               "$ref": "#/components/schemas/Scope"
             }
+          }
+        }
+      },
+      "CreateSessionRequest": {
+        "type": "object",
+        "required": [
+          "runtime"
+        ],
+        "properties": {
+          "initial_prompt": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string",
+            "description": "One of `\"claude_code\"`, `\"opencode\"`, `\"pi\"`"
+          },
+          "workspace_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional override for workspace sub-path; defaults to `tenant_id/session_id`."
+          }
+        }
+      },
+      "CreateSessionResponse": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "status"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },
@@ -3347,48 +3491,52 @@
   },
   "tags": [
     {
-      "name": "audit",
-      "description": "Immutable audit log (admin only)"
+      "name": "health",
+      "description": "Liveness/readiness probes"
     },
     {
-      "name": "health",
-      "description": "Liveness and readiness probes"
+      "name": "audit",
+      "description": "Audit trail query"
     },
     {
       "name": "auth",
-      "description": "Authentication and session management"
+      "description": "Authentication"
     },
     {
       "name": "me",
-      "description": "Current-user and session endpoints"
+      "description": "Current user and tenant context"
+    },
+    {
+      "name": "api-keys",
+      "description": "API key management"
     },
     {
       "name": "tenants",
-      "description": "Tenant membership and role management"
+      "description": "Tenant and membership"
     },
     {
-      "name": "api_keys",
-      "description": "API key management"
+      "name": "repos",
+      "description": "Repository connections"
+    },
+    {
+      "name": "ingest",
+      "description": "Ingestion pipeline"
     },
     {
       "name": "github",
       "description": "GitHub App integration"
     },
     {
-      "name": "repos",
-      "description": "Connected repository management"
-    },
-    {
-      "name": "ingestions",
-      "description": "Manual ingestion trigger and run management"
-    },
-    {
       "name": "query",
-      "description": "Data-plane query endpoints (ADR-008 Wave 6)"
+      "description": "Code graph queries"
+    },
+    {
+      "name": "search",
+      "description": "Semantic code search"
     },
     {
       "name": "agents",
-      "description": "Agent session management (ADR-009 Option B — process-spawning)"
+      "description": "Agent session management (ADR-009 Option B)"
     }
   ]
 }

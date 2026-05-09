@@ -163,7 +163,7 @@ fn validate_workspace_path(path: &str) -> Result<(), AppError> {
 // Request / response types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateSessionRequest {
     /// One of `"claude_code"`, `"opencode"`, `"pi"`
     pub runtime: String,
@@ -173,7 +173,7 @@ pub struct CreateSessionRequest {
     pub workspace_path: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct CreateSessionResponse {
     pub session_id: Uuid,
     pub status: String,
@@ -186,7 +186,7 @@ pub struct CreateSessionResponse {
 #[utoipa::path(
     post,
     path = "/v1/agents/sessions",
-    request_body = serde_json::Value,
+    request_body = CreateSessionRequest,
     responses(
         (status = 202, description = "Session created, pending agent-runner pickup"),
         (status = 400, description = "Invalid runtime or fields"),

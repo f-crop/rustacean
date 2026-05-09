@@ -64,7 +64,7 @@ pub struct CreateApiKeyResponse {
         (status = 400, description = "Missing or empty name or scopes"),
         (status = 401, description = "Not authenticated (unauthorized)"),
     ),
-    tag = "api_keys"
+    tag = "api-keys"
 )]
 pub async fn create_api_key(
     State(state): State<AppState>,
@@ -162,7 +162,7 @@ type ApiKeyRow = (
         (status = 200, description = "List of active API keys", body = ListApiKeysResponse),
         (status = 401, description = "Not authenticated"),
     ),
-    tag = "api_keys"
+    tag = "api-keys"
 )]
 pub async fn list_api_keys(
     State(state): State<AppState>,
@@ -222,7 +222,7 @@ pub async fn list_api_keys(
         (status = 401, description = "Not authenticated"),
         (status = 404, description = "Key not found or already revoked"),
     ),
-    tag = "api_keys"
+    tag = "api-keys"
 )]
 pub async fn revoke_api_key(
     State(state): State<AppState>,

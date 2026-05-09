@@ -84,7 +84,7 @@ fn require_read(auth: AuthContext) -> Result<Uuid, AppError> {
         (status = 401, description = "Not authenticated or session expired"),
         (status = 403, description = "Email not verified or insufficient scope"),
     ),
-    tag = "ingestions"
+    tag = "ingest"
 )]
 pub async fn list_recent_runs(
     State(state): State<AppState>,

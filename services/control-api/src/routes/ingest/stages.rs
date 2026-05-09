@@ -74,7 +74,7 @@ fn require_read(auth: AuthContext) -> Result<Uuid, AppError> {
         (status = 403, description = "Email not verified or insufficient scope"),
         (status = 404, description = "Ingestion run not found or belongs to another tenant"),
     ),
-    tag = "ingestions"
+    tag = "ingest"
 )]
 pub async fn get_stage_timeline(
     State(state): State<AppState>,
