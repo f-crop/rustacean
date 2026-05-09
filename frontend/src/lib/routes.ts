@@ -12,6 +12,7 @@ export const routes = {
   ingestion: "/ingestion",
   codeWorkspace: "/repos/$repoId/code",
   activity: "/activity",
+  agentExecution: "/agents/executions",
   trace: "/trace/$traceId",
 } as const;
 
