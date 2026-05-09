@@ -105,15 +105,12 @@ use crate::routes::{
             ingest::trigger::TriggerIngestionResponse,
             query::graph::GraphQueryRequest,
             query::graph::GraphQueryResponse,
-            query::impls::TraitImplsResponse,
-            query::items::ItemDetail,
-            query::items::LineSpan,
-            query::modules::ModuleTreeNode,
+            query::impls::ImplsResponse,
+            query::items::ItemResponse,
             query::modules::ModuleTreeResponse,
-            query::search::SearchHit,
             query::search::SearchResponse,
-            query::traversal::CallGraphResponse,
-            query::usages::TypeUsagesResponse,
+            query::traversal::TraversalResponse,
+            query::usages::UsagesResponse,
         )
     ),
     tags(
@@ -130,6 +127,7 @@ use crate::routes::{
 )]
 pub struct ApiDoc;
 
+#[expect(dead_code)]
 pub fn generate_openapi_spec() -> String {
     ApiDoc::openapi().to_json().expect("OpenAPI serialization")
 }
