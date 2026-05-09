@@ -84,6 +84,10 @@ pub async fn list_members(
     Ok(Json(ListMembersResponse { members }))
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     use crate::error::AppError;

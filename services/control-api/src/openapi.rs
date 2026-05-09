@@ -105,44 +105,31 @@ use crate::routes::{
             ingest::trigger::TriggerIngestionResponse,
             query::graph::GraphQueryRequest,
             query::graph::GraphQueryResponse,
-            query::items::ItemResponse,
-            query::modules::NodeSource,
-            query::modules::ModuleNodeItem,
+            query::impls::TraitImplsResponse,
+            query::items::ItemDetail,
+            query::items::LineSpan,
+            query::modules::ModuleTreeNode,
             query::modules::ModuleTreeResponse,
-            query::impls::ImplEntry,
-            query::impls::ImplsResponse,
-            query::usages::UsageEntry,
-            query::usages::UsagesResponse,
-            query::search::SearchRequest,
-            query::search::SearchResult,
+            query::search::SearchHit,
             query::search::SearchResponse,
-            query::traversal::EdgeProvenanceSchema,
-            query::traversal::TraversalNodeSchema,
-            query::traversal::TraversalEdgeSchema,
-            query::traversal::TraversalResponse,
+            query::traversal::CallGraphResponse,
+            query::usages::TypeUsagesResponse,
         )
     ),
-    info(
-        title = "rust-brain control API",
-        version = "0.1.0",
-        description = "Control-plane API for rust-brain: auth, tenant management, and API key endpoints.",
-        contact(
-            name = "rust-brain",
-            url = "https://github.com/jarnura/rustacean",
-        ),
-    ),
     tags(
-        (name = "audit", description = "Immutable audit log (admin only)"),
-        (name = "health", description = "Liveness and readiness probes"),
-        (name = "auth", description = "Authentication and session management"),
-        (name = "me", description = "Current-user and session endpoints"),
-        (name = "tenants", description = "Tenant membership and role management"),
-        (name = "api_keys", description = "API key management"),
-        (name = "github", description = "GitHub App integration"),
-        (name = "repos", description = "Connected repository management"),
-        (name = "ingestions", description = "Manual ingestion trigger and run management"),
-        (name = "query", description = "Data-plane query endpoints (ADR-008 Wave 6)"),
-        (name = "agents", description = "Agent session management (ADR-009 Option B — process-spawning)"),
-    ),
+        (name = "health", description = "Liveness/readiness probes"),
+        (name = "audit", description = "Audit trail query"),
+        (name = "auth", description = "Authentication"),
+        (name = "me", description = "Current user and tenant context"),
+        (name = "api-keys", description = "API key management"),
+        (name = "tenants", description = "Tenant and membership"),
+        (name = "repos", description = "Repository connections"),
+        (name = "ingest", description = "Ingestion pipeline"),
+        (name = "query", description = "Code graph queries")
+    )
 )]
 pub struct ApiDoc;
+
+pub fn generate_openapi_spec() -> String {
+    ApiDoc::openapi().to_json().expect("OpenAPI serialization")
+}
