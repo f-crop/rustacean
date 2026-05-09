@@ -5,7 +5,7 @@ use tokio::io::AsyncWriteExt;
 
 use super::{
     AgentProcess, LineKind, ParsedLine, RuntimeAdapter, SessionCtx, build_base_command,
-    check_binary, write_mcp_config,
+    write_mcp_config,
 };
 
 pub struct ClaudeCodeAdapter;
@@ -19,7 +19,6 @@ impl ClaudeCodeAdapter {
 #[async_trait]
 impl RuntimeAdapter for ClaudeCodeAdapter {
     async fn spawn(&self, ctx: &SessionCtx) -> Result<AgentProcess> {
-        check_binary("claude").await?;
         write_mcp_config(&ctx.workspace_path, &ctx.api_key, &ctx.tenant_id)
             .await
             .context("Failed to write MCP config")?;
