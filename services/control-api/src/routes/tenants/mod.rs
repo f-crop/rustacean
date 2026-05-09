@@ -3,9 +3,7 @@ pub mod members;
 mod role;
 
 pub use delete::delete_tenant;
-pub use members::{
-    invite_member, remove_member, transfer_ownership, update_member_role,
-};
+pub use members::{invite_member, remove_member, transfer_ownership, update_member_role};
 
 use axum::{
     Json,
@@ -17,11 +15,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{
-    error::AppError,
-    middleware::auth::AuthContext,
-    state::AppState,
-};
+use crate::{error::AppError, middleware::auth::AuthContext, state::AppState};
 use role::{TenantRole, require_role, require_session};
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -90,9 +84,9 @@ pub async fn list_members(
 
 #[cfg(test)]
 mod tests {
+    use super::role::*;
     use crate::error::AppError;
     use crate::middleware::auth::{AuthContext, SessionInfo};
-    use super::role::*;
     use uuid::Uuid;
 
     #[test]

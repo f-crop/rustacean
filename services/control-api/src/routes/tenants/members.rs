@@ -11,11 +11,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::role::{TenantRole, require_role, require_session, urlencoding_simple};
-use crate::{
-    error::AppError,
-    middleware::auth::AuthContext,
-    state::AppState,
-};
+use crate::{error::AppError, middleware::auth::AuthContext, state::AppState};
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct InviteMemberRequest {
