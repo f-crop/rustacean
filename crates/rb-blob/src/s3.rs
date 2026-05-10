@@ -83,8 +83,7 @@ impl S3Store {
     /// Returns [`BlobError::S3`] if the AWS config cannot be loaded or the
     /// bucket is not accessible.
     pub async fn from_env() -> Result<Self, BlobError> {
-        let bucket = std::env::var("RB_BLOB_S3_BUCKET")
-            .unwrap_or_else(|_| "rb-blobs".to_string());
+        let bucket = std::env::var("RB_BLOB_S3_BUCKET").unwrap_or_else(|_| "rb-blobs".to_string());
 
         let sdk_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .load()
@@ -92,9 +91,7 @@ impl S3Store {
         let mut s3_builder = aws_sdk_s3::config::Builder::from(&sdk_config);
 
         if let Ok(endpoint) = std::env::var("RB_BLOB_S3_ENDPOINT") {
-            s3_builder = s3_builder
-                .endpoint_url(endpoint)
-                .force_path_style(true);
+            s3_builder = s3_builder.endpoint_url(endpoint).force_path_style(true);
         }
 
         let client = aws_sdk_s3::Client::from_conf(s3_builder.build());
@@ -358,7 +355,12 @@ mod tests {
 
     fn make_blob_ref(tenant_id: Uuid, data: &[u8]) -> BlobRef {
         let sha256 = compute_sha256(data);
-        BlobRef::new(tenant_id, sha256, "application/octet-stream", data.len() as u64)
+        BlobRef::new(
+            tenant_id,
+            sha256,
+            "application/octet-stream",
+            data.len() as u64,
+        )
     }
 
     /// Basic round-trip: put → exists → get → delete → !exists
@@ -367,12 +369,17 @@ mod tests {
     /// Run with: `TEST_S3_ENDPOINT=http://localhost:4566 cargo test -p rb-blob s3_roundtrip --features s3`
     #[tokio::test]
     async fn s3_roundtrip() {
-        let Some(store) = try_store().await else { return };
+        let Some(store) = try_store().await else {
+            return;
+        };
         let tenant = Uuid::new_v4();
         let data = b"hello s3 blob store";
         let blob_ref = make_blob_ref(tenant, data);
 
-        store.put(&blob_ref, Bytes::from_static(data)).await.expect("put");
+        store
+            .put(&blob_ref, Bytes::from_static(data))
+            .await
+            .expect("put");
         assert!(store.exists(&blob_ref).await.expect("exists"));
 
         let retrieved = store.get(&blob_ref).await.expect("get");
@@ -382,16 +389,21 @@ mod tests {
         assert!(!store.exists(&blob_ref).await.expect("exists after delete"));
     }
 
-    /// A puts → B tries get → TenantMismatch
+    /// A puts → B tries get → `TenantMismatch`
     #[tokio::test]
     async fn s3_tenant_isolation() {
-        let Some(store) = try_store().await else { return };
+        let Some(store) = try_store().await else {
+            return;
+        };
         let tenant_a = Uuid::new_v4();
         let tenant_b = Uuid::new_v4();
         let data = b"shared content different owners";
         let ref_a = make_blob_ref(tenant_a, data);
 
-        store.put(&ref_a, Bytes::from_static(data)).await.expect("put as tenant_a");
+        store
+            .put(&ref_a, Bytes::from_static(data))
+            .await
+            .expect("put as tenant_a");
 
         let ref_b = BlobRef::new(
             tenant_b,
@@ -409,27 +421,48 @@ mod tests {
         store.delete(&ref_a).await.expect("cleanup");
     }
 
-    /// A puts → B puts → A deletes → C gets must return TenantMismatch (B still owns).
-    /// After B also deletes, C gets must return NotFound.
+    /// A puts → B puts → A deletes → C gets must return `TenantMismatch` (B still owns).
+    /// After B also deletes, C gets must return `NotFound`.
     /// This exercises the per-tenant manifest isolation under the production path
     /// (not a test-double that auto-preserves headers / markers).
     #[tokio::test]
     async fn s3_multi_tenant_delete_isolation() {
-        let Some(store) = try_store().await else { return };
+        let Some(store) = try_store().await else {
+            return;
+        };
         let tenant_a = Uuid::new_v4();
         let tenant_b = Uuid::new_v4();
         let tenant_c = Uuid::new_v4();
         let data = b"shared content multi-tenant s3 delete";
         let ref_a = make_blob_ref(tenant_a, data);
-        let ref_b = BlobRef::new(tenant_b, ref_a.sha256.clone(), "application/octet-stream", ref_a.size);
-        let ref_c = BlobRef::new(tenant_c, ref_a.sha256.clone(), "application/octet-stream", ref_a.size);
+        let ref_b = BlobRef::new(
+            tenant_b,
+            ref_a.sha256.clone(),
+            "application/octet-stream",
+            ref_a.size,
+        );
+        let ref_c = BlobRef::new(
+            tenant_c,
+            ref_a.sha256.clone(),
+            "application/octet-stream",
+            ref_a.size,
+        );
 
-        store.put(&ref_a, Bytes::from_static(data)).await.expect("A put");
-        store.put(&ref_b, Bytes::from_static(data)).await.expect("B put");
+        store
+            .put(&ref_a, Bytes::from_static(data))
+            .await
+            .expect("A put");
+        store
+            .put(&ref_b, Bytes::from_static(data))
+            .await
+            .expect("B put");
         store.delete(&ref_a).await.expect("A delete");
 
         // B still owns → C must see TenantMismatch, not NotFound.
-        let err = store.get(&ref_c).await.expect_err("C get while B owns blob");
+        let err = store
+            .get(&ref_c)
+            .await
+            .expect_err("C get while B owns blob");
         assert!(
             matches!(err, BlobError::TenantMismatch),
             "expected TenantMismatch (B still owns blob), got {err:?}"
@@ -438,18 +471,23 @@ mod tests {
         store.delete(&ref_b).await.expect("B delete");
 
         // Nobody owns → C must see NotFound.
-        let err2 = store.get(&ref_c).await.expect_err("C get after all-deleted");
+        let err2 = store
+            .get(&ref_c)
+            .await
+            .expect_err("C get after all-deleted");
         assert!(
             matches!(err2, BlobError::NotFound { .. }),
             "expected NotFound after all tenants deleted, got {err2:?}"
         );
     }
 
-    /// A puts → B puts same sha256 → A deletes → B can still get (no TenantMismatch)
+    /// A puts → B puts same sha256 → A deletes → B can still get (no `TenantMismatch`)
     /// This is the B-HIGH-1 regression test for per-tenant markers.
     #[tokio::test]
     async fn s3_per_tenant_manifest_independent() {
-        let Some(store) = try_store().await else { return };
+        let Some(store) = try_store().await else {
+            return;
+        };
         let tenant_a = Uuid::new_v4();
         let tenant_b = Uuid::new_v4();
         let data = b"independently owned blob";
@@ -462,8 +500,14 @@ mod tests {
         );
 
         // Both tenants store the same content.
-        store.put(&ref_a, Bytes::from_static(data)).await.expect("put A");
-        store.put(&ref_b, Bytes::from_static(data)).await.expect("put B");
+        store
+            .put(&ref_a, Bytes::from_static(data))
+            .await
+            .expect("put A");
+        store
+            .put(&ref_b, Bytes::from_static(data))
+            .await
+            .expect("put B");
 
         // A deletes their copy.
         store.delete(&ref_a).await.expect("delete A");

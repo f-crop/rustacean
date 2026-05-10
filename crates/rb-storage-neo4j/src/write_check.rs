@@ -103,7 +103,10 @@ pub fn has_write_operators(cypher: &str) -> bool {
 }
 
 fn eq_ci(a: &str, upper: &str) -> bool {
-    a.len() == upper.len() && a.bytes().zip(upper.bytes()).all(|(x, y)| x.to_ascii_uppercase() == y)
+    a.len() == upper.len()
+        && a.bytes()
+            .zip(upper.bytes())
+            .all(|(x, y)| x.to_ascii_uppercase() == y)
 }
 
 fn is_write_keyword(word: &str) -> bool {
@@ -161,12 +164,16 @@ mod tests {
 
     #[test]
     fn keyword_in_single_quote_ignored() {
-        assert!(!has_write_operators("MATCH (n) WHERE n.x = 'CREATE' RETURN n"));
+        assert!(!has_write_operators(
+            "MATCH (n) WHERE n.x = 'CREATE' RETURN n"
+        ));
     }
 
     #[test]
     fn keyword_in_double_quote_ignored() {
-        assert!(!has_write_operators("MATCH (n) WHERE n.x = \"DELETE\" RETURN n"));
+        assert!(!has_write_operators(
+            "MATCH (n) WHERE n.x = \"DELETE\" RETURN n"
+        ));
     }
 
     #[test]
@@ -182,7 +189,9 @@ mod tests {
     #[test]
     fn escaped_quote_does_not_exit_string() {
         // "SET" inside a string with escaped quote — must not trigger
-        assert!(!has_write_operators("MATCH (n) WHERE n.x = 'foo\\'s SET' RETURN n"));
+        assert!(!has_write_operators(
+            "MATCH (n) WHERE n.x = 'foo\\'s SET' RETURN n"
+        ));
     }
 
     #[test]

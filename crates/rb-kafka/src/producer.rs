@@ -1,14 +1,14 @@
 use std::{marker::PhantomData, str::FromStr as _, time::Duration};
 
 use metrics::{counter, histogram};
-use tracing::Instrument as _;
-use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use prost::Message as ProstMessage;
 use rdkafka::{
     ClientConfig,
     message::{Header, OwnedHeaders},
     producer::{FutureProducer, FutureRecord},
 };
+use tracing::Instrument as _;
+use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
 use crate::{
     config::ProducerCfg,
@@ -86,9 +86,8 @@ impl<E: ProstMessage> Producer<E> {
         let created_at = envelope.created_at;
         // in_scope: span active during synchronous header injection so the OTel
         // propagator captures produce_span context into the Kafka traceparent header.
-        let (headers, payload) = produce_span.in_scope(|| {
-            (build_headers(&envelope), envelope.payload.encode_to_vec())
-        });
+        let (headers, payload) =
+            produce_span.in_scope(|| (build_headers(&envelope), envelope.payload.encode_to_vec()));
 
         let record = FutureRecord::to(topic)
             .key(key)

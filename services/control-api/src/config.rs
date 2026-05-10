@@ -65,34 +65,8 @@ pub struct Config {
     /// Must match the model used by `embed-worker`. Defaults to `nomic-embed-text`.
     pub embedding_model: String,
 
-    // --- Agent runtime / OAuth (ADR-009 Phase 1) ---
-    /// `RB_CLAUDE_OAUTH_CLIENT_ID` — Anthropic OAuth client ID for PKCE flow.
-    /// Optional; `/v1/auth/oauth/claude/start` returns 503 when absent.
-    pub claude_oauth_client_id: Option<String>,
-    /// `RB_LITELLM_URL` — `LiteLLM` in-cluster proxy base URL.
-    /// Optional; `open_code` runtime returns 503 when absent.
-    pub litellm_url: Option<String>,
-    /// `RB_LITELLM_OPEN_CODE_KEY` — Virtual key for the `open_code` runtime.
-    pub litellm_open_code_key: Option<String>,
-
-    // --- OAuth token encryption / KMS key rotation (RUSAA-862) ---
-    /// `RB_OAUTH_ENCRYPT_KEY` — hex-encoded 32-byte AES-256 master key for
-    /// encrypting `oauth_tokens.access_token` / `refresh_token` at rest.
-    /// When absent, tokens are stored as plaintext (development only).
-    pub oauth_encrypt_key: Option<String>,
-    /// `RB_OAUTH_ENCRYPT_KEY_ID` — logical KMS key label written to
-    /// `oauth_tokens.encryption_key_id`.  Defaults to `"oauth-claude-v1"`.
-    pub oauth_encrypt_key_id: String,
-    /// `RB_OAUTH_ENCRYPT_KEY_PREV` — hex-encoded 32-byte previous AES-256 key.
-    /// Required during a rotation window to decrypt rows from the retired key.
-    pub oauth_encrypt_key_prev: Option<String>,
-    /// `RB_OAUTH_ENCRYPT_KEY_PREV_ID` — key id label for the previous key
-    /// (e.g. `"oauth-claude-v0"`).  Defaults to `"none"` (plaintext / unset).
-    pub oauth_encrypt_key_prev_id: String,
-    /// `RB_OAUTH_ROTATE_KEYS_ON_BOOT` — when `"true"`, the key-rotation sweep
-    /// runs at startup.  Safe to enable during a planned rotation window;
-    /// no-op when the table is already fully on the current key.
-    pub oauth_rotate_keys_on_boot: bool,
+    pub internal_secret: Option<String>,
+    pub internal_listen_addr: String,
 }
 
 impl Config {
@@ -159,26 +133,11 @@ impl Config {
             ollama_url: env::var("RB_OLLAMA_URL").ok().filter(|s| !s.is_empty()),
             embedding_model: env::var("RB_EMBEDDING_MODEL")
                 .unwrap_or_else(|_| "nomic-embed-text".to_owned()),
-            claude_oauth_client_id: env::var("RB_CLAUDE_OAUTH_CLIENT_ID")
+            internal_secret: env::var("RB_INTERNAL_SECRET")
                 .ok()
                 .filter(|s| !s.is_empty()),
-
-            litellm_url: env::var("RB_LITELLM_URL").ok().filter(|s| !s.is_empty()),
-            litellm_open_code_key: env::var("RB_LITELLM_OPEN_CODE_KEY")
-                .ok()
-                .filter(|s| !s.is_empty()),
-            oauth_encrypt_key: env::var("RB_OAUTH_ENCRYPT_KEY")
-                .ok()
-                .filter(|s| !s.is_empty()),
-            oauth_encrypt_key_id: env::var("RB_OAUTH_ENCRYPT_KEY_ID")
-                .unwrap_or_else(|_| "oauth-claude-v1".to_owned()),
-            oauth_encrypt_key_prev: env::var("RB_OAUTH_ENCRYPT_KEY_PREV")
-                .ok()
-                .filter(|s| !s.is_empty()),
-            oauth_encrypt_key_prev_id: env::var("RB_OAUTH_ENCRYPT_KEY_PREV_ID")
-                .unwrap_or_else(|_| "none".to_owned()),
-            oauth_rotate_keys_on_boot: env::var("RB_OAUTH_ROTATE_KEYS_ON_BOOT")
-                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            internal_listen_addr: env::var("RB_INTERNAL_LISTEN_ADDR")
+                .unwrap_or_else(|_| "127.0.0.1:8081".to_owned()),
         })
     }
 
@@ -205,8 +164,8 @@ impl Config {
         } else if self.base_url.contains(":8080") {
             // :8080 is the API listen address — RB_BASE_URL must point at the frontend.
             // Allow the local dev default only when email is non-sending (console/noop).
-            let is_local = self.base_url.contains("localhost")
-                || self.base_url.contains("127.0.0.1");
+            let is_local =
+                self.base_url.contains("localhost") || self.base_url.contains("127.0.0.1");
             if !is_local || !matches!(self.email_transport.as_str(), "console" | "noop") {
                 errors.push(format!(
                     "RB_BASE_URL={:?}: looks like the API address (:8080), not the frontend. \
@@ -238,6 +197,16 @@ impl Config {
                     ));
                 }
             }
+        }
+
+        // RB_INTERNAL_SECRET must be non-empty when internal routes are used.
+        // The internal routes are always compiled in, so require the secret.
+        if self.internal_secret.as_ref().is_none_or(String::is_empty) {
+            errors.push(
+                "RB_INTERNAL_SECRET is required and must be non-empty. \
+                 Set a strong shared secret for agent-runner callbacks."
+                    .to_owned(),
+            );
         }
 
         if !errors.is_empty() {
@@ -284,14 +253,8 @@ impl Config {
             qdrant_url: None,
             ollama_url: None,
             embedding_model: "nomic-embed-text".to_owned(),
-            claude_oauth_client_id: None,
-            litellm_url: None,
-            litellm_open_code_key: None,
-            oauth_encrypt_key: None,
-            oauth_encrypt_key_id: "oauth-claude-v1".to_owned(),
-            oauth_encrypt_key_prev: None,
-            oauth_encrypt_key_prev_id: "none".to_owned(),
-            oauth_rotate_keys_on_boot: false,
+            internal_secret: None,
+            internal_listen_addr: "127.0.0.1:0".to_owned(),
         }
     }
 }
@@ -301,7 +264,9 @@ mod tests {
     use super::*;
 
     fn base() -> Config {
-        Config::for_test()
+        let mut cfg = Config::for_test();
+        cfg.internal_secret = Some("test-internal-secret-for-validation".to_owned());
+        cfg
     }
 
     #[test]

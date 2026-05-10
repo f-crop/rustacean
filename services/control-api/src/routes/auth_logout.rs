@@ -65,7 +65,10 @@ pub async fn logout(
 
     Ok((
         StatusCode::NO_CONTENT,
-        [("Set-Cookie", clear_session_cookie(state.config.secure_cookies))],
+        [(
+            "Set-Cookie",
+            clear_session_cookie(state.config.secure_cookies),
+        )],
     ))
 }
 
@@ -118,7 +121,10 @@ mod tests {
         assert!(cookie.contains("HttpOnly"), "cookie was: {cookie}");
         assert!(cookie.contains("SameSite=Lax"), "cookie was: {cookie}");
         assert!(cookie.contains("Path=/"), "cookie was: {cookie}");
-        assert!(!cookie.contains("Secure"), "Secure must be absent: {cookie}");
+        assert!(
+            !cookie.contains("Secure"),
+            "Secure must be absent: {cookie}"
+        );
     }
 
     #[test]

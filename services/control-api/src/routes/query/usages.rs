@@ -83,8 +83,9 @@ pub async fn get_type_usages(
 
     let graph = state.graph.as_deref().ok_or(AppError::GraphUnavailable)?;
 
-    let fqn_bytes =
-        URL_SAFE_NO_PAD.decode(fqn_b64.as_bytes()).map_err(|_| AppError::InvalidInput)?;
+    let fqn_bytes = URL_SAFE_NO_PAD
+        .decode(fqn_b64.as_bytes())
+        .map_err(|_| AppError::InvalidInput)?;
     let fqn = String::from_utf8(fqn_bytes).map_err(|_| AppError::InvalidInput)?;
 
     // Verify the repo belongs to this tenant.
@@ -114,7 +115,10 @@ pub async fn get_type_usages(
         type_fqn: fqn,
         usages: entries
             .into_iter()
-            .map(|e| UsageEntry { fqn: e.fqn, usage_kind: e.usage_kind })
+            .map(|e| UsageEntry {
+                fqn: e.fqn,
+                usage_kind: e.usage_kind,
+            })
             .collect(),
     }))
 }

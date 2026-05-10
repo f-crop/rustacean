@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
     message::{MultiPart, SinglePart, header::ContentType},
-    transport::smtp::{authentication::Credentials, Error as SmtpError},
+    transport::smtp::{Error as SmtpError, authentication::Credentials},
 };
 
 use crate::{Email, EmailError, SmtpConfig};
@@ -37,7 +37,10 @@ impl SmtpSender {
             .port(config.port)
             .credentials(creds)
             .build();
-        Ok(Self { transport, from: config.from_address.clone() })
+        Ok(Self {
+            transport,
+            from: config.from_address.clone(),
+        })
     }
 }
 

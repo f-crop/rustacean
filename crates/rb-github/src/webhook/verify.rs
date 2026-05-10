@@ -32,8 +32,7 @@ pub fn verify_signature(
         .ok_or(GhError::BadSignatureFormat)?;
     let provided = hex::decode(hex_part).map_err(|_| GhError::BadSignatureFormat)?;
 
-    let mut mac =
-        HmacSha256::new_from_slice(secret.expose()).expect("HMAC accepts any key length");
+    let mut mac = HmacSha256::new_from_slice(secret.expose()).expect("HMAC accepts any key length");
     mac.update(body);
     let expected = mac.finalize().into_bytes();
 

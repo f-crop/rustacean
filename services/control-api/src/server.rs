@@ -18,13 +18,11 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+use rb_schemas::AgentSessionCommand;
+
 use crate::{
     config::Config,
-    crypto::OauthTokenCipher,
-    ingest_consumer,
-    jobs::token_key_rotation,
-    middleware,
-    routes,
+    ingest_consumer, middleware, routes,
     state::{AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore},
 };
 
@@ -87,9 +85,10 @@ pub async fn run(config: Config) -> Result<()> {
     let tombstone_producer = build_producer(Producer::new(&producer_cfg), "tombstone_producer");
 
     // Connect to Neo4j.  Failure is non-fatal — graph endpoints degrade to 503.
-    let graph = if let (Some(uri), Some(password)) =
-        (config.neo4j_uri.as_deref(), config.neo4j_password.as_deref())
-    {
+    let graph = if let (Some(uri), Some(password)) = (
+        config.neo4j_uri.as_deref(),
+        config.neo4j_password.as_deref(),
+    ) {
         match TenantGraph::connect(uri, &config.neo4j_user, password).await {
             Ok(g) => {
                 tracing::info!("neo4j connected at {uri}");
@@ -114,25 +113,12 @@ pub async fn run(config: Config) -> Result<()> {
 
     let kafka_consistency = Arc::new(KafkaConsistencyState::new());
 
-    // Build OAuth token ciphers.  The current key is required in production;
-    // when absent, tokens are stored as plaintext (development only — the
-    // callback will warn at startup if OAuth is enabled without a key).
-    let token_cipher = build_token_cipher(
-        &config.oauth_encrypt_key_id,
-        config.oauth_encrypt_key.as_deref(),
+    // Build agent commands Kafka producer. Failure is non-fatal — agent routes
+    // return 503 when Kafka is not configured.
+    let agent_commands_producer = build_producer(
+        Producer::<AgentSessionCommand>::new(&producer_cfg),
+        "agent_commands_producer",
     );
-    let token_cipher_prev = build_token_cipher(
-        &config.oauth_encrypt_key_prev_id,
-        config.oauth_encrypt_key_prev.as_deref(),
-    );
-
-    if config.claude_oauth_client_id.is_some() && token_cipher.is_none() {
-        tracing::warn!(
-            "RB_CLAUDE_OAUTH_CLIENT_ID is set but RB_OAUTH_ENCRYPT_KEY is absent; \
-             OAuth tokens will be stored as plaintext.  Set RB_OAUTH_ENCRYPT_KEY \
-             before enabling OAuth in production."
-        );
-    }
 
     let state = AppState {
         pool,
@@ -150,38 +136,22 @@ pub async fn run(config: Config) -> Result<()> {
         http_client: reqwest::Client::new(),
         neo4j_uri: config.neo4j_uri.clone(),
         kafka_consistency: Arc::clone(&kafka_consistency),
-        mcp_sessions: McpSessionStore::new(),
+        mcp_sessions: McpSessionStore,
         agent_registry: AgentRegistry::new(),
-        token_cipher: token_cipher.clone(),
-        token_cipher_prev: token_cipher_prev.clone(),
+        agent_commands_producer,
+        internal_secret: config.internal_secret.clone().unwrap_or_default(),
     };
-
-    // Spawn the OAuth key-rotation sweep when configured (RUSAA-862).
-    // Runs as a one-shot background task; errors are logged, never fatal.
-    if config.oauth_rotate_keys_on_boot {
-        if let Some(cipher) = token_cipher.clone() {
-            let sweep_pool = state.pool.clone();
-            let sweep_prev = token_cipher_prev.clone();
-            tokio::spawn(async move {
-                tracing::info!("token_key_rotation: sweep starting");
-                let rotated =
-                    token_key_rotation::rotate_oauth_token_keys(&sweep_pool, &cipher, sweep_prev.as_ref())
-                        .await;
-                tracing::info!(rotated, "token_key_rotation: sweep complete");
-            });
-        } else {
-            tracing::warn!(
-                "RB_OAUTH_ROTATE_KEYS_ON_BOOT=true but RB_OAUTH_ENCRYPT_KEY is not set; \
-                 rotation sweep skipped"
-            );
-        }
-    }
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do
     // not prevent the HTTP server from starting — the SSE endpoint degrades
     // gracefully when Kafka is unavailable (no events; long-poll returns empty).
     let consumer_cfg = ConsumerCfg::new("control-api-sse");
-    match ingest_consumer::spawn(&consumer_cfg, sse_bus, Arc::new(state.pool.clone()), kafka_consistency) {
+    match ingest_consumer::spawn(
+        &consumer_cfg,
+        sse_bus,
+        Arc::new(state.pool.clone()),
+        kafka_consistency,
+    ) {
         Ok(_handle) => tracing::info!("ingest_consumer started"),
         Err(e) => tracing::warn!("ingest_consumer failed to start (Kafka unavailable?): {e}"),
     }
@@ -191,8 +161,13 @@ pub async fn run(config: Config) -> Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = routes::build(state)
-        .route("/metrics", get(move || async move { metrics_handle.render() }))
+    // SECURITY: Public and internal routes are served on separate listeners
+    // to prevent internal endpoints from being exposed on the public interface.
+    let public_app = routes::build_public(state.clone())
+        .route(
+            "/metrics",
+            get(move || async move { metrics_handle.render() }),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(cors)
@@ -200,21 +175,34 @@ pub async fn run(config: Config) -> Result<()> {
             middleware::otel_trace::otel_trace_middleware,
         ));
 
-    let addr: std::net::SocketAddr = config.listen_addr.parse()?;
-    tracing::info!(addr = %addr, "control-api listening");
+    let internal_app = routes::build_internal(state)
+        .layer(TraceLayer::new_for_http())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+        .layer(axum::middleware::from_fn(
+            middleware::otel_trace::otel_trace_middleware,
+        ));
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    let public_addr: std::net::SocketAddr = config.listen_addr.parse()?;
+    let internal_addr: std::net::SocketAddr = config.internal_listen_addr.parse()?;
+
+    tracing::info!(addr = %public_addr, "control-api public listener binding");
+    tracing::info!(addr = %internal_addr, "control-api internal listener binding");
+
+    let public_listener = tokio::net::TcpListener::bind(public_addr).await?;
+    let internal_listener = tokio::net::TcpListener::bind(internal_addr).await?;
+
+    // Spawn both servers concurrently; shutdown_signal triggers graceful shutdown for both.
+    let public_server =
+        axum::serve(public_listener, public_app).with_graceful_shutdown(shutdown_signal());
+    let internal_server =
+        axum::serve(internal_listener, internal_app).with_graceful_shutdown(shutdown_signal());
+
+    tokio::try_join!(public_server, internal_server)?;
 
     Ok(())
 }
 
-fn build_producer<P, Err: std::fmt::Display>(
-    result: Result<P, Err>,
-    name: &str,
-) -> Option<Arc<P>> {
+fn build_producer<P, Err: std::fmt::Display>(result: Result<P, Err>, name: &str) -> Option<Arc<P>> {
     match result {
         Ok(p) => {
             tracing::info!("{name} connected to Kafka");
@@ -266,27 +254,6 @@ fn build_gh_app(config: &Config) -> Result<Option<GhApp>> {
     let webhook_secret = Secret::new(webhook_secret_bytes);
 
     Ok(Some(GhApp::new(app_id, encoding_key, webhook_secret)))
-}
-
-/// Build a [`OauthTokenCipher`] from optional hex key material.
-///
-/// Returns `None` when `hex_key` is absent (no encryption for this slot).
-/// Panics at startup if the key is present but malformed — a misconfigured
-/// key is an operator error that must surface immediately.
-fn build_token_cipher(
-    key_id: &str,
-    hex_key: Option<&str>,
-) -> Option<Arc<OauthTokenCipher>> {
-    let hex = hex_key?;
-    match OauthTokenCipher::from_hex(key_id, hex) {
-        Ok(cipher) => {
-            tracing::info!(key_id, "OAuth token cipher initialised");
-            Some(Arc::new(cipher))
-        }
-        Err(e) => {
-            panic!("invalid OAuth encrypt key (key_id={key_id}): {e}");
-        }
-    }
 }
 
 async fn shutdown_signal() {

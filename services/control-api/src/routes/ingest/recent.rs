@@ -84,14 +84,22 @@ fn require_read(auth: AuthContext) -> Result<Uuid, AppError> {
         (status = 401, description = "Not authenticated or session expired"),
         (status = 403, description = "Email not verified or insufficient scope"),
     ),
-    tag = "ingestions"
+    tag = "ingest"
 )]
 pub async fn list_recent_runs(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<RecentQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    type Row = (Uuid, Uuid, String, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>, DateTime<Utc>);
+    type Row = (
+        Uuid,
+        Uuid,
+        String,
+        Option<DateTime<Utc>>,
+        Option<DateTime<Utc>>,
+        Option<String>,
+        DateTime<Utc>,
+    );
     let tenant_id = require_read(auth)?;
     let limit = query.limit.unwrap_or(50).clamp(1, 100);
 
@@ -109,9 +117,17 @@ pub async fn list_recent_runs(
 
     let runs = rows
         .into_iter()
-        .map(|(id, repo_id, status, started_at, finished_at, trace_id, created_at)| {
-            RecentRunItem { id, repo_id, status, started_at, finished_at, trace_id, created_at }
-        })
+        .map(
+            |(id, repo_id, status, started_at, finished_at, trace_id, created_at)| RecentRunItem {
+                id,
+                repo_id,
+                status,
+                started_at,
+                finished_at,
+                trace_id,
+                created_at,
+            },
+        )
         .collect();
 
     Ok(Json(RecentRunsResponse { runs }))
@@ -151,12 +167,18 @@ mod tests {
             tenant_id: Uuid::new_v4(),
             email_verified: false,
         });
-        assert!(matches!(require_read(auth), Err(AppError::EmailNotVerified)));
+        assert!(matches!(
+            require_read(auth),
+            Err(AppError::EmailNotVerified)
+        ));
     }
 
     #[test]
     fn anonymous_rejected() {
-        assert!(matches!(require_read(AuthContext::Anonymous), Err(AppError::Unauthorized)));
+        assert!(matches!(
+            require_read(AuthContext::Anonymous),
+            Err(AppError::Unauthorized)
+        ));
     }
 
     #[test]

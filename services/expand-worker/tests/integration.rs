@@ -10,20 +10,26 @@
 use std::path::PathBuf;
 
 fn fixture_workspace() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/feature-flagged-workspace")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/feature-flagged-workspace")
 }
 
 #[test]
 fn discovers_both_workspace_members() {
     let root = fixture_workspace();
     let root_toml = root.join("Cargo.toml");
-    assert!(root_toml.exists(), "fixture workspace root Cargo.toml must exist");
+    assert!(
+        root_toml.exists(),
+        "fixture workspace root Cargo.toml must exist"
+    );
 
     let text = std::fs::read_to_string(&root_toml).unwrap();
     let parsed: toml::Value = toml::from_str(&text).unwrap();
     let members = parsed["workspace"]["members"].as_array().unwrap();
-    assert_eq!(members.len(), 2, "fixture must declare two workspace members");
+    assert_eq!(
+        members.len(),
+        2,
+        "fixture must declare two workspace members"
+    );
 }
 
 #[test]

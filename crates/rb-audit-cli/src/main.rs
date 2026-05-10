@@ -71,23 +71,27 @@ enum Command {
 async fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Command::CheckLeak { tenant, skip_neo4j, skip_qdrant } => {
-            match run_check_leak(tenant, skip_neo4j, skip_qdrant).await {
-                Ok(passed) => {
-                    if passed {
-                        println!("[PASS] No residual data found for tenant {tenant}. Audit trail preserved.");
-                        process::exit(0);
-                    } else {
-                        eprintln!("[FAIL] Leak check failed for tenant {tenant}. See output above.");
-                        process::exit(1);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[ERROR] check-leak encountered a configuration error: {e}");
-                    process::exit(2);
+        Command::CheckLeak {
+            tenant,
+            skip_neo4j,
+            skip_qdrant,
+        } => match run_check_leak(tenant, skip_neo4j, skip_qdrant).await {
+            Ok(passed) => {
+                if passed {
+                    println!(
+                        "[PASS] No residual data found for tenant {tenant}. Audit trail preserved."
+                    );
+                    process::exit(0);
+                } else {
+                    eprintln!("[FAIL] Leak check failed for tenant {tenant}. See output above.");
+                    process::exit(1);
                 }
             }
-        }
+            Err(e) => {
+                eprintln!("[ERROR] check-leak encountered a configuration error: {e}");
+                process::exit(2);
+            }
+        },
     }
 }
 
@@ -105,8 +109,7 @@ async fn run_check_leak(tenant: Uuid, skip_neo4j: bool, skip_qdrant: bool) -> Re
     let neo4j_label = tenant_label(&tenant_id);
     let qdrant_collection = qdrant_collection_name(&tenant_id);
 
-    let database_url =
-        std::env::var("RB_DATABASE_URL").context("RB_DATABASE_URL is required")?;
+    let database_url = std::env::var("RB_DATABASE_URL").context("RB_DATABASE_URL is required")?;
 
     let pool = PgPoolOptions::new()
         .max_connections(2)
@@ -270,13 +273,12 @@ async fn check_audit_trail_present(pool: &sqlx::PgPool, tenant: Uuid) -> Result<
         return Ok(true);
     }
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM audit.audit_events WHERE tenant_id = $1",
-    )
-    .bind(tenant)
-    .fetch_one(pool)
-    .await
-    .context("failed to count audit events")?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit.audit_events WHERE tenant_id = $1")
+            .bind(tenant)
+            .fetch_one(pool)
+            .await
+            .context("failed to count audit events")?;
 
     if count > 0 {
         println!("[PASS] Audit trail preserved: {count} event(s) for tenant {tenant}.");
@@ -294,8 +296,8 @@ async fn check_audit_trail_present(pool: &sqlx::PgPool, tenant: Uuid) -> Result<
 // ------------------------------------------------------------------
 
 async fn check_neo4j_empty(label: &str) -> bool {
-    let base = std::env::var("NEO4J_HTTP_URL")
-        .unwrap_or_else(|_| "http://localhost:7474".to_owned());
+    let base =
+        std::env::var("NEO4J_HTTP_URL").unwrap_or_else(|_| "http://localhost:7474".to_owned());
     let user = std::env::var("NEO4J_USER").unwrap_or_else(|_| "neo4j".to_owned());
     let pass = std::env::var("NEO4J_PASS").unwrap_or_else(|_| "neo4j".to_owned());
 
@@ -335,7 +337,9 @@ async fn check_neo4j_empty(label: &str) -> bool {
                         println!("[PASS] Neo4j: 0 nodes labelled :{label}.");
                         true
                     } else {
-                        eprintln!("[FAIL] Neo4j leak: {cnt} nodes with label :{label} still exist.");
+                        eprintln!(
+                            "[FAIL] Neo4j leak: {cnt} nodes with label :{label} still exist."
+                        );
                         false
                     }
                 }
@@ -349,8 +353,7 @@ async fn check_neo4j_empty(label: &str) -> bool {
 // ------------------------------------------------------------------
 
 async fn check_qdrant_collection_gone(collection: &str) -> bool {
-    let base = std::env::var("QDRANT_URL")
-        .unwrap_or_else(|_| "http://localhost:6333".to_owned());
+    let base = std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_owned());
     let url = format!("{base}/collections/{collection}");
 
     let client = reqwest::Client::new();
@@ -364,7 +367,10 @@ async fn check_qdrant_collection_gone(collection: &str) -> bool {
                 println!("[PASS] Qdrant: collection '{collection}' not found (404).");
                 true
             } else if r.status().is_success() {
-                eprintln!("[FAIL] Qdrant leak: collection '{collection}' still exists (status={}).", r.status());
+                eprintln!(
+                    "[FAIL] Qdrant leak: collection '{collection}' still exists (status={}).",
+                    r.status()
+                );
                 false
             } else {
                 eprintln!(
@@ -433,9 +439,19 @@ mod tests {
         let hex_from_label = &label["Tenant_".len()..];
         let hex_from_coll = &coll["tenant_".len()..coll.len() - "_embeddings".len()];
 
-        assert_eq!(hex_from_schema, hex_from_label, "PG schema hex != Neo4j label hex");
-        assert_eq!(hex_from_schema, hex_from_coll, "PG schema hex != Qdrant collection hex");
-        assert_eq!(hex_from_schema.len(), 24, "hex suffix must be exactly 24 chars");
+        assert_eq!(
+            hex_from_schema, hex_from_label,
+            "PG schema hex != Neo4j label hex"
+        );
+        assert_eq!(
+            hex_from_schema, hex_from_coll,
+            "PG schema hex != Qdrant collection hex"
+        );
+        assert_eq!(
+            hex_from_schema.len(),
+            24,
+            "hex suffix must be exactly 24 chars"
+        );
     }
 
     #[test]

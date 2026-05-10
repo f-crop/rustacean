@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package rust_brain.v1;
+
+// ── Agent runtime enum ────────────────────────────────────────────────────────
+
+enum AgentRuntime {
+  AGENT_RUNTIME_UNSPECIFIED = 0;
+  AGENT_RUNTIME_CLAUDE_CODE = 1;
+  AGENT_RUNTIME_OPENCODE    = 2;
+  AGENT_RUNTIME_PI          = 3;
+}
+
+// ── Agent event kind ─────────────────────────────────────────────────────────
+
+enum AgentEventKind {
+  AGENT_EVENT_KIND_UNSPECIFIED = 0;
+  AGENT_EVENT_KIND_STARTED     = 1;
+  AGENT_EVENT_KIND_STDOUT      = 2;
+  AGENT_EVENT_KIND_STDERR      = 3;
+  AGENT_EVENT_KIND_ERROR       = 4;
+  AGENT_EVENT_KIND_TERMINATED  = 5;
+}
+
+enum AgentErrorCategory {
+  AGENT_ERROR_CATEGORY_UNSPECIFIED  = 0;
+  AGENT_ERROR_CATEGORY_SPAWN_FAILED = 1;
+  AGENT_ERROR_CATEGORY_IO_ERROR     = 2;
+  AGENT_ERROR_CATEGORY_TIMEOUT      = 3;
+}
+
+// ── Commands (rb.agent.commands) ─────────────────────────────────────────────
+
+message AgentSessionStart {
+  int32  runtime          = 1;  // AgentRuntime value
+  string initial_prompt   = 2;
+  string workspace_path   = 3;  // relative under workspace_base
+  string api_key          = 4;  // session-scoped API key plaintext
+}
+
+message AgentSessionInput {
+  string input = 1;
+}
+
+message AgentSessionTerminate {
+  bool   force  = 1;
+  string reason = 2;
+}
+
+message AgentSessionCommand {
+  string session_id = 1;
+  oneof command {
+    AgentSessionStart     start     = 2;
+    AgentSessionInput     input     = 3;
+    AgentSessionTerminate terminate = 4;
+  }
+}
+
+// ── Events (rb.agent.events) ─────────────────────────────────────────────────
+
+message AgentEvent {
+  string tenant_id      = 1;
+  string session_id     = 2;
+  int64  seq            = 3;
+  int32  kind           = 4;  // AgentEventKind value
+  string payload        = 5;
+  int64  emitted_at_ms  = 6;
+}

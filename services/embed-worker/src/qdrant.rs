@@ -32,7 +32,10 @@ pub(crate) async fn ensure_collection(qdrant_url: &str, dimensions: u32) -> Resu
 
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         create_collection(&http, qdrant_url, dimensions).await?;
-        tracing::info!(dimensions, "embed_worker: created Qdrant collection {COLLECTION}");
+        tracing::info!(
+            dimensions,
+            "embed_worker: created Qdrant collection {COLLECTION}"
+        );
         return Ok(());
     }
 
@@ -42,7 +45,10 @@ pub(crate) async fn ensure_collection(qdrant_url: &str, dimensions: u32) -> Resu
         anyhow::bail!("Qdrant GET /collections/{COLLECTION} returned {status}: {body}");
     }
 
-    let body: serde_json::Value = resp.json().await.context("Qdrant info response is not JSON")?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .context("Qdrant info response is not JSON")?;
     let actual_dims = body
         .pointer("/result/config/params/vectors/size")
         .and_then(serde_json::Value::as_u64)
@@ -241,7 +247,10 @@ mod tests {
             .unwrap()
             .into();
         let id = point_id_for(tid, "repo", "mod::fn");
-        assert!(uuid::Uuid::parse_str(&id).is_ok(), "point id must be a valid UUID");
+        assert!(
+            uuid::Uuid::parse_str(&id).is_ok(),
+            "point id must be a valid UUID"
+        );
     }
 
     #[test]

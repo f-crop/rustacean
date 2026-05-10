@@ -420,8 +420,7 @@ pub fn inject_tenant_label(cypher: &str, label: &str) -> Result<String, CypherEr
                         out.push(')');
                     } else {
                         // Track variables declared by MATCH for future MERGE/CREATE checks.
-                        if path_clause_kind == Some(PathClauseKind::Match) && !var_name.is_empty()
-                        {
+                        if path_clause_kind == Some(PathClauseKind::Match) && !var_name.is_empty() {
                             bound_vars.insert(var_name.to_owned());
                         }
                         let patched = splice_label(&inner, label);
@@ -578,7 +577,10 @@ mod tests {
     #[test]
     fn preserves_properties() {
         let out = inj("MATCH (n:Foo {name: $n, age: $a}) RETURN n");
-        assert!(out.contains(&format!("(n:{LBL}:Foo {{name: $n, age: $a}})")), "got: {out}");
+        assert!(
+            out.contains(&format!("(n:{LBL}:Foo {{name: $n, age: $a}})")),
+            "got: {out}"
+        );
     }
 
     #[test]

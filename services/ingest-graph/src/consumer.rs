@@ -46,7 +46,12 @@ pub async fn run(
     embed_producer: Arc<Producer<TypecheckedItemEvent>>,
     status_producer: Arc<Producer<IngestStatusEvent>>,
 ) {
-    let ctx = Arc::new(GraphCtx { blob_store, relation_producer, embed_producer, status_producer });
+    let ctx = Arc::new(GraphCtx {
+        blob_store,
+        relation_producer,
+        embed_producer,
+        status_producer,
+    });
 
     loop {
         match consumer.next().await {
@@ -170,8 +175,7 @@ async fn resolve_body(
     match body {
         None => Ok(String::new()),
         Some(typechecked_item_event::Body::InlinePayload(bytes)) => {
-            String::from_utf8(bytes.clone())
-                .context("inline item body is not valid UTF-8")
+            String::from_utf8(bytes.clone()).context("inline item body is not valid UTF-8")
         }
         Some(typechecked_item_event::Body::BlobRef(uri)) => {
             let blob_ref = BlobRef::from_uri_minimal(uri)
@@ -181,8 +185,7 @@ async fn resolve_body(
                 .get(&blob_ref)
                 .await
                 .context("failed to download item body blob")?;
-            String::from_utf8(data.to_vec())
-                .context("blob item body is not valid UTF-8")
+            String::from_utf8(data.to_vec()).context("blob item body is not valid UTF-8")
         }
     }
 }
@@ -272,7 +275,10 @@ async fn emit_failed_status(
     };
     let envelope = rb_kafka::EventEnvelope::new(tenant_id, ev);
     let key = tenant_id.to_string();
-    if let Err(e) = producer.publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), envelope).await {
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), envelope)
+        .await
+    {
         tracing::error!("ingest_graph: failed to publish failed status: {e}");
     }
 }
@@ -293,7 +299,11 @@ mod tests {
             TOPIC_PROJECTOR_EVENTS,
         ];
         let unique: std::collections::HashSet<_> = topics.iter().collect();
-        assert_eq!(unique.len(), topics.len(), "all topic constants must be unique");
+        assert_eq!(
+            unique.len(),
+            topics.len(),
+            "all topic constants must be unique"
+        );
     }
 
     #[test]

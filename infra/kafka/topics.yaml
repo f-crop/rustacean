@@ -149,3 +149,28 @@ topics:
     replication_factor: 1
     config:
       retention.ms: "2592000000"  # 30 days
+
+  # ── Agent commands and events (process-spawning per ADR-009) ────────────────
+  - name: rb.agent.commands
+    partitions: 6
+    replication_factor: 1
+    config:
+      retention.ms: "604800000"  # 7 days
+
+  - name: rb.agent.commands.retry
+    partitions: 6
+    replication_factor: 1
+    config:
+      retention.ms: "604800000"
+
+  - name: rb.agent.commands.dlq
+    partitions: 3
+    replication_factor: 1
+    config:
+      retention.ms: "2592000000"  # 30 days
+
+  - name: rb.agent.events
+    partitions: 6
+    replication_factor: 1
+    config:
+      retention.ms: "604800000"  # 7 days

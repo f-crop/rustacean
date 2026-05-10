@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use rb_schemas::TenantId;
 use rb_storage_neo4j::TenantGraph;
 
-use crate::QueryError;
 use super::types::{EdgeProvenance, TraversalNode};
+use crate::QueryError;
 
 // ---------------------------------------------------------------------------
 // Internal edge accumulator (before pagination)
@@ -49,11 +49,17 @@ pub(super) async fn one_hop_callers(
                    caller.line AS caller_line, r.dispatch AS dispatch";
 
         let rows = graph
-            .execute_read(tenant_id, calls_cypher, &[("fqn", target_fqn), ("repo_id", repo_str)])
+            .execute_read(
+                tenant_id,
+                calls_cypher,
+                &[("fqn", target_fqn), ("repo_id", repo_str)],
+            )
             .await?;
 
         for row in rows {
-            let Some(caller_fqn) = row.get::<String>("caller_fqn").ok() else { continue };
+            let Some(caller_fqn) = row.get::<String>("caller_fqn").ok() else {
+                continue;
+            };
             if visited.contains(&caller_fqn) {
                 *cycles_detected = true;
                 continue;
@@ -86,11 +92,17 @@ pub(super) async fn one_hop_callers(
                    caller.line AS caller_line";
 
         let inst_rows = graph
-            .execute_read(tenant_id, inst_cypher, &[("fqn", target_fqn), ("repo_id", repo_str)])
+            .execute_read(
+                tenant_id,
+                inst_cypher,
+                &[("fqn", target_fqn), ("repo_id", repo_str)],
+            )
             .await?;
 
         for row in inst_rows {
-            let Some(caller_fqn) = row.get::<String>("caller_fqn").ok() else { continue };
+            let Some(caller_fqn) = row.get::<String>("caller_fqn").ok() else {
+                continue;
+            };
             if visited.contains(&caller_fqn) {
                 *cycles_detected = true;
                 continue;
@@ -135,11 +147,17 @@ pub(super) async fn one_hop_callees(
                    callee.line AS callee_line, r.dispatch AS dispatch";
 
         let rows = graph
-            .execute_read(tenant_id, calls_cypher, &[("fqn", source_fqn), ("repo_id", repo_str)])
+            .execute_read(
+                tenant_id,
+                calls_cypher,
+                &[("fqn", source_fqn), ("repo_id", repo_str)],
+            )
             .await?;
 
         for row in rows {
-            let Some(callee_fqn) = row.get::<String>("callee_fqn").ok() else { continue };
+            let Some(callee_fqn) = row.get::<String>("callee_fqn").ok() else {
+                continue;
+            };
             if visited.contains(&callee_fqn) {
                 *cycles_detected = true;
                 continue;
@@ -174,11 +192,17 @@ pub(super) async fn one_hop_callees(
                    callee.line AS callee_line";
 
         let inst_rows = graph
-            .execute_read(tenant_id, inst_cypher, &[("fqn", source_fqn), ("repo_id", repo_str)])
+            .execute_read(
+                tenant_id,
+                inst_cypher,
+                &[("fqn", source_fqn), ("repo_id", repo_str)],
+            )
             .await?;
 
         for row in inst_rows {
-            let Some(callee_fqn) = row.get::<String>("callee_fqn").ok() else { continue };
+            let Some(callee_fqn) = row.get::<String>("callee_fqn").ok() else {
+                continue;
+            };
             if visited.contains(&callee_fqn) {
                 *cycles_detected = true;
                 continue;
@@ -217,9 +241,15 @@ pub(super) async fn fetch_root_node(
         RETURN n.fqn AS fqn, n.name AS name, n.kind AS kind, \
                n.file_path AS file_path, n.line AS line \
         LIMIT 1";
-    let rows = graph.execute_read(tenant_id, cypher, &[("fqn", fqn), ("repo_id", repo_str)]).await?;
-    let Some(row) = rows.into_iter().next() else { return Ok(None) };
-    let Some(node_fqn) = row.get::<String>("fqn").ok() else { return Ok(None) };
+    let rows = graph
+        .execute_read(tenant_id, cypher, &[("fqn", fqn), ("repo_id", repo_str)])
+        .await?;
+    let Some(row) = rows.into_iter().next() else {
+        return Ok(None);
+    };
+    let Some(node_fqn) = row.get::<String>("fqn").ok() else {
+        return Ok(None);
+    };
     Ok(Some(TraversalNode {
         fqn: node_fqn,
         name: row.get::<String>("name").ok(),

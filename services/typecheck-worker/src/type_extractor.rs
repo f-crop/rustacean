@@ -162,8 +162,15 @@ fn fmt_fn_sig(sig: &syn::Signature) -> String {
         syn::ReturnType::Default => String::new(),
         syn::ReturnType::Type(_, ty) => format!(" -> {}", fmt_type(ty)),
     };
-    let asyncness = if sig.asyncness.is_some() { "async " } else { "" };
-    format!("{asyncness}fn {name}{generics}({}){output}", inputs.join(", "))
+    let asyncness = if sig.asyncness.is_some() {
+        "async "
+    } else {
+        ""
+    };
+    format!(
+        "{asyncness}fn {name}{generics}({}){output}",
+        inputs.join(", ")
+    )
 }
 
 fn fmt_fn_arg(arg: &syn::FnArg) -> String {
@@ -233,7 +240,11 @@ pub(crate) fn fmt_type(ty: &syn::Type) -> String {
             format!("&{lt}{mutability}{}", fmt_type(&r.elem))
         }
         syn::Type::Ptr(p) => {
-            let mutability = if p.mutability.is_some() { "mut " } else { "const " };
+            let mutability = if p.mutability.is_some() {
+                "mut "
+            } else {
+                "const "
+            };
             format!("*{mutability}{}", fmt_type(&p.elem))
         }
         syn::Type::Slice(s) => format!("[{}]", fmt_type(&s.elem)),
@@ -347,11 +358,8 @@ fn fmt_generic_param(param: &syn::GenericParam) -> String {
             if l.bounds.is_empty() {
                 name
             } else {
-                let bounds: Vec<String> = l
-                    .bounds
-                    .iter()
-                    .map(|lt| format!("'{}", lt.ident))
-                    .collect();
+                let bounds: Vec<String> =
+                    l.bounds.iter().map(|lt| format!("'{}", lt.ident)).collect();
                 format!("{name}: {}", bounds.join(" + "))
             }
         }

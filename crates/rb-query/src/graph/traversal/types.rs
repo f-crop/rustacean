@@ -74,7 +74,11 @@ pub struct TraversalOptions {
 
 impl Default for TraversalOptions {
     fn default() -> Self {
-        Self { depth: DEFAULT_DEPTH, limit: DEFAULT_LIMIT, offset: 0 }
+        Self {
+            depth: DEFAULT_DEPTH,
+            limit: DEFAULT_LIMIT,
+            offset: 0,
+        }
     }
 }
 
@@ -96,8 +100,14 @@ mod tests {
 
     #[test]
     fn edge_provenance_serializes_correctly() {
-        assert_eq!(serde_json::to_string(&EdgeProvenance::Direct).unwrap(), "\"direct\"");
-        assert_eq!(serde_json::to_string(&EdgeProvenance::Monomorph).unwrap(), "\"monomorph\"");
+        assert_eq!(
+            serde_json::to_string(&EdgeProvenance::Direct).unwrap(),
+            "\"direct\""
+        );
+        assert_eq!(
+            serde_json::to_string(&EdgeProvenance::Monomorph).unwrap(),
+            "\"monomorph\""
+        );
         assert_eq!(
             serde_json::to_string(&EdgeProvenance::DynCandidate).unwrap(),
             "\"dyn_candidate\""

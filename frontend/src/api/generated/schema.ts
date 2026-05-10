@@ -26,28 +26,6 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
-    readonly "/mcp": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly get?: never;
-        readonly put?: never;
-        /**
-         * `POST /mcp` — Model Context Protocol JSON-RPC 2.0 endpoint (ADR-009 Phase 1).
-         * @description Accepts a JSON-RPC 2.0 request body and returns a JSON-RPC 2.0 response.
-         *     Notifications (requests without an `id` field) return HTTP 202 with no body.
-         *     All error paths return HTTP 200 with a JSON-RPC error object (spec-compliant).
-         */
-        readonly post: operations["mcp_handler"];
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
     readonly "/ready": {
         readonly parameters: {
             readonly query?: never;
@@ -57,6 +35,54 @@ export interface paths {
         };
         /** Readiness probe — returns 200 when the service is ready to serve traffic. */
         readonly get: operations["ready_check"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/agents/sessions": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["create_session"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/agents/sessions/{id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete: operations["delete_session"];
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/agents/sessions/{id}/events": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["session_events"];
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
@@ -942,6 +968,18 @@ export interface components {
             readonly name: string;
             readonly scopes: readonly components["schemas"]["Scope"][];
         };
+        readonly CreateSessionRequest: {
+            readonly initial_prompt?: string;
+            /** @description One of `"claude_code"`, `"opencode"`, `"pi"` */
+            readonly runtime: string;
+            /** @description Optional override for workspace sub-path; defaults to `tenant_id/session_id`. */
+            readonly workspace_path?: string | null;
+        };
+        readonly CreateSessionResponse: {
+            /** Format: uuid */
+            readonly session_id: string;
+            readonly status: string;
+        };
         readonly CurrentTenant: {
             /** Format: uuid */
             readonly id: string;
@@ -1209,7 +1247,7 @@ export interface components {
          * @description Access scope for an API key.
          * @enum {string}
          */
-        readonly Scope: "read" | "write" | "admin";
+        readonly Scope: "read" | "write" | "admin" | "agent";
         /** @description Optional filters applied on top of the vector similarity ranking. */
         readonly SearchFilters: {
             /**
@@ -1439,43 +1477,6 @@ export interface operations {
             };
         };
     };
-    readonly mcp_handler: {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        /** @description JSON-RPC 2.0 request or notification */
-        readonly requestBody: {
-            readonly content: {
-                readonly "application/json": unknown;
-            };
-        };
-        readonly responses: {
-            /** @description JSON-RPC 2.0 response (for requests) */
-            readonly 200: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Notification accepted — no body (notifications/initialized) */
-            readonly 202: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Bearer token missing or invalid */
-            readonly 401: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     readonly ready_check: {
         readonly parameters: {
             readonly query?: never;
@@ -1496,6 +1497,147 @@ export interface operations {
             };
             /** @description Service is not ready */
             readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly create_session: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateSessionRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Session created, pending agent-runner pickup */
+            readonly 202: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid runtime or fields */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Process session cap reached */
+            readonly 429: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Kafka unavailable */
+            readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly delete_session: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Termination queued */
+            readonly 202: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not your session */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Kafka unavailable */
+            readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly session_events: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description SSE stream */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient permissions to access this session */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found */
+            readonly 404: {
                 headers: {
                     readonly [name: string]: unknown;
                 };

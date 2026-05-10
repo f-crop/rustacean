@@ -7,8 +7,8 @@
 use std::path::Path;
 
 use migrate::{migrate_control, migrate_tenant};
-use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use tempfile::TempDir;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -68,12 +68,22 @@ async fn test_control_applies_then_idempotent() {
     let pool = connect(&url).await;
     drop_schema(&pool, "control").await;
 
-    let repo = make_repo("control", &[("001_baseline.sql", "SELECT 1;"), ("002_second.sql", "SELECT 2;")]);
+    let repo = make_repo(
+        "control",
+        &[
+            ("001_baseline.sql", "SELECT 1;"),
+            ("002_second.sql", "SELECT 2;"),
+        ],
+    );
 
-    let n1 = migrate_control(&pool, repo.path()).await.expect("first run failed");
+    let n1 = migrate_control(&pool, repo.path())
+        .await
+        .expect("first run failed");
     assert_eq!(n1, 2, "expected 2 applied on first run");
 
-    let n2 = migrate_control(&pool, repo.path()).await.expect("second run failed");
+    let n2 = migrate_control(&pool, repo.path())
+        .await
+        .expect("second run failed");
     assert_eq!(n2, 0, "expected 0 applied on second run (idempotent)");
 
     drop_schema(&pool, "control").await;
@@ -90,13 +100,23 @@ async fn test_control_checksum_mismatch_rejected() {
     drop_schema(&pool, "control").await;
 
     let repo = make_repo("control", &[("001_baseline.sql", "SELECT 1;")]);
-    migrate_control(&pool, repo.path()).await.expect("first run failed");
+    migrate_control(&pool, repo.path())
+        .await
+        .expect("first run failed");
 
     // Tamper with the applied migration
-    add_migration(repo.path(), "control", "001_baseline.sql", "SELECT 99; -- tampered");
+    add_migration(
+        repo.path(),
+        "control",
+        "001_baseline.sql",
+        "SELECT 99; -- tampered",
+    );
 
     let err = migrate_control(&pool, repo.path()).await.unwrap_err();
-    assert!(err.to_string().contains("checksum mismatch"), "unexpected error: {err}");
+    assert!(
+        err.to_string().contains("checksum mismatch"),
+        "unexpected error: {err}"
+    );
 
     drop_schema(&pool, "control").await;
 }
@@ -115,7 +135,9 @@ async fn test_tenant_creates_schema_and_applies() {
 
     let repo = make_repo("tenant", &[("001_initial.sql", "SELECT 1;")]);
 
-    let n = migrate_tenant(&pool, &tid, repo.path()).await.expect("tenant migration failed");
+    let n = migrate_tenant(&pool, &tid, repo.path())
+        .await
+        .expect("tenant migration failed");
     assert_eq!(n, 1);
 
     let exists: bool = sqlx::query_scalar(
@@ -159,7 +181,10 @@ async fn test_multi_statement_migration_applied() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert!(exists, "table '{table}' must exist after multi-statement migration");
+        assert!(
+            exists,
+            "table '{table}' must exist after multi-statement migration"
+        );
     }
 
     drop_schema(&pool, "control").await;
@@ -176,12 +201,17 @@ async fn test_failed_migration_rolled_back() {
     drop_schema(&pool, "control").await;
 
     let repo = make_repo("control", &[("001_good.sql", "SELECT 1;")]);
-    migrate_control(&pool, repo.path()).await.expect("good migration failed");
+    migrate_control(&pool, repo.path())
+        .await
+        .expect("good migration failed");
 
     // Add an invalid migration
     add_migration(repo.path(), "control", "002_bad.sql", "NOT VALID SQL !!!");
     let err = migrate_control(&pool, repo.path()).await.unwrap_err();
-    assert!(err.to_string().contains("database"), "expected DB error, got: {err}");
+    assert!(
+        err.to_string().contains("database"),
+        "expected DB error, got: {err}"
+    );
 
     // v002 must not be recorded — transaction rolled back
     let max: Option<i32> =

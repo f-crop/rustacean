@@ -54,15 +54,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         qdrant_url: None,
         ollama_url: None,
         embedding_model: "nomic-embed-text".to_owned(),
-            claude_oauth_client_id: None,
-            litellm_url: None,
-            litellm_open_code_key: None,
-
-            oauth_encrypt_key: None,
-            oauth_encrypt_key_id: "oauth-claude-v1".to_owned(),
-            oauth_encrypt_key_prev: None,
-            oauth_encrypt_key_prev_id: "none".to_owned(),
-            oauth_rotate_keys_on_boot: false,
+        internal_secret: Some("test-internal-secret".to_owned()),
+        internal_listen_addr: "127.0.0.1:0".to_owned(),
     };
     let state = AppState {
         pool: pool.clone(),
@@ -82,8 +75,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
-        token_cipher: None,
-        token_cipher_prev: None,
+        agent_commands_producer: None,
+        internal_secret: "test-internal-secret".to_owned(),
     };
     Some((state, pool))
 }
@@ -174,7 +167,11 @@ async fn integration_logout_full_flow() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::NO_CONTENT, "logout must return 204");
+    assert_eq!(
+        resp.status(),
+        StatusCode::NO_CONTENT,
+        "logout must return 204"
+    );
 
     let clear = resp
         .headers()
@@ -207,7 +204,10 @@ async fn integration_logout_full_flow() {
     .fetch_one(&pool)
     .await
     .expect("auth_events count must succeed");
-    assert_eq!(logout_count, 1, "exactly one logout auth_events row expected");
+    assert_eq!(
+        logout_count, 1,
+        "exactly one logout auth_events row expected"
+    );
 
     // 7. Re-logout with the same (now invalid) cookie → 401, no duplicate event.
     let resp = app

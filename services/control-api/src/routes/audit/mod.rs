@@ -97,8 +97,7 @@ pub async fn list_audit_events(
     auth: AuthContext,
     Query(query): Query<AuditQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let tenant_id =
-        resolve_tenant_and_check_admin(&state.pool, auth, query.tenant_id).await?;
+    let tenant_id = resolve_tenant_and_check_admin(&state.pool, auth, query.tenant_id).await?;
 
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
@@ -338,7 +337,10 @@ mod tests {
             tenant_id: Uuid::new_v4(),
             email_verified: false,
         });
-        assert!(matches!(require_verified_session(auth), Err(AppError::EmailNotVerified)));
+        assert!(matches!(
+            require_verified_session(auth),
+            Err(AppError::EmailNotVerified)
+        ));
     }
 
     #[test]

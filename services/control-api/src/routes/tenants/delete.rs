@@ -11,12 +11,8 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::{
-    error::AppError,
-    middleware::auth::AuthContext,
-    state::AppState,
-};
 use super::role::{TenantRole, require_role, require_session};
+use crate::{error::AppError, middleware::auth::AuthContext, state::AppState};
 
 pub(super) const TOMBSTONES_TOPIC: &str = "rb.tombstones.v1";
 
@@ -220,7 +216,10 @@ mod tests {
             requested_by: Uuid::new_v4().to_string(),
             emitted_at_ms: 0,
         };
-        assert!(tombstone.repo_id.is_empty(), "tenant-wide tombstone must have empty repo_id");
+        assert!(
+            tombstone.repo_id.is_empty(),
+            "tenant-wide tombstone must have empty repo_id"
+        );
     }
 
     #[test]

@@ -5,10 +5,19 @@
 
 use utoipa::OpenApi;
 
-use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, health, ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete};
+use crate::routes::{
+    agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github, health,
+    ingest, me, query, repos, tenants, tenants::delete as tenant_delete,
+    tenants::members as tenant_members,
+};
 
 #[derive(OpenApi)]
 #[openapi(
+    info(
+        title = "rust-brain control API",
+        description = "Control-plane API for rust-brain: auth, tenant management, API key, GitHub integration, and agent session endpoints.",
+        contact(name = "rust-brain", url = "https://github.com/jarnura/rustacean"),
+    ),
     paths(
         audit::list_audit_events,
         health::health_check,
@@ -22,18 +31,18 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         auth::login,
         auth_logout::logout,
         auth_verify::verify_email,
-        auth::forgot_password,
-        auth::reset_password,
+        auth_password_reset::forgot_password,
+        auth_password_reset::reset_password,
         me::get_me,
         me::switch_tenant,
         api_keys::create_api_key,
         api_keys::list_api_keys,
         api_keys::revoke_api_key,
         tenants::list_members,
-        tenants::invite_member,
-        tenants::update_member_role,
-        tenants::remove_member,
-        tenants::transfer_ownership,
+        tenant_members::invite_member,
+        tenant_members::update_member_role,
+        tenant_members::remove_member,
+        tenant_members::transfer_ownership,
         tenant_delete::delete_tenant,
         repos::connect_repo,
         repos::list_repos,
@@ -49,7 +58,9 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
         query::search::search,
         query::traversal::get_callers,
         query::traversal::get_callees,
-        mcp::mcp_handler,
+        agents::sessions::create_session,
+        agents::sessions::delete_session,
+        agents::events::session_events,
     ),
     components(
         schemas(
@@ -70,8 +81,8 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             auth::LoginRequest,
             auth::LoginResponse,
             auth_verify::VerifyEmailRequest,
-            auth::ForgotPasswordRequest,
-            auth::ResetPasswordRequest,
+            auth_password_reset::ForgotPasswordRequest,
+            auth_password_reset::ResetPasswordRequest,
             me::MeResponse,
             me::UserInfo,
             me::TenantWithRole,
@@ -84,11 +95,11 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             api_keys::ListApiKeysResponse,
             tenants::MemberItem,
             tenants::ListMembersResponse,
-            tenants::InviteMemberRequest,
-            tenants::InviteMemberResponse,
-            tenants::UpdateRoleRequest,
-            tenants::UpdateRoleResponse,
-            tenants::TransferOwnershipRequest,
+            tenant_members::InviteMemberRequest,
+            tenant_members::InviteMemberResponse,
+            tenant_members::UpdateRoleRequest,
+            tenant_members::UpdateRoleResponse,
+            tenant_members::TransferOwnershipRequest,
             tenant_delete::DeleteTenantResponse,
             repos::ConnectRepoRequest,
             repos::ConnectRepoResponse,
@@ -103,44 +114,34 @@ use crate::routes::{api_keys, audit, auth, auth_logout, auth_verify, github, hea
             ingest::trigger::TriggerIngestionResponse,
             query::graph::GraphQueryRequest,
             query::graph::GraphQueryResponse,
-            query::items::ItemResponse,
-            query::modules::NodeSource,
-            query::modules::ModuleNodeItem,
-            query::modules::ModuleTreeResponse,
-            query::impls::ImplEntry,
             query::impls::ImplsResponse,
-            query::usages::UsageEntry,
-            query::usages::UsagesResponse,
-            query::search::SearchRequest,
-            query::search::SearchResult,
+            query::items::ItemResponse,
+            query::modules::ModuleTreeResponse,
             query::search::SearchResponse,
-            query::traversal::EdgeProvenanceSchema,
-            query::traversal::TraversalNodeSchema,
-            query::traversal::TraversalEdgeSchema,
             query::traversal::TraversalResponse,
+            query::usages::UsagesResponse,
+            agents::sessions::CreateSessionRequest,
+            agents::sessions::CreateSessionResponse,
         )
     ),
-    info(
-        title = "rust-brain control API",
-        version = "0.1.0",
-        description = "Control-plane API for rust-brain: auth, tenant management, and API key endpoints.",
-        contact(
-            name = "rust-brain",
-            url = "https://github.com/jarnura/rustacean",
-        ),
-    ),
     tags(
-        (name = "audit", description = "Immutable audit log (admin only)"),
-        (name = "health", description = "Liveness and readiness probes"),
-        (name = "auth", description = "Authentication and session management"),
-        (name = "me", description = "Current-user and session endpoints"),
-        (name = "tenants", description = "Tenant membership and role management"),
-        (name = "api_keys", description = "API key management"),
+        (name = "health", description = "Liveness/readiness probes"),
+        (name = "audit", description = "Audit trail query"),
+        (name = "auth", description = "Authentication"),
+        (name = "me", description = "Current user and tenant context"),
+        (name = "api-keys", description = "API key management"),
+        (name = "tenants", description = "Tenant and membership"),
+        (name = "repos", description = "Repository connections"),
+        (name = "ingest", description = "Ingestion pipeline"),
         (name = "github", description = "GitHub App integration"),
-        (name = "repos", description = "Connected repository management"),
-        (name = "ingestions", description = "Manual ingestion trigger and run management"),
-        (name = "query", description = "Data-plane query endpoints (ADR-008 Wave 6)"),
-        (name = "mcp", description = "Model Context Protocol endpoint — JSON-RPC 2.0 over HTTP (ADR-009 Wave 7)"),
-    ),
+        (name = "query", description = "Code graph queries"),
+        (name = "search", description = "Semantic code search"),
+        (name = "agents", description = "Agent session management (ADR-009 Option B)")
+    )
 )]
 pub struct ApiDoc;
+
+#[expect(dead_code)]
+pub fn generate_openapi_spec() -> String {
+    ApiDoc::openapi().to_json().expect("OpenAPI serialization")
+}

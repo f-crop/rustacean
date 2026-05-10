@@ -88,7 +88,11 @@ mod tests {
     fn session_token_length_is_64_hex_chars() {
         let t = SessionToken::generate();
         assert_eq!(t.as_str().len(), 64);
-        assert!(t.as_str().bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
+        assert!(
+            t.as_str()
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        );
     }
 
     #[test]

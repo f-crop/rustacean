@@ -5,11 +5,7 @@
 //! `ingestion_runs` to enforce `tenant_id = session.tenant_id`.
 //! Accepts verified sessions and read-scoped API keys.
 
-use axum::{
-    Json,
-    extract::State,
-    response::IntoResponse,
-};
+use axum::{Json, extract::State, response::IntoResponse};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -78,14 +74,20 @@ fn require_read(auth: AuthContext) -> Result<Uuid, AppError> {
         (status = 403, description = "Email not verified or insufficient scope"),
         (status = 404, description = "Ingestion run not found or belongs to another tenant"),
     ),
-    tag = "ingestions"
+    tag = "ingest"
 )]
 pub async fn get_stage_timeline(
     State(state): State<AppState>,
     auth: AuthContext,
     axum::extract::Path(run_id): axum::extract::Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    type StageRow = (String, String, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<String>);
+    type StageRow = (
+        String,
+        String,
+        Option<DateTime<Utc>>,
+        Option<DateTime<Utc>>,
+        Option<String>,
+    );
     let tenant_id = require_read(auth)?;
 
     // Verify ownership and fetch trace_id in a single query.
@@ -111,16 +113,22 @@ pub async fn get_stage_timeline(
 
     let stages = rows
         .into_iter()
-        .map(|(stage, status, started_at, finished_at, error_message)| StageRunItem {
-            stage,
-            status,
-            started_at,
-            finished_at,
-            error_message,
-        })
+        .map(
+            |(stage, status, started_at, finished_at, error_message)| StageRunItem {
+                stage,
+                status,
+                started_at,
+                finished_at,
+                error_message,
+            },
+        )
         .collect();
 
-    Ok(Json(StageTimelineResponse { ingestion_run_id: run_id, trace_id, stages }))
+    Ok(Json(StageTimelineResponse {
+        ingestion_run_id: run_id,
+        trace_id,
+        stages,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +156,10 @@ mod tests {
 
     #[test]
     fn anonymous_rejected() {
-        assert!(matches!(require_read(AuthContext::Anonymous), Err(AppError::Unauthorized)));
+        assert!(matches!(
+            require_read(AuthContext::Anonymous),
+            Err(AppError::Unauthorized)
+        ));
     }
 
     #[test]

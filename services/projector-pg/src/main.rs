@@ -8,10 +8,14 @@ use projector_pg::spawn;
 fn validate_boot_env() -> Result<()> {
     let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
     if db_url.is_empty() {
-        anyhow::bail!("projector-pg boot validation failed:\n  - DATABASE_URL: required but missing");
+        anyhow::bail!(
+            "projector-pg boot validation failed:\n  - DATABASE_URL: required but missing"
+        );
     }
     if !db_url.starts_with("postgres") {
-        anyhow::bail!("projector-pg boot validation failed:\n  - DATABASE_URL: expected postgres DSN, got {db_url:?}");
+        anyhow::bail!(
+            "projector-pg boot validation failed:\n  - DATABASE_URL: expected postgres DSN, got {db_url:?}"
+        );
     }
     Ok(())
 }
@@ -22,8 +26,7 @@ async fn main() -> Result<()> {
 
     let _guard = rb_tracing::init("projector-pg")?;
 
-    let database_url = std::env::var("DATABASE_URL")
-        .context("DATABASE_URL is required")?;
+    let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
 
     let pg = sqlx::postgres::PgPoolOptions::new()
         .max_connections(10)

@@ -1,25 +1,33 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicI64, AtomicU64, Ordering},
+    atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
-
-use crate::crypto::OauthTokenCipher;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use rb_auth::{LoginRateLimiter, PasswordHasher};
-pub use rb_mcp::McpSessionStore;
 use rb_email::EmailSender;
 use rb_github::GhApp;
 use rb_kafka::Producer;
 use rb_query::ModuleTreeCache;
-use rb_schemas::{IngestRequest, Tombstone};
+use rb_schemas::{AgentSessionCommand, IngestRequest, Tombstone};
 use rb_sse::EventBus;
 use rb_storage_neo4j::TenantGraph;
 use rb_storage_qdrant::TenantVectorStore;
 use sqlx::PgPool;
-use tokio::sync::Semaphore;
 use uuid::Uuid;
+
+/// Placeholder for the MCP session store — kept for binary compatibility
+/// during migration.  Will be removed when MCP routes are fully retired.
+#[derive(Clone, Default)]
+pub struct McpSessionStore;
+
+impl McpSessionStore {
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
 
 use crate::config::Config;
 
@@ -106,16 +114,10 @@ impl SessionHandle {
 }
 
 /// In-memory registry of active agent sessions.
-///
-/// - Tracks all running sessions with their token budgets.
-/// - Enforces `MAX_ACTIVE_SESSIONS_PER_PROCESS` via a semaphore.
-/// - Cheap to clone (Arc-backed).
 #[derive(Clone)]
 pub struct AgentRegistry {
     sessions: Arc<DashMap<Uuid, SessionHandle>>,
-    /// Semaphore cap at `MAX_ACTIVE_SESSIONS_PER_PROCESS`.
-    semaphore: Arc<Semaphore>,
-    /// Global token budget meter (sum of tokens used across all live sessions).
+    active_count_atomic: Arc<AtomicUsize>,
     global_tokens_used: Arc<AtomicI64>,
 }
 
@@ -124,26 +126,46 @@ impl AgentRegistry {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
-            semaphore: Arc::new(Semaphore::new(MAX_ACTIVE_SESSIONS_PER_PROCESS)),
+            active_count_atomic: Arc::new(AtomicUsize::new(0)),
             global_tokens_used: Arc::new(AtomicI64::new(0)),
         }
     }
 
-    /// Try to acquire a slot.  Returns `None` if at the process cap.
     #[must_use]
-    pub fn try_acquire(&self) -> Option<tokio::sync::SemaphorePermit<'_>> {
-        self.semaphore.try_acquire().ok()
+    #[allow(clippy::single_match)]
+    pub fn try_increment(&self) -> bool {
+        loop {
+            let current = self.active_count_atomic.load(Ordering::Relaxed);
+            if current >= MAX_ACTIVE_SESSIONS_PER_PROCESS {
+                return false;
+            }
+            match self.active_count_atomic.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return true,
+                Err(_) => {}
+            }
+        }
     }
 
-    /// Insert a new session handle (call after acquiring semaphore slot).
+    fn decrement(&self) {
+        self.active_count_atomic.fetch_sub(1, Ordering::Relaxed);
+    }
+
     pub fn insert(&self, handle: SessionHandle) {
         self.sessions.insert(handle.session_id, handle);
     }
 
-    /// Remove a completed/failed session.
     #[must_use]
     pub fn remove(&self, session_id: &Uuid) -> Option<SessionHandle> {
-        self.sessions.remove(session_id).map(|(_, h)| h)
+        let result = self.sessions.remove(session_id).map(|(_, h)| h);
+        if result.is_some() {
+            self.decrement();
+        }
+        result
     }
 
     /// Return a clone of the handle for the given session, if active.
@@ -188,6 +210,8 @@ pub struct AppState {
     pub hasher: Arc<PasswordHasher>,
     pub login_rate_limiter: Arc<LoginRateLimiter>,
     pub config: Arc<Config>,
+    /// Cached copy of `RB_INTERNAL_SECRET` for internal endpoint auth.
+    pub internal_secret: String,
     /// GitHub App handle. `None` when `RB_GH_APP_ID` / `RB_GH_APP_PRIVATE_KEY`
     /// are not configured; GitHub routes return 503 in that case.
     pub gh: Option<Arc<GhApp>>,
@@ -214,14 +238,10 @@ pub struct AppState {
     pub neo4j_uri: Option<String>,
     /// Kafka consistency state updated by `ingest_consumer` on each consumed message.
     pub kafka_consistency: Arc<KafkaConsistencyState>,
-    /// In-process MCP session table (ADR-009 Phase 1).
+    /// In-process MCP session table (kept for compat — will be removed).
     pub mcp_sessions: McpSessionStore,
-    /// In-process agent session registry (ADR-009 Phase 1).
+    /// In-process agent session registry — semaphore enforces per-process cap.
     pub agent_registry: AgentRegistry,
-    /// AES-256-GCM cipher for OAuth token encryption (RUSAA-862).
-    /// `None` when `RB_OAUTH_ENCRYPT_KEY` is not configured (development only).
-    pub token_cipher: Option<Arc<OauthTokenCipher>>,
-    /// Previous-key cipher used during a rotation window.
-    /// `None` when `RB_OAUTH_ENCRYPT_KEY_PREV` is not configured.
-    pub token_cipher_prev: Option<Arc<OauthTokenCipher>>,
+    /// Kafka producer for `rb.agent.commands`. `None` when Kafka is not reachable.
+    pub agent_commands_producer: Option<Arc<Producer<AgentSessionCommand>>>,
 }

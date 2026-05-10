@@ -120,9 +120,8 @@ pub async fn run(
                                 );
                             }
                         } else {
-                            let delay = policy
-                                .next_delay(attempt)
-                                .unwrap_or(Duration::from_secs(1));
+                            let delay =
+                                policy.next_delay(attempt).unwrap_or(Duration::from_secs(1));
                             tokio::time::sleep(delay).await;
                         }
                     }
@@ -132,10 +131,7 @@ pub async fn run(
     }
 }
 
-async fn process_parse(
-    ctx: &ParseCtx,
-    envelope: &EventEnvelope<IngestRequest>,
-) -> Result<()> {
+async fn process_parse(ctx: &ParseCtx, envelope: &EventEnvelope<IngestRequest>) -> Result<()> {
     let req = &envelope.payload;
     let tenant_id = envelope.tenant_id;
     let ingest_run_id = &req.ingest_run_id;
@@ -178,14 +174,7 @@ async fn process_parse(
                     "parse_worker: cannot read file: {e}"
                 );
                 error_count += 1;
-                emit_error_item(
-                    ctx,
-                    tenant_id,
-                    req,
-                    rel_path,
-                    &format!("io_error: {e}"),
-                )
-                .await?;
+                emit_error_item(ctx, tenant_id, req, rel_path, &format!("io_error: {e}")).await?;
                 continue;
             }
         };
@@ -200,14 +189,7 @@ async fn process_parse(
         }
 
         if extracted.had_error && extracted_is_empty {
-            emit_error_item(
-                ctx,
-                tenant_id,
-                req,
-                rel_path,
-                &extracted.error_message,
-            )
-            .await?;
+            emit_error_item(ctx, tenant_id, req, rel_path, &extracted.error_message).await?;
         }
     }
 
@@ -367,8 +349,7 @@ async fn emit_typecheck_command(
         branch: req.branch.clone(),
     };
 
-    let envelope =
-        rb_kafka::EventEnvelope::new(tenant_id, typecheck_req).with_blob_ref(blob_uri);
+    let envelope = rb_kafka::EventEnvelope::new(tenant_id, typecheck_req).with_blob_ref(blob_uri);
     let key = format!("{}.{}", req.tenant_id, req.repo_id);
     ctx.typecheck_producer
         .publish(TOPIC_TYPECHECK_COMMANDS, key.as_bytes(), envelope)
@@ -377,11 +358,7 @@ async fn emit_typecheck_command(
     Ok(())
 }
 
-async fn emit_done_status(
-    ctx: &ParseCtx,
-    tenant_id: TenantId,
-    req: &IngestRequest,
-) -> Result<()> {
+async fn emit_done_status(ctx: &ParseCtx, tenant_id: TenantId, req: &IngestRequest) -> Result<()> {
     let ev = IngestStatusEvent {
         ingest_request_id: req.event_id.clone(),
         tenant_id: tenant_id.to_string(),
@@ -446,7 +423,11 @@ mod tests {
             TOPIC_PROJECTOR_EVENTS,
         ];
         let unique: std::collections::HashSet<_> = topics.iter().collect();
-        assert_eq!(unique.len(), topics.len(), "all topic constants must be unique");
+        assert_eq!(
+            unique.len(),
+            topics.len(),
+            "all topic constants must be unique"
+        );
     }
 
     #[test]
@@ -457,7 +438,10 @@ mod tests {
     #[test]
     fn build_fqn_combines_path_and_name() {
         assert_eq!(build_fqn("src/lib.rs", "MyStruct"), "src_lib::MyStruct");
-        assert_eq!(build_fqn("crates/foo/src/main.rs", "run"), "crates_foo_src_main::run");
+        assert_eq!(
+            build_fqn("crates/foo/src/main.rs", "run"),
+            "crates_foo_src_main::run"
+        );
     }
 
     #[test]
@@ -514,9 +498,9 @@ mod tests {
         assert_eq!(item_source_slice(src, 2, 2), "fn b() {}");
     }
 
-    /// #274: line_start=0 on a file that starts with '\n' used to return
-    /// an empty slice, leading to InlinePayload(b"") → body=None after proto
-    /// round-trip → NULL source_text in code_symbols on re-ingestion.
+    /// #274: `line_start=0` on a file that starts with '\n' used to return
+    /// an empty slice, leading to `InlinePayload(b"")` → `body=None` after proto
+    /// round-trip → NULL `source_text` in `code_symbols` on re-ingestion.
     #[test]
     fn item_source_slice_line_start_zero_leading_newline_is_non_empty() {
         // A file whose first char is '\n' (blank first line).

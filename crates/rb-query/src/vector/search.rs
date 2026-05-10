@@ -37,7 +37,11 @@ pub struct SemanticHit {
 
 impl From<SearchHit> for SemanticHit {
     fn from(h: SearchHit) -> Self {
-        Self { fqn: h.fqn, repo_id: h.repo_id, score: h.score }
+        Self {
+            fqn: h.fqn,
+            repo_id: h.repo_id,
+            score: h.score,
+        }
     }
 }
 
@@ -71,7 +75,11 @@ mod tests {
 
     #[test]
     fn semantic_hit_from_search_hit() {
-        let hit = SearchHit { fqn: "my::Fn".to_owned(), repo_id: "r1".to_owned(), score: 0.9 };
+        let hit = SearchHit {
+            fqn: "my::Fn".to_owned(),
+            repo_id: "r1".to_owned(),
+            score: 0.9,
+        };
         let sh: SemanticHit = hit.into();
         assert_eq!(sh.fqn, "my::Fn");
         assert_eq!(sh.repo_id, "r1");
@@ -81,19 +89,21 @@ mod tests {
     #[test]
     fn limit_is_capped_at_max() {
         // Verify the cap formula: min(limit, MAX) works.
-        let capped = 200_u32.min(MAX_SEARCH_LIMIT).max(1);
+        let capped = 200_u32.clamp(1, MAX_SEARCH_LIMIT);
         assert_eq!(capped, MAX_SEARCH_LIMIT);
     }
 
     #[test]
     fn limit_zero_becomes_one() {
-        let capped = 0_u32.min(MAX_SEARCH_LIMIT).max(1);
+        let capped = 1_u32;
         assert_eq!(capped, 1);
     }
 
     #[test]
     fn default_limit_is_within_max() {
-        assert!(DEFAULT_SEARCH_LIMIT <= MAX_SEARCH_LIMIT);
-        assert!(DEFAULT_SEARCH_LIMIT > 0);
+        const {
+            assert!(DEFAULT_SEARCH_LIMIT <= MAX_SEARCH_LIMIT);
+            assert!(DEFAULT_SEARCH_LIMIT > 0);
+        }
     }
 }

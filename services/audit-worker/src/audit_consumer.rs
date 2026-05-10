@@ -52,17 +52,28 @@ pub fn spawn(pool: &Arc<PgPool>) -> Result<JoinHandle<()>> {
 }
 
 async fn insert_audit_event(pool: &PgPool, ev: &AuditEvent) -> Result<()> {
-    let event_id = ev.event_id.parse::<Uuid>().unwrap_or_else(|_| Uuid::new_v4());
+    let event_id = ev
+        .event_id
+        .parse::<Uuid>()
+        .unwrap_or_else(|_| Uuid::new_v4());
     let tenant_id = ev.tenant_id.parse::<Uuid>().unwrap_or_else(|_| Uuid::nil());
     let ingestion_run_id: Option<Uuid> = ev.ingestion_run_id.parse().ok();
     let repo_id: Option<Uuid> = ev.repo_id.parse().ok();
     let actor_user_id: Option<Uuid> = ev.actor_user_id.parse().ok();
-    let stage: Option<&str> = if ev.stage.is_empty() { None } else { Some(&ev.stage) };
-    let stage_seq: Option<i32> = if ev.stage_seq == 0 { None } else { Some(ev.stage_seq) };
-    let occurred_at = DateTime::from_timestamp_millis(ev.occurred_at_ms)
-        .unwrap_or_else(chrono::Utc::now);
-    let payload: serde_json::Value =
-        serde_json::from_slice(&ev.payload).unwrap_or(serde_json::Value::Object(serde_json::Map::default()));
+    let stage: Option<&str> = if ev.stage.is_empty() {
+        None
+    } else {
+        Some(&ev.stage)
+    };
+    let stage_seq: Option<i32> = if ev.stage_seq == 0 {
+        None
+    } else {
+        Some(ev.stage_seq)
+    };
+    let occurred_at =
+        DateTime::from_timestamp_millis(ev.occurred_at_ms).unwrap_or_else(chrono::Utc::now);
+    let payload: serde_json::Value = serde_json::from_slice(&ev.payload)
+        .unwrap_or(serde_json::Value::Object(serde_json::Map::default()));
 
     // ON CONFLICT DO NOTHING prevents double-write on redelivery (idempotent via unique index).
     sqlx::query(
@@ -140,8 +151,8 @@ mod tests {
     #[test]
     fn payload_invalid_json_falls_back_to_empty_object() {
         let bad: &[u8] = b"not json";
-        let val: serde_json::Value =
-            serde_json::from_slice(bad).unwrap_or(serde_json::Value::Object(serde_json::Map::default()));
+        let val: serde_json::Value = serde_json::from_slice(bad)
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::default()));
         assert!(val.as_object().is_some_and(serde_json::Map::is_empty));
     }
 

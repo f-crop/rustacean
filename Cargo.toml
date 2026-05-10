@@ -24,8 +24,6 @@ members = [
     "services/typecheck-worker",
     "services/ingest-graph",
     "crates/rb-query",
-    "crates/rb-mcp",
-    "crates/rb-agent-runtime",
     "crates/rb-audit-cli",
     "crates/rb-storage-neo4j",
     "crates/rb-storage-qdrant",
@@ -33,6 +31,7 @@ members = [
     "services/projector-neo4j",
     "services/tombstoner",
     "services/embed-worker",
+    "services/agent-runner",
 ]
 
 [workspace.package]
@@ -114,6 +113,8 @@ neo4rs = "0.8"
 metrics = "0.24"
 metrics-util = { version = "0.18", features = ["debugging"] }
 metrics-exporter-prometheus = { version = "0.16", default-features = false }
+# Testing
+tempfile = "3"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

@@ -13,6 +13,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::helpers::{build_fqn, collect_rs_files, extract_tar_zst};
+use crate::type_extractor::extract_typed_items;
 use anyhow::{Context as _, Result};
 use bytes::Bytes;
 use metrics::counter;
@@ -23,8 +25,6 @@ use rb_schemas::{
     typechecked_item_event,
 };
 use sha2::{Digest as _, Sha256};
-use crate::helpers::{build_fqn, collect_rs_files, extract_tar_zst};
-use crate::type_extractor::extract_typed_items;
 
 pub const TOPIC_TYPECHECK_COMMANDS: &str = "rb.ingest.typecheck.commands";
 pub const TOPIC_TYPECHECKED_ITEMS: &str = "rb.typechecked-items.v1";
@@ -113,9 +113,8 @@ pub async fn run(
                                 );
                             }
                         } else {
-                            let delay = policy
-                                .next_delay(attempt)
-                                .unwrap_or(Duration::from_secs(1));
+                            let delay =
+                                policy.next_delay(attempt).unwrap_or(Duration::from_secs(1));
                             tokio::time::sleep(delay).await;
                         }
                     }
@@ -365,7 +364,11 @@ mod tests {
             TOPIC_PROJECTOR_EVENTS,
         ];
         let unique: std::collections::HashSet<_> = topics.iter().collect();
-        assert_eq!(unique.len(), topics.len(), "all topic constants must be unique");
+        assert_eq!(
+            unique.len(),
+            topics.len(),
+            "all topic constants must be unique"
+        );
     }
 
     #[test]
@@ -434,7 +437,9 @@ mod tests {
             tenant_id: "tenant-1".to_string(),
             repo_id: "repo-1".to_string(),
             fqn: "src_lib::MyFn".to_string(),
-            body: Some(typechecked_item_event::Body::InlinePayload(b"fn my_fn() {}".to_vec())),
+            body: Some(typechecked_item_event::Body::InlinePayload(
+                b"fn my_fn() {}".to_vec(),
+            )),
             resolved_type_signature: "fn my_fn()".to_string(),
             trait_bounds: vec!["T: Clone".to_string()],
             emitted_at_ms: 0,

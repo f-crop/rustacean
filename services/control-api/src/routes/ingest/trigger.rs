@@ -78,7 +78,7 @@ pub struct TriggerIngestionResponse {
         (status = 409, description = "Ingestion already in-flight (ingest_run_already_in_flight)"),
         (status = 503, description = "Kafka producer not available (kafka_not_configured, kafka_unavailable)"),
     ),
-    tag = "ingestions"
+    tag = "ingest"
 )]
 pub async fn trigger_ingestion(
     State(state): State<AppState>,
@@ -203,7 +203,10 @@ pub async fn trigger_ingestion(
 
     Ok((
         StatusCode::ACCEPTED,
-        Json(TriggerIngestionResponse { ingest_run_id: run_id, trace_id }),
+        Json(TriggerIngestionResponse {
+            ingest_run_id: run_id,
+            trace_id,
+        }),
     ))
 }
 
@@ -253,7 +256,10 @@ mod tests {
     #[test]
     fn trigger_ingestion_response_serializes_null_trace_id() {
         let run_id = Uuid::new_v4();
-        let resp = TriggerIngestionResponse { ingest_run_id: run_id, trace_id: None };
+        let resp = TriggerIngestionResponse {
+            ingest_run_id: run_id,
+            trace_id: None,
+        };
         let val = serde_json::to_value(&resp).unwrap();
         assert!(val.get("ingest_run_id").is_some());
         assert!(val["trace_id"].is_null());

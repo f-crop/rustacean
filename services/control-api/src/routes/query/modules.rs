@@ -148,7 +148,10 @@ pub async fn get_module_tree(
     let node = rb_query::fetch_module_tree(&state.pool, &tenant_ctx, repo_id).await?;
     let node = Arc::new(node);
 
-    state.module_tree_cache.insert(cache_key, Arc::clone(&node)).await;
+    state
+        .module_tree_cache
+        .insert(cache_key, Arc::clone(&node))
+        .await;
 
     let resp = ModuleTreeResponse {
         repo_id,
@@ -192,7 +195,10 @@ mod tests {
             user_id: Uuid::new_v4(),
             scopes: vec![Scope::Read],
         };
-        assert_eq!(require_read_auth(AuthContext::ApiKey(key)).unwrap(), tenant_id);
+        assert_eq!(
+            require_read_auth(AuthContext::ApiKey(key)).unwrap(),
+            tenant_id
+        );
     }
 
     #[test]
@@ -204,7 +210,10 @@ mod tests {
             user_id: Uuid::new_v4(),
             scopes: vec![Scope::Admin],
         };
-        assert_eq!(require_read_auth(AuthContext::ApiKey(key)).unwrap(), tenant_id);
+        assert_eq!(
+            require_read_auth(AuthContext::ApiKey(key)).unwrap(),
+            tenant_id
+        );
     }
 
     #[test]

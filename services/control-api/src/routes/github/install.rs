@@ -8,8 +8,8 @@ use axum::{
 };
 use rand::RngCore as _;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use urlencoding::encode as urlencode;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
@@ -76,7 +76,10 @@ pub async fn github_install_url(
         "github install-url: state token issued"
     );
 
-    Ok(Json(InstallUrlResponse { url, state_token: token_hex }))
+    Ok(Json(InstallUrlResponse {
+        url,
+        state_token: token_hex,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,14 +140,17 @@ pub async fn github_callback(
 
     let (tenant_id, user_id) = row.ok_or(AppError::InvalidToken)?;
 
-    let info = gh.fetch_installation(params.installation_id).await.map_err(|e| {
-        tracing::error!(
-            installation_id = params.installation_id,
-            error = %e,
-            "callback: failed to fetch installation from GitHub"
-        );
-        AppError::Internal(anyhow::anyhow!("failed to fetch GitHub installation"))
-    })?;
+    let info = gh
+        .fetch_installation(params.installation_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                installation_id = params.installation_id,
+                error = %e,
+                "callback: failed to fetch installation from GitHub"
+            );
+            AppError::Internal(anyhow::anyhow!("failed to fetch GitHub installation"))
+        })?;
 
     // Guard against cross-tenant hijack: only allow the upsert when the
     // existing row (if any) belongs to the same tenant. The WHERE clause on
@@ -257,9 +263,8 @@ mod tests {
     /// Skipped automatically when `RB_DATABASE_URL` is not set.
     #[tokio::test]
     async fn upsert_guard_rejects_cross_tenant_owner() {
-        let db_url = match std::env::var("RB_DATABASE_URL") {
-            Ok(u) => u,
-            Err(_) => return,
+        let Ok(db_url) = std::env::var("RB_DATABASE_URL") else {
+            return;
         };
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
@@ -269,7 +274,7 @@ mod tests {
 
         let tenant_a = Uuid::new_v4();
         let tenant_b = Uuid::new_v4();
-        let github_installation_id: i64 = rand::random::<i32>().abs() as i64 + 1_000_000;
+        let github_installation_id: i64 = i64::from(rand::random::<i32>().abs()) + 1_000_000;
 
         // Seed the two test tenants (required by FK on github_installations.tenant_id).
         sqlx::query(
@@ -321,7 +326,10 @@ mod tests {
         .await
         .expect("upsert query");
 
-        assert!(result.is_none(), "cross-tenant upsert must be blocked by WHERE guard");
+        assert!(
+            result.is_none(),
+            "cross-tenant upsert must be blocked by WHERE guard"
+        );
 
         // Same-tenant re-install should succeed.
         let same_tenant_result: Option<(Uuid,)> = sqlx::query_as(
@@ -345,16 +353,17 @@ mod tests {
         .await
         .expect("same-tenant upsert query");
 
-        assert!(same_tenant_result.is_some(), "same-tenant re-install must succeed");
+        assert!(
+            same_tenant_result.is_some(),
+            "same-tenant re-install must succeed"
+        );
 
         // Cleanup installations then tenants (FK order).
-        sqlx::query(
-            "DELETE FROM control.github_installations WHERE github_installation_id = $1",
-        )
-        .bind(github_installation_id)
-        .execute(&pool)
-        .await
-        .ok();
+        sqlx::query("DELETE FROM control.github_installations WHERE github_installation_id = $1")
+            .bind(github_installation_id)
+            .execute(&pool)
+            .await
+            .ok();
         sqlx::query("DELETE FROM control.tenants WHERE id IN ($1, $2)")
             .bind(tenant_a)
             .bind(tenant_b)

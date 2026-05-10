@@ -54,7 +54,11 @@ fn tombstoner_metrics_are_emitted_with_correct_values() {
         "events_total outcome=ok must be 1"
     );
     assert_eq!(
-        counter_value(&entries, "rb_tombstoner_events_total", &[("outcome", "err")]),
+        counter_value(
+            &entries,
+            "rb_tombstoner_events_total",
+            &[("outcome", "err")]
+        ),
         1,
         "events_total outcome=err must be 1"
     );

@@ -1,7 +1,5 @@
 # ADR-009: Agent Execution Architecture (Wave 7 — Phase 6)
 
-**Revision:** rev 5 (2026-05-07) — RUSAA-895 pi-runtime evaluation: NEW §3.5 documents the pi binary identity (`@mariozechner/pi-coding-agent`), authentication / input / output properties, the absence of MCP client support, and the host-tool sandbox concern; recommends **closing the pi slot for Wave 7** (drop from `runtime_kind` enum, remove `PiRuntime` from `crates/rb-agent-runtime`, restrict §6.4 dispatch to two runtimes). §15 updated: pi-evaluation moved from open question to RESOLVED with pointer to §3.5; the "additional runtime adapters" bullet now lists `pi_local` as a re-opening candidate alongside `codex_local`, etc. Subject to Gate-1 re-approval — touches frozen items (`runtime_kind` CHECK constraint in §4.1, dispatch table in §6.4).
-
 **Revision:** rev 4 (2026-05-07) — RUSAA-859 security fix: §4.1 `input_prompt` replaced with `input_prompt_preview` (≤256 chars, never stores PII/credentials verbatim); §4.1 adds 90-day retention purge function. Migration 011 implements the change; frozen-plan clause does not cover security-mandated schema corrections.
 
 **Revision:** rev 3 (2026-05-07) — incorporates the board LLM-provider directive (CTO comment `ce3d7c11`, 2026-05-06; reproduces board decision on §11.1):
@@ -18,7 +16,7 @@ Rev 2 (2026-05-07) — closes three non-blocking items from CTO technical review
 
 Rev 1 (2026-05-07) — initial draft for Gate-1 review.
 
-**Status:** Proposed (awaiting board sign-off on rev 5 — RUSAA-895 pi-slot deferral touches frozen items §4.1 / §6.4; CTO technical review **APPROVE** rev 1, 2026-05-06; rev 3 supersedes the rev 1/2 single-provider working assumption per board directive 2026-05-06; rev 5 narrows rev 3's three-runtime set to two for Wave 7 — see §3.5)
+**Status:** Proposed (awaiting board sign-off on rev 3; CTO technical review **APPROVE** rev 1, 2026-05-06; rev 3 supersedes the rev 1/2 single-provider working assumption per board directive 2026-05-06)
 **Wave:** 7 (Phase 6 — Agent Execution)
 **Author:** Architect ([RUSAA-719](/RUSAA/issues/RUSAA-719))
 **Covers requirements:** REQ-MC-01 (RUSAA-83), REQ-MC-02 (RUSAA-84), REQ-FE-06 (RUSAA-85)
@@ -68,8 +66,8 @@ Pre-existing **leftovers / open scars** Wave 7 must absorb (not invent — Wave-
 Substrate gaps Wave 7 introduces (two new crates, zero new Rustacean binaries; one new external dependency):
 
 - **`crates/rb-mcp`** — MCP protocol library. Pure library crate (no binary). Owns the JSON-RPC envelope, the tool-registration schema, the Streamable HTTP transport handler, and the OAuth/Bearer auth bridge. Consumed by `services/control-api` to expose `/mcp` HTTP endpoints. **No reverse dependency** — `rb-mcp` does NOT depend on `rb-query` (handlers wire MCP tool calls into `rb-query` calls inside `control-api`).
-- **`crates/rb-agent-runtime`** — runtime adapter abstraction. Defines the `AgentRuntime` trait (start session, stream events, cancel) plus two implementors: `ClaudeCodeRuntime` (drives Anthropic Messages API via the user's OAuth token; mirrors Paperclip's `claude_local` adapter shape) and `OpenCodeRuntime` (drives OpenCode through LiteLLM; mirrors `opencode_local`). Pi was evaluated and deferred — see §3.5. Pure library crate; consumed by `services/control-api` (Phase 1) and movable wholesale to `services/agent-runtime` (Phase 2 — §3.2). Each adapter is a thin wrapper: HTTP client, request shaping, response parsing, token / cost accounting. **No reverse dependency** on `rb-query`; tool calls reach back via callbacks supplied by the host process.
-- **External dependency: LiteLLM** — upstream open-source proxy ([`BerriAI/litellm`](https://github.com/BerriAI/litellm)). Runs as one in-cluster service (default replica = 2 for HA) fronting all non-OAuth model calls. Owns: provider abstraction (Anthropic, OpenAI, Bedrock, Vertex, local-Ollama), per-tenant virtual-key issuance, per-tenant budget caps, request/response logging hooks. Rustacean depends on the **LiteLLM HTTP API surface** (OpenAI-compatible Completions / Messages endpoints + virtual-key admin REST). We do NOT fork or vendor LiteLLM source. Wave 7 adds: helm chart values, virtual-key provisioning script (one key per tenant, scoped by `tenant_id` metadata), and the dial-in for the one LiteLLM-routed runtime (OpenCode).
+- **`crates/rb-agent-runtime`** — runtime adapter abstraction. Defines the `AgentRuntime` trait (start session, stream events, cancel) plus three implementors: `ClaudeCodeRuntime` (drives Anthropic Messages API via the user's OAuth token; mirrors Paperclip's `claude_local` adapter shape), `OpenCodeRuntime` (drives OpenCode through LiteLLM; mirrors `opencode_local`), `PiRuntime` (drives Pi through LiteLLM; mirrors `pi_local`). Pure library crate; consumed by `services/control-api` (Phase 1) and movable wholesale to `services/agent-runtime` (Phase 2 — §3.2). Each adapter is a thin wrapper: HTTP client, request shaping, response parsing, token / cost accounting. **No reverse dependency** on `rb-query`; tool calls reach back via callbacks supplied by the host process.
+- **External dependency: LiteLLM** — upstream open-source proxy ([`BerriAI/litellm`](https://github.com/BerriAI/litellm)). Runs as one in-cluster service (default replica = 2 for HA) fronting all non-OAuth model calls. Owns: provider abstraction (Anthropic, OpenAI, Bedrock, Vertex, local-Ollama), per-tenant virtual-key issuance, per-tenant budget caps, request/response logging hooks. Rustacean depends on the **LiteLLM HTTP API surface** (OpenAI-compatible Completions / Messages endpoints + virtual-key admin REST). We do NOT fork or vendor LiteLLM source. Wave 7 adds: helm chart values, virtual-key provisioning script (one key per tenant, scoped by `tenant_id` metadata), and the dial-in for the two LiteLLM-routed runtimes (OpenCode, Pi).
 - **`services/control-api`** — gains:
   - one new module `routes/agents/` (sessions, events, tool calls)
   - one new module `routes/mcp/` (MCP Streamable HTTP entry point + tool dispatch)
@@ -92,7 +90,7 @@ Substrate gaps Wave 7 introduces (two new crates, zero new Rustacean binaries; o
 | **Trace capture (REQ-MC-02)** | Each session opens a root span `agent.session.run` carrying `tenant.id`, `agent.id`, `session.id`, `user.id`. Tool calls are child spans `agent.tool.<name>` with `tool.args.size`, `tool.duration_ms`, `tool.result.size`. LLM calls are child spans `agent.llm.call` with `llm.model`, `llm.input_tokens`, `llm.output_tokens`, `llm.latency_ms`, `llm.cost_usd`. The 32-hex `trace_id` is pinned on `agent_sessions.trace_id` at session start. | Reuses `rb-tracing::current_trace_id()` (already wired to OTLP → Tempo). Pinning the trace_id on the session row means REQ-FE-06 can render a `/trace/$traceId` link without re-deriving it. Standard span naming follows OTel GenAI semantic conventions where they exist. |
 | **Security model** | (1) NEW API-key scope **`agent`** — narrower than `admin`, broader than `read`/`write`. Required to start a session; required to call MCP tools. Sessions started via browser cookie auth automatically inherit the user's tenant + role. (2) Per-session **token budget** — default 100 000 input / 20 000 output tokens; configurable per request; hard-fail at budget. (3) Per-tenant **rate limit** — 10 sessions / minute, 100 active sessions max (tunable via env). (4) Every tool call written to `audit.audit_events` with `(session_id, tool_name, args_hash, result_status)`. | API-key scope additions are the cheapest correct way to keep agent traffic separable from data-plane reads (auditable, revocable independently). Token budget is the budget cap that keeps prompt-injection blowups bounded. Audit log is the cross-tenant-leak proof, same pattern as ADR-006/007/008. |
 | **Frontend (REQ-FE-06)** | NEW route pair: `/agents` (list / start a session) and `/agents/$sessionId` (live session viewer). Three-pane layout: **left** session history list, **center** streaming event log (chronological, virtualized), **right** session metadata + trace_id link + cancel button. Reuses TanStack Router, React Query, the existing API hooks pattern, and shadcn/ui. | Three-pane is the same shape as the Code Intelligence Workspace (REQ-FE-05) so users encounter one consistent layout idiom. Live event log uses the existing `useEventSource` hook from REQ-FE-08. |
-| **LLM runtime topology** | **LiteLLM gateway + two Rustacean agent runtimes** — `claude_code` (drives Anthropic Messages API via the **user's** OAuth token from their own Claude Max plan; **no API-key spend on Rustacean's books**) and `opencode` (drives OpenCode through LiteLLM). LiteLLM owns provider abstraction, virtual-key issuance per tenant, budget caps, and audit logging hooks for the one API-keyed runtime. Mirrors the first two slots of Paperclip's multi-runtime adapter model (`claude_local`, `opencode_local`); the `pi_local` slot was evaluated and deferred — see §3.5. New session field `runtime_kind` selects the adapter (§6.4). | Three deliberate consequences: (1) Claude Code spend is the user's, removing the "single-tenant prompt-injection blows our LLM budget" failure mode for that runtime; (2) the LiteLLM-routed runtime gets a consistent provider story (any future model add is a LiteLLM config change, not Rustacean code); (3) we mirror Paperclip's runtime taxonomy so internal users have one mental model across products. The cost is one new external service in the cluster (§3.4) and an OAuth-token storage table (§4.4). |
+| **LLM runtime topology** | **LiteLLM gateway + three Rustacean agent runtimes** — `claude_code` (drives Anthropic Messages API via the **user's** OAuth token from their own Claude Max plan; **no API-key spend on Rustacean's books**), `opencode` (drives OpenCode through LiteLLM), `pi` (drives Pi through LiteLLM). LiteLLM owns provider abstraction, virtual-key issuance per tenant, budget caps, and audit logging hooks for the two API-keyed runtimes. Mirrors Paperclip's own multi-runtime adapter model (`claude_local`, `opencode_local`, `pi_local`). New session field `runtime_kind` selects the adapter (§6.4). | Three deliberate consequences: (1) Claude Code spend is the user's, removing the "single-tenant prompt-injection blows our LLM budget" failure mode for that runtime; (2) LiteLLM-routed runtimes get one consistent provider story (any future model add is a LiteLLM config change, not Rustacean code); (3) we mirror Paperclip's runtime taxonomy so internal users have one mental model across products. The cost is one new external service in the cluster (§3.4) and an OAuth-token storage table (§4.4). |
 | **No new infra (qualified)** | Zero new Kafka topics. Zero new Postgres schemas (three new tables in `control` — `agent_sessions`, `agent_events`, `oauth_tokens`). Zero new Rustacean binaries. **One** new external service: **LiteLLM** (upstream OSS, in-cluster, two replicas; §3.4). | The single new external service is justified by the runtime-topology decision above — it replaces what would otherwise be three direct provider SDK integrations (Anthropic, OpenAI, future Bedrock) with one. Net surface is *smaller*, not larger. |
 | **Tracer-bullet** | RUSAA-83-min (`search_items` + `get_item` MCP tools only) + RUSAA-84-min (session create + SSE event stream) + RUSAA-85-first-slice (start a session via UI, see live events, no replay/cancel UI yet) ⇒ end-to-end demo where a developer says "find the type for `Vec::push`" and watches the agent's tool calls flow live in the UI. The remaining tools, full session lifecycle controls, and history/replay land after the tracer. | Same model as ADR-007 / ADR-008 tracer-bullets. Proves the MCP→tool→SSE→UI pipeline before fanning out. |
 | **Owner split** | **Services Engineer** (Sonnet 4.6): RUSAA-83 + RUSAA-84 (backend — MCP server, agent sessions, event SSE). **Frontend Engineer**: RUSAA-85 (UI). **No Platform Engineer work** unless §11.1 lands a Phase-2 binary split. | Mirrors Wave 6's split. |
@@ -171,44 +169,9 @@ LiteLLM is the one new external service in Wave 7. Two placement shapes were con
 - Health: `/health/liveness` and `/health/readiness` (LiteLLM ships these); wired into Kubernetes probes; `LiteLLMUnreachable` alert added in §8.3.
 - Provider credentials: stored in `rb-secrets` (existing secret manager) and mounted into the LiteLLM pod as env; **never** mounted into `control-api`. This is the chokepoint that keeps Anthropic / OpenAI / Bedrock keys out of the Rustacean process image.
 - Virtual-key issuance: one LiteLLM "team" per Rustacean tenant; one virtual key per (tenant, runtime_kind) tuple; lazy-created at first session for that combination; metadata `{tenant_id, runtime_kind, rustacean_team}` so LiteLLM logs are tenant-scopeable. Budget mirrors `AGENT_TENANT_COST_PER_HOUR_USD_MICRO_CAP` (§7.3) — the runtime-side circuit-breaker is the primary; the LiteLLM-side budget is the belt to it.
-- **Failure semantics:** if LiteLLM is unreachable, sessions whose `runtime_kind = opencode` immediately fail with `error_kind="llm_unavailable"`; `runtime_kind="claude_code"` sessions are unaffected (they bypass LiteLLM — see §6.4). This is the explicit isolation benefit of having Claude Code be its own provider path.
+- **Failure semantics:** if LiteLLM is unreachable, sessions whose `runtime_kind ∈ {opencode, pi}` immediately fail with `error_kind="llm_unavailable"`; `runtime_kind="claude_code"` sessions are unaffected (they bypass LiteLLM — see §6.4). This is the explicit isolation benefit of having Claude Code be its own provider path.
 
 The runtime adapter trait (`crates/rb-agent-runtime`) is hosted **inside `control-api` Phase 1**, alongside the MCP and `/v1/agents/*` modules. The Phase-2 split (§3.2) lifts the adapter modules into `services/agent-runtime` together with the rest of the registry; LiteLLM stays put across the split (it is shared by either binary).
-
-### 3.5 `pi` runtime — evaluation outcome (RUSAA-895)
-
-§15 originally listed pi-runtime evaluation as an open question. Rev 5 closes it.
-
-**Binary identity.** The `pi` runtime resolves to [`@mariozechner/pi-coding-agent`](https://github.com/badlogic/pi-mono) — a Node.js CLI coding agent published by Mario Zechner under the npm name `@mariozechner/pi-coding-agent` and the binary name `pi`. It is **not** pi.ai (Inflection AI's consumer chatbot) and **not** an internal Juspay/Rustacean binary; it is an open-source CLI in the same product family as Claude Code and OpenCode.
-
-**Concrete properties** (verified against `pi --help` v0.70.6 + upstream `packages/coding-agent/README.md`):
-
-| Property | Value |
-|----------|-------|
-| Install | `npm install -g @mariozechner/pi-coding-agent` (Node runtime required; not on apt/cargo/brew/Docker official) |
-| Auth | (a) Subscription OAuth (Anthropic Pro/Max, OpenAI Plus/Pro, GitHub Copilot) **or** (b) provider API keys via env / `--api-key` across ~25 providers (Anthropic, OpenAI, xAI, Google, DeepSeek, Mistral, Groq, Bedrock, Vertex, …). Default provider `google`. |
-| Input | CLI flags + positional args. Non-interactive: `pi -p "<prompt>"` (`--print`). System prompt via `--system-prompt` / `--append-system-prompt` (text or file). Sessions resume via `--session <path\|id>`; storage `~/.pi/<dir>/`. Stdin is **not** the primary input channel. |
-| **MCP client** | **NOT SUPPORTED.** Upstream README: *"No MCP. Build CLI tools with READMEs (see Skills), or build an extension that adds MCP support."* `.mcp.json` from cwd is not honoured. Pi has its own extension/skill system instead. |
-| Output | `--mode {text\|json\|rpc}`. JSON/RPC modes emit LF-delimited JSONL. Empirically observed event types: `session`, `agent_start`, `turn_start`, `message_start`, `message_update` (sub-events: `thinking_start/delta/end`, `text_start/delta/end`, `tool_use_*`, `tool_result_*`), `message_end`. RPC mode is a strict-framing variant intended for process-integration. |
-| Built-in tools | `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls` — executed **inside the pi process**, not delegated to a host. |
-
-**Architectural fit assessment.** Two integration shapes are available; neither cleanly satisfies Wave 7's contract.
-
-- **Shape A — Subprocess-CLI runtime (mirrors Paperclip's `pi_local`).** `PiRuntime` would spawn `pi --mode json -p <prompt> --provider <p> --model <m> --session-dir <dir>` from `control-api`, parse the JSONL stream into `SessionEvent`s, and resume via `--session`. **Two blocking concerns:** (1) Pi has no MCP client, so the `rb-query`-backed MCP tool surface specified in REQ-MC-01 / §6.4 is **unreachable from a pi session** — pi would call its own built-in `read`/`bash`/`edit`/`write`/`grep`/`find`/`ls` tools instead, bypassing tenant scoping entirely. (2) Pi's built-in `bash`/`edit`/`write` tools execute against the host filesystem inside pi's process; spawning pi from `control-api` therefore creates a cross-tenant filesystem-access primitive that the §7.1 threat model explicitly forbids. A sandbox layer (cgroup / namespace / chroot per session, plus disabling `bash`/`edit`/`write` via `--no-builtin-tools` while routing all tool calls through a pi extension that proxies back to `rb-query`) would resolve both — but that is multi-week work and Wave-8-scope at the earliest.
-
-- **Shape B — LiteLLM model alias (current code).** `crates/rb-agent-runtime/src/adapters/litellm.rs::PiRuntime` is, today, a thin wrapper around `LiteLlmRuntime` that differs from `OpenCodeRuntime` only in the `kind` string and the virtual key. No `pi` binary participates in such a session — the runtime dispatches OpenAI-compatible chat completions through LiteLLM. Calling this `runtime_kind="pi"` is a **mislabel**: the audit trail records "pi" but the actual provider path is whatever LiteLLM is configured to forward (Anthropic / OpenAI / etc.). The mislabel impedes future-us when investigating cost or behaviour by `runtime_kind`.
-
-**Decision (Rev 5).**
-
-- **Close the `pi` runtime slot for Wave 7.** Drop `pi` from the `runtime_kind` CHECK constraint in `control.agent_sessions` (§4.1), drop `PiRuntime` from `crates/rb-agent-runtime`, drop the `pi` row from §6.4. The Wave-7 runtime set becomes **two**: `claude_code` and `opencode`.
-- **Re-opening conditions** (any one is sufficient to re-open in a future ADR rev or follow-on ADR):
-  1. Pi adds a built-in MCP client honoring `.mcp.json` (upstream feature request, not on the public roadmap).
-  2. We design and ship a sandboxed-subprocess host for pi (cgroup + namespace + tool-call proxy extension) and accept that as a separate trust boundary distinct from the §7.1 MCP-tool boundary.
-  3. We accept pi's built-in tool surface as the agent's tool surface (i.e., abandon the `rb-query`-via-MCP contract for the pi runtime), with a separate audit + cost story. This is a product-direction change, not an engineering tweak.
-- **Migration impact.** Pre-implementation; no production rows exist for `runtime_kind='pi'`. Migration 010 ships with the two-value enum (`claude_code`, `opencode`); no follow-up migration needed.
-- **Skeleton not drafted.** Per the re-opening conditions above, drafting a `PiAdapter` skeleton today would lock in either the bypass-MCP or the bypass-sandbox shape — both of which are explicitly rejected. The `AgentRuntime` trait remains shape-stable, so a future re-opening lands as a single-PR delta against Wave-8+ infrastructure.
-
-This decision tightens §1's claim that the runtime adapter set "mirrors Paperclip's `claude_local`, `opencode_local`, `pi_local`" — Wave 7 mirrors the first two; the third is deferred for the trust-model reasons above. The mirror is restored when the re-opening conditions are met.
 
 ---
 
@@ -224,10 +187,10 @@ CREATE TABLE control.agent_sessions (
     tenant_id       UUID NOT NULL REFERENCES control.tenants(id) ON DELETE CASCADE,
     user_id         UUID REFERENCES control.users(id) ON DELETE SET NULL,
     api_key_id      UUID REFERENCES control.api_keys(id) ON DELETE SET NULL,
-    runtime_kind    TEXT NOT NULL CHECK (runtime_kind IN ('claude_code','opencode')),
-    agent_id        TEXT NOT NULL,            -- runtime-specific identifier; for claude_code = model id (e.g. "claude-sonnet-4-6"); for opencode = LiteLLM model alias
+    runtime_kind    TEXT NOT NULL CHECK (runtime_kind IN ('claude_code','opencode','pi')),
+    agent_id        TEXT NOT NULL,            -- runtime-specific identifier; for claude_code = model id (e.g. "claude-sonnet-4-6"); for opencode/pi = LiteLLM model alias
     oauth_token_id  UUID REFERENCES control.oauth_tokens(id) ON DELETE SET NULL, -- non-null iff runtime_kind = 'claude_code'
-    litellm_key_id  TEXT,                     -- LiteLLM virtual-key identifier; non-null iff runtime_kind = 'opencode'
+    litellm_key_id  TEXT,                     -- LiteLLM virtual-key identifier; non-null iff runtime_kind in ('opencode','pi')
     status          TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed','canceled')),
     trace_id        TEXT NOT NULL,            -- 32-hex W3C trace ID; pinned at session start
     -- SECURITY (RUSAA-859): full prompt NEVER stored.  Only a ≤256-char preview
@@ -416,7 +379,7 @@ Wave-7 error codes: `unauthorized`, `email_not_verified`, `session_expired`, `in
 POST /v1/agents/sessions
 Auth: session (verified) OR API-key (agent | admin)
 Body: {
-  "runtime_kind":  "<one of 'claude_code' | 'opencode'>",
+  "runtime_kind":  "<one of 'claude_code' | 'opencode' | 'pi'>",
   "agent_id":      "<string; runtime-specific — see §6.4>",
   "input_prompt":  "<string, 1..65536 chars>",
   "input_tokens_budget":   <int, default 100000, max 500000>,
@@ -435,7 +398,7 @@ Response 201: {
 Errors: 400 bad_request (budget out of range, unknown runtime_kind, agent_id not allowed for runtime),
         401 oauth_required (runtime_kind='claude_code' but no live OAuth token for caller),
         403 insufficient_scope (API key without `agent`), 403 runtime_disabled (runtime_kind not in AGENT_RUNTIMES_ENABLED),
-        429 rate_limit_exceeded, 503 llm_unavailable (LiteLLM unreachable AND runtime_kind = 'opencode').
+        429 rate_limit_exceeded, 503 llm_unavailable (LiteLLM unreachable AND runtime_kind in (opencode, pi)).
 ```
 
 ```
@@ -533,28 +496,27 @@ The `AgentRegistry` resolves `runtime_kind → AgentRuntime impl` from `crates/r
 |----------------|---------|-------------|---------------|----------------------|------------|
 | `claude_code` | `ClaudeCodeRuntime` | `oauth_tokens` row for `(user_id, provider='claude')`; access token minted on demand | Direct → Anthropic Messages API | Anthropic model id (e.g. `claude-sonnet-4-6`); allow-list checked at session create | **User's Claude Max plan** (no Rustacean billing) |
 | `opencode` | `OpenCodeRuntime` | LiteLLM virtual key (one per `(tenant_id, runtime_kind)`) | Through LiteLLM → underlying provider | LiteLLM model alias (e.g. `opencode/sonnet`); allow-list = LiteLLM `model_list` for the tenant's team | Tenant (LiteLLM tracks; Rustacean cost circuit-breaker §7.3 mirrors) |
-
-> **Pi deferred (rev 5).** A `pi` row was previously listed here. It has been removed; see §3.5 for the binary-identity, MCP-absence, and host-tool sandbox findings that justify deferring the slot for Wave 7.
+| `pi` | `PiRuntime` | LiteLLM virtual key (one per `(tenant_id, runtime_kind)`) | Through LiteLLM → underlying provider | LiteLLM model alias for Pi | Tenant (same as opencode) |
 
 **Resolution sequence at `POST /v1/agents/sessions`:**
 
 1. Validate `runtime_kind` is in `AGENT_RUNTIMES_ENABLED` (env config; allows ops to disable a runtime cluster-wide without a code change).
 2. If `runtime_kind="claude_code"`: load `oauth_tokens` row for the authenticated user. If missing or `revoked_at IS NOT NULL`, return 401 `oauth_required` with a body pointing the caller to `/v1/auth/oauth/claude/start`. Stamp `oauth_token_id` on the session row.
-3. If `runtime_kind="opencode"`: lookup-or-create the tenant's LiteLLM virtual key for this runtime (LiteLLM admin API, idempotent by metadata). Stamp `litellm_key_id` on the session row.
-4. Validate `agent_id` against the runtime's allow-list (`claude_code` → fixed Anthropic model list; `opencode` → LiteLLM `model_list` query result, cached 60s).
+3. If `runtime_kind ∈ {opencode, pi}`: lookup-or-create the tenant's LiteLLM virtual key for this runtime (LiteLLM admin API, idempotent by metadata). Stamp `litellm_key_id` on the session row.
+4. Validate `agent_id` against the runtime's allow-list (`claude_code` → fixed Anthropic model list; `opencode`/`pi` → LiteLLM `model_list` query result, cached 60s).
 5. Insert `agent_sessions` row, open root span, return 201 with `runtime_kind` echoed.
 
 **Tool-call wiring (per-runtime):** every tool call inside a session is dispatched the same way regardless of runtime. The runtime adapter, when the LLM emits a tool-use, calls a host-supplied callback `dispatch_tool(session_id, tool_name, args) -> ToolResult`. The host implementation lives in `services/control-api/src/agents/tool_dispatch.rs` and is the single place where tools resolve to `rb-query` calls. Adapters know nothing about `rb-query`.
 
 **Failure-mode matrix:**
 
-| Failure | `claude_code` | `opencode` |
-|---------|---------------|------------|
-| Anthropic API down | session fails `llm_unavailable` | unaffected |
-| LiteLLM down | unaffected | session fails `llm_unavailable` |
-| User OAuth token expired (refresh succeeds) | adapter refreshes silently | n/a |
-| User OAuth token revoked / refresh fails | session fails `oauth_required`; existing sessions in flight emit `session_failed{error_kind:"oauth_revoked"}` | n/a |
-| Tenant LiteLLM virtual key suspended (budget exhausted at LiteLLM layer) | unaffected | session fails `budget_exceeded` (LiteLLM-reported) |
+| Failure | `claude_code` | `opencode` | `pi` |
+|---------|---------------|------------|------|
+| Anthropic API down | session fails `llm_unavailable` | unaffected | unaffected |
+| LiteLLM down | unaffected | session fails `llm_unavailable` | session fails `llm_unavailable` |
+| User OAuth token expired (refresh succeeds) | adapter refreshes silently | n/a | n/a |
+| User OAuth token revoked / refresh fails | session fails `oauth_required`; existing sessions in flight emit `session_failed{error_kind:"oauth_revoked"}` | n/a | n/a |
+| Tenant LiteLLM virtual key suspended (budget exhausted at LiteLLM layer) | unaffected | session fails `budget_exceeded` (LiteLLM-reported) | session fails `budget_exceeded` |
 
 This matrix is the operational story the runbook in §13 must render.
 
@@ -646,9 +608,9 @@ Runtime topology + LiteLLM + OAuth (rev 3):
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `AGENT_RUNTIMES_ENABLED` | `claude_code,opencode` | comma-separated allow-list; ops can disable a runtime cluster-wide (e.g. emergency Claude OAuth pause) |
+| `AGENT_RUNTIMES_ENABLED` | `claude_code,opencode,pi` | comma-separated allow-list; ops can disable a runtime cluster-wide (e.g. emergency Claude OAuth pause) |
 | `AGENT_DEFAULT_RUNTIME` | `claude_code` | runtime used when request omits `runtime_kind`; must be in `AGENT_RUNTIMES_ENABLED` |
-| `AGENT_DEFAULT_MODEL_BY_RUNTIME` | `claude_code=claude-sonnet-4-6,opencode=opencode/sonnet` | per-runtime fallback when request omits `agent_id` |
+| `AGENT_DEFAULT_MODEL_BY_RUNTIME` | `claude_code=claude-sonnet-4-6,opencode=opencode/sonnet,pi=pi/default` | per-runtime fallback when request omits `agent_id` |
 | `LITELLM_BASE_URL` | `http://litellm.litellm.svc:4000` | in-cluster LiteLLM ClusterIP DNS |
 | `LITELLM_ADMIN_API_KEY` | — | secret loaded via `rb-secrets`; used to issue/rotate tenant virtual keys; never on hot tool-call path |
 | `LITELLM_TIMEOUT_SECONDS` | `30` | per-LLM-call HTTP timeout (LiteLLM may chain its own retries inside) |
@@ -676,7 +638,7 @@ Removed in rev 3 (replaced by runtime + LiteLLM topology): `AGENT_LLM_PROVIDER`,
 
 All new metrics carry `tenant_id` + `agent_id` labels (high-cardinality risk acknowledged; mitigated by Wave-6 prometheus federation pattern).
 
-All runtime-aware metrics carry an additional `runtime_kind` label (`claude_code` | `opencode`) so we can split spend, latency, and failure by runtime.
+All runtime-aware metrics carry an additional `runtime_kind` label (`claude_code` | `opencode` | `pi`) so we can split spend, latency, and failure by runtime.
 
 - `agent_sessions_total{status, runtime_kind}` (counter)
 - `agent_sessions_active{runtime_kind}` (gauge)
@@ -702,7 +664,7 @@ All runtime-aware metrics carry an additional `runtime_kind` label (`claude_code
 - `MCPProtocolErrorRate` — `rate(mcp_requests_total{outcome="error"}[15m]) / rate(mcp_requests_total[15m]) > 0.05` → page.
 - `AgentIdleReaperLag` — `agent_sessions_active{status="running"}` rising while `agent_session_duration_seconds_count` flat for 30m → indicates reaper stuck.
 - `AgentEventsPartitionLag` — fires when no partition exists for `(NOW() + interval '7 days')::date`. Implementation: a small probe query `SELECT 1 FROM pg_inherits WHERE inhparent = 'control.agent_events'::regclass AND inhrelid::regclass::text LIKE 'control.agent_events_' || to_char(NOW() + interval '7 days', 'YYYY_MM')` exposed as Prometheus gauge `agent_events_next_partition_ready` (1 = ready, 0 = missing); alert on `agent_events_next_partition_ready == 0` for 1h → page Platform Engineer. Catches the case where the partition-rollover cron fails silently — without this, inserts would start failing 7 days later.
-- `LiteLLMUnreachable` — `up{job="litellm"} == 0` for 2m, **OR** `rate(agent_litellm_requests_total{outcome="error"}[5m]) / rate(agent_litellm_requests_total[5m]) > 0.20` for 5m → page Platform Engineer. Distinguishes "service down" from "service degraded"; either is page-worthy because every `opencode` session creation fails closed.
+- `LiteLLMUnreachable` — `up{job="litellm"} == 0` for 2m, **OR** `rate(agent_litellm_requests_total{outcome="error"}[5m]) / rate(agent_litellm_requests_total[5m]) > 0.20` for 5m → page Platform Engineer. Distinguishes "service down" from "service degraded"; either is page-worthy because every `opencode`/`pi` session creation fails closed.
 - `OAuthClaudeRefreshFailureRate` — `rate(agent_oauth_claude_refresh_total{outcome="failure_revoked"}[15m]) / rate(agent_oauth_claude_refresh_total[15m]) > 0.10` for 10m → page Services Engineer. A spike here typically means Anthropic invalidated tokens en masse (provider incident) or our refresh call signature broke after an SDK upgrade.
 
 ### 8.4 Tracing
@@ -725,7 +687,7 @@ The Wave 7 vertical slice (REQ-MC-01-min + REQ-MC-02-min + REQ-FE-06-first-slice
 >
 > - DB migration: `migrations/control/010_agent_sessions.sql` (three tables — `agent_sessions`, `agent_events`, `oauth_tokens` — scope addition + first two `agent_events` partitions).
 > - `crates/rb-mcp` — minimal protocol library with `initialize`, `tools/list`, `tools/call` for `search_items` + `get_item` only.
-> - `crates/rb-agent-runtime` — `AgentRuntime` trait + the **single** `ClaudeCodeRuntime` adapter for the tracer. `OpenCodeRuntime` ships in the wave but after the tracer (one follow-on issue); the trait is mandatory at tracer time so wiring isn't a follow-up refactor. (Pi was evaluated and deferred — see §3.5.)
+> - `crates/rb-agent-runtime` — `AgentRuntime` trait + the **single** `ClaudeCodeRuntime` adapter for the tracer. `OpenCodeRuntime` and `PiRuntime` ship in the wave but after the tracer (one issue each); the trait is mandatory at tracer time so wiring isn't a follow-up refactor.
 > - `services/control-api` — `routes/mcp/` (one POST handler), `routes/agents/` (POST sessions, GET /events SSE), `routes/auth/oauth/claude/` (start + callback only; revoke later), `state::AgentRegistry` minimal.
 > - LiteLLM: chart shipped, deployed, smoke-tested with a synthetic OpenCode session, but **not exercised** in the tracer assertion (the tracer is `runtime_kind="claude_code"` only). The two LiteLLM-backed runtimes' E2E land in follow-on issues within the same wave.
 > - Frontend — `/agents` route with "start a session" button (Claude Code only at tracer time; runtime selector hidden), `/agents/$id` route with live event log (no replay/cancel UI yet).
@@ -786,13 +748,13 @@ Each has a working assumption that lets the wave ship without the answer.
 **Decision (board):**
 
 1. **LiteLLM** is the unified LLM gateway/proxy for all non-OAuth provider calls.
-2. **Two Rustacean agent runtimes for Wave 7** — `claude_code` and `opencode` — mirroring the first two slots of Paperclip's multi-runtime model. (Rev 3 originally specified three runtimes; rev 5 / RUSAA-895 deferred the `pi` slot — see §3.5 for the binary-identity, MCP-absence, and host-tool-sandbox findings and the explicit re-opening conditions.)
+2. **Three Rustacean agent runtimes** — `claude_code`, `opencode`, `pi` — mirroring Paperclip's own multi-runtime model.
 3. **Claude Code** uses the user's own OAuth token against their Claude Max plan; **no API-key spend on Rustacean's books**.
-4. **OpenCode** routes through LiteLLM with per-tenant virtual keys (API-key-backed, tenant-scoped budgets).
+4. **OpenCode + Pi** route through LiteLLM with per-tenant virtual keys (API-key-backed, tenant-scoped budgets).
 
-**Why it stuck:** keeps Claude usage on the user's quota (cost containment + better incident isolation for the highest-traffic runtime), gives a single LiteLLM control plane for the API-keyed runtime, and aligns Rustacean's runtime taxonomy with Paperclip so internal users learn one mental model. Trade-offs (one new external service, an OAuth flow, a token-storage table) are itemised in §3.4 / §4.4 / §7.5.
+**Why it stuck:** keeps Claude usage on the user's quota (cost containment + better incident isolation for the highest-traffic runtime), gives a single LiteLLM control plane for the other two runtimes, and aligns Rustacean's runtime taxonomy with Paperclip so internal users learn one mental model. Trade-offs (one new external service, an OAuth flow, a token-storage table) are itemised in §3.4 / §4.4 / §7.5.
 
-**What rev 3 closes:** the rev 1/2 working assumption ("Anthropic-only with a small `LlmProvider` trait") is **superseded**. The trait shape lives now in `crates/rb-agent-runtime` as `AgentRuntime`, with two Wave-7 implementors at the runtime level, not the provider level (rev 5; rev 3 had three before pi was deferred — see §3.5). Provider abstraction (Anthropic vs OpenAI vs Bedrock) lives inside LiteLLM, not Rustacean code.
+**What rev 3 closes:** the rev 1/2 working assumption ("Anthropic-only with a small `LlmProvider` trait") is **superseded**. The trait shape lives now in `crates/rb-agent-runtime` as `AgentRuntime`, with three implementors at the runtime level, not the provider level. Provider abstraction (Anthropic vs OpenAI vs Bedrock) lives inside LiteLLM, not Rustacean code.
 
 ### 11.2 Frontend MCP client — proxied or direct
 
@@ -830,11 +792,11 @@ Each has a working assumption that lets the wave ship without the answer.
 ## 13. Documentation deliverables
 
 - This ADR (`docs/decisions/ADR-009-agent-execution-architecture.md`).
-- Updated `docs/architecture.md` (§"Agent Execution") — new diagram showing browser → control-api `/v1/agents/*` → in-process `AgentRegistry` → `rb-agent-runtime` adapter (one of `claude_code` / `opencode`) → either Anthropic (OAuth) or LiteLLM → underlying provider → `rb-query` callback path; OTel arrow to Tempo.
+- Updated `docs/architecture.md` (§"Agent Execution") — new diagram showing browser → control-api `/v1/agents/*` → in-process `AgentRegistry` → `rb-agent-runtime` adapter (one of `claude_code` / `opencode` / `pi`) → either Anthropic (OAuth) or LiteLLM → underlying provider → `rb-query` callback path; OTel arrow to Tempo.
 - Updated `docs/api-reference.md` — new endpoints catalogued (`/v1/agents/*`, `/v1/auth/oauth/claude/*`, `/v1/auth/litellm/rotate`), error-code matrix extended (`oauth_required`, `runtime_disabled`).
 - New `docs/runbook.md` § "Agent operations" — how to read alerts (`LiteLLMUnreachable`, `OAuthClaudeRefreshFailureRate`, `AgentTenantCostBreach`), how to look up a session by trace_id, how to rotate a tenant's LiteLLM virtual key, how to revoke a user's Claude OAuth, how to drain sessions for a deploy.
 - New `docs/deployment.md` § "LiteLLM" — Helm values, secret wiring, scaling guidance, the failure-mode matrix from §6.4 reproduced for ops.
-- Updated `README.md` — one-paragraph description of agent execution + the two Wave-7 runtimes (`claude_code`, `opencode`); pointer here.
+- Updated `README.md` — one-paragraph description of agent execution + the three runtimes; pointer here.
 
 ### 13.1 OAuth KMS key rotation runbook (RUSAA-862)
 
@@ -928,7 +890,6 @@ until the next rotation.
 
 ## 15. Forward-looking (out-of-scope but noted)
 
-- **`pi` runtime evaluation — RESOLVED (rev 5, RUSAA-895).** See §3.5. Pi resolves to `@mariozechner/pi-coding-agent` (Node CLI). It has no MCP client and ships built-in `bash`/`edit`/`write` tools that bypass tenant scoping; both are blockers for Wave 7. The `pi` slot is closed for Wave 7 with explicit re-opening conditions documented in §3.5 (pi-side MCP support, or a sandboxed-subprocess host on our side, or a product decision to accept pi's tool surface as the agent surface).
 - **Phase-2 binary split.** Triggers in §3.2; mechanics already pre-engineered (registry + routes + runtime adapters movable wholesale; LiteLLM stays put).
 - **`code_embeddings` (pgvector) cleanup.** Inherited from ADR-008 §15; not a Wave-7 deliverable.
 - **MCP `prompts/*` and `resources/*`.** Add when an external MCP client (Claude Code, IDE extension) demands them.
@@ -937,7 +898,7 @@ until the next rotation.
 - **Cross-session conversation memory.** §11.3.
 - **Multi-agent orchestration** — agent-to-agent messages, supervisor agents, etc. Not on the Phase-6 roadmap.
 - **`rb-mcp-cli`** — a small CLI to drive the MCP server for local development / debugging. Two-day task; deferred.
-- **Additional runtime adapters** — `pi_local`, `codex_local`, `cursor_local`, `gemini_local`, `openclaw_gateway` (all present in Paperclip). The `AgentRuntime` trait shape supports them; we add only when product demand surfaces, and only after the LiteLLM model-list expansion (or, for the local-CLI variants, the sandbox-host work) that they would require. `pi_local` specifically: see §3.5 re-opening conditions.
+- **Additional runtime adapters** — `codex_local`, `cursor_local`, `gemini_local`, `openclaw_gateway` (all present in Paperclip). The `AgentRuntime` trait shape supports them; we add only when product demand surfaces, and only after the LiteLLM model-list expansion that they would require.
 - **OAuth providers other than Claude** — GitHub (for write-back), Google (Vertex), etc. The `oauth_tokens.provider` enum is widenable; not a Wave-7 deliverable.
 - **LiteLLM HA across regions / multi-cluster.** Wave 7 ships single-region two-replica LiteLLM. Multi-region LiteLLM federation is a separate ADR if/when Rustacean goes multi-region.
 - **Token rotation jobs for `oauth_tokens.encryption_key_id`.** AEAD scheme supports versioned KMS keys; the rotation job itself ships when KMS rotation policy lands org-wide.
@@ -978,6 +939,6 @@ Recorded inline; the board may use this as the contested-questions log without r
 >
 > **Grill (rev 3) — "If the LiteLLM admin API is compromised, can the attacker exfiltrate cross-tenant data via reading another tenant's virtual key?"** Worst case the attacker can issue arbitrary virtual keys and run requests, but they cannot read provider response bodies retroactively (LiteLLM logs are append-only and signed at the Loki layer). Our mitigations: `LITELLM_ADMIN_API_KEY` is one secret in `rb-secrets` with restricted access (Platform Engineer + CTO); rotation = secret rotation + LiteLLM pod restart. Detection: `mcp_requests_total` cross-checked against LiteLLM-side logs hourly; drift > 1% pages SRE. Not a zero-trust posture — documented; same risk class as today's database admin credentials.
 >
-> **Grill (rev 3) — "Three runtimes from day one — isn't that scope creep against COMPANY.md's vertical-slice rule?"** No, because the tracer-bullet (§9) ships **only** `runtime_kind="claude_code"` end-to-end. `OpenCodeRuntime` is in the wave but follows the tracer; it is a wave-internal follow-on, not future-wave material. The `AgentRuntime` trait is mandatory at tracer time, but only one implementor needs to be production-ready — that's exactly the vertical-slice posture (interface in place, second implementor is a per-issue follow-on). LiteLLM is deployed at tracer time but unexercised — the chart is in place so the OpenCode follow-on issue doesn't have to land infrastructure mid-wave. *(Rev 5 update: the original rev-3 grill referenced three runtimes including pi; pi has since been deferred — see §3.5.)*
+> **Grill (rev 3) — "Three runtimes from day one — isn't that scope creep against COMPANY.md's vertical-slice rule?"** No, because the tracer-bullet (§9) ships **only** `runtime_kind="claude_code"` end-to-end. `OpenCodeRuntime` and `PiRuntime` are in the wave but follow the tracer; they are wave-internal follow-ons, not future-wave material. The `AgentRuntime` trait is mandatory at tracer time, but only one implementor needs to be production-ready — that's exactly the vertical-slice posture (interface in place, second implementor is a per-issue follow-on). LiteLLM is deployed at tracer time but unexercised — the chart is in place so the OpenCode/Pi follow-on issues don't have to land infrastructure mid-wave.
 >
 > **Grill (rev 3) — "Why one virtual key per `(tenant, runtime_kind)` instead of one per session?"** Per-session keys would 100×-multiply key issuance traffic against LiteLLM and make hourly-budget enforcement harder (LiteLLM would need to aggregate up to the tenant level). Per-tenant-per-runtime keeps issuance bounded (≤ 2 keys per active tenant — one OpenCode, one Pi), aligns budgets with how the circuit-breaker is keyed (tenant_id), and still gives us per-runtime audit decomposition via the key metadata. Per-session traceability is preserved separately by `agent_sessions.id` flowing through OTel + audit logs.

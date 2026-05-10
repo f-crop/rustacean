@@ -5,8 +5,10 @@ mod type_extractor;
 
 use std::path::Path;
 
-const FIXTURE_DIR: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/typecheck_inputs");
+const FIXTURE_DIR: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/typecheck_inputs"
+);
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(Path::new(FIXTURE_DIR).join(name))
@@ -33,7 +35,10 @@ fn simple_fixture_extracts_all_item_kinds() {
 fn simple_fixture_fn_has_signature() {
     let src = fixture("simple.rs");
     let items = type_extractor::extract_typed_items(&src);
-    let connect = items.iter().find(|i| i.name == "connect").expect("connect not found");
+    let connect = items
+        .iter()
+        .find(|i| i.name == "connect")
+        .expect("connect not found");
     assert!(
         connect.resolved_type_signature.contains("fn connect"),
         "expected fn connect in signature, got: {}",
@@ -53,7 +58,10 @@ fn simple_fixture_fn_has_signature() {
 fn simple_fixture_struct_has_signature() {
     let src = fixture("simple.rs");
     let items = type_extractor::extract_typed_items(&src);
-    let cfg = items.iter().find(|i| i.name == "Config").expect("Config not found");
+    let cfg = items
+        .iter()
+        .find(|i| i.name == "Config")
+        .expect("Config not found");
     assert_eq!(cfg.resolved_type_signature, "struct Config");
     assert!(cfg.trait_bounds.is_empty());
 }
@@ -63,7 +71,11 @@ fn simple_fixture_line_numbers_are_positive() {
     let src = fixture("simple.rs");
     let items = type_extractor::extract_typed_items(&src);
     for item in &items {
-        assert!(item.line_start > 0, "line_start must be ≥1 for {}", item.name);
+        assert!(
+            item.line_start > 0,
+            "line_start must be ≥1 for {}",
+            item.name
+        );
         assert!(
             item.line_end >= item.line_start,
             "line_end must be ≥ line_start for {}",
@@ -79,7 +91,10 @@ fn complex_fixture_generic_fn_extracts_bounds() {
     let src = fixture("complex.rs");
     let items = type_extractor::extract_typed_items(&src);
 
-    let id_fn = items.iter().find(|i| i.name == "id").expect("id fn not found");
+    let id_fn = items
+        .iter()
+        .find(|i| i.name == "id")
+        .expect("id fn not found");
     assert!(
         id_fn.resolved_type_signature.contains("fn id"),
         "expected fn id signature"
@@ -116,8 +131,10 @@ fn complex_fixture_dyn_trait_fn_found() {
     let src = fixture("complex.rs");
     let items = type_extractor::extract_typed_items(&src);
 
-    let make_holder =
-        items.iter().find(|i| i.name == "make_holder").expect("make_holder not found");
+    let make_holder = items
+        .iter()
+        .find(|i| i.name == "make_holder")
+        .expect("make_holder not found");
     assert!(
         make_holder.resolved_type_signature.contains("dyn"),
         "make_holder signature must reference dyn trait: {}",
@@ -140,8 +157,10 @@ fn complex_fixture_container_impl_blocks_for_three_types() {
         "expected impl blocks for Container, got: {impl_names:?}"
     );
     // Three concrete Container impls: i32, String, f64
-    let container_impls: Vec<&&str> =
-        impl_names.iter().filter(|n| n.contains("Container")).collect();
+    let container_impls: Vec<&&str> = impl_names
+        .iter()
+        .filter(|n| n.contains("Container"))
+        .collect();
     assert!(
         container_impls.len() >= 3,
         "expected ≥3 Container impls, got: {container_impls:?}"
@@ -153,8 +172,10 @@ fn complex_fixture_where_clause_bounds() {
     let src = fixture("complex.rs");
     let items = type_extractor::extract_typed_items(&src);
 
-    let process_fn =
-        items.iter().find(|i| i.name == "process").expect("process fn not found");
+    let process_fn = items
+        .iter()
+        .find(|i| i.name == "process")
+        .expect("process fn not found");
     assert!(
         process_fn.trait_bounds.iter().any(|b| b.contains("Clone")),
         "process bounds must include Clone: {:?}",
@@ -172,6 +193,9 @@ fn complex_fixture_type_alias_extracted() {
     let src = fixture("complex.rs");
     let items = type_extractor::extract_typed_items(&src);
 
-    let alias = items.iter().find(|i| i.name == "Result").expect("Result type alias not found");
+    let alias = items
+        .iter()
+        .find(|i| i.name == "Result")
+        .expect("Result type alias not found");
     assert!(alias.resolved_type_signature.starts_with("type Result"));
 }

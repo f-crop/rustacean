@@ -4,8 +4,10 @@
 //! (ADR-007 §11.9 / REQ-IN-09).
 
 use anyhow::{Context as _, Result};
-use rb_schemas::{ParsedItemEvent, SourceFileEvent, GraphRelationEvent, ItemKind, RelationKind, TenantId};
-use rb_schemas::{source_file_event, parsed_item_event};
+use rb_schemas::{
+    GraphRelationEvent, ItemKind, ParsedItemEvent, RelationKind, SourceFileEvent, TenantId,
+};
+use rb_schemas::{parsed_item_event, source_file_event};
 use rb_storage_pg::{StorageError, TenantPool};
 use rb_tenant::TenantCtx;
 
@@ -42,8 +44,7 @@ pub async fn write_source_file(
         _ => None,
     };
 
-    let repo_id = parse_uuid(&ev.repo_id)
-        .context("invalid repo_id in SourceFileEvent")?;
+    let repo_id = parse_uuid(&ev.repo_id).context("invalid repo_id in SourceFileEvent")?;
 
     sqlx::query(&format!(
         r"INSERT INTO {table} (repo_id, relative_path, sha256, size_bytes, blob_ref)
@@ -88,8 +89,7 @@ pub async fn write_parsed_item(
         None => (None, None),
     };
 
-    let repo_id = parse_uuid(&ev.repo_id)
-        .context("invalid repo_id in ParsedItemEvent")?;
+    let repo_id = parse_uuid(&ev.repo_id).context("invalid repo_id in ParsedItemEvent")?;
 
     sqlx::query(&format!(
         r"INSERT INTO {table} (repo_id, fqn, kind, source_path, line_start, line_end, blob_ref, source_text)
@@ -131,12 +131,10 @@ pub async fn write_relation(
 ) -> Result<()> {
     verify_tenant(envelope_tenant, &ev.tenant_id)?;
     let table = tenant_ctx.qualify("code_relations");
-    let kind = relation_kind_str(
-        RelationKind::try_from(ev.kind).unwrap_or(RelationKind::Unspecified)
-    );
+    let kind =
+        relation_kind_str(RelationKind::try_from(ev.kind).unwrap_or(RelationKind::Unspecified));
 
-    let repo_id = parse_uuid(&ev.repo_id)
-        .context("invalid repo_id in GraphRelationEvent")?;
+    let repo_id = parse_uuid(&ev.repo_id).context("invalid repo_id in GraphRelationEvent")?;
 
     sqlx::query(&format!(
         r"INSERT INTO {table} (repo_id, from_fqn, to_fqn, kind)
@@ -255,7 +253,10 @@ mod tests {
         let result = verify_tenant(&envelope_tid, &event_tid.to_string());
         assert!(result.is_err(), "mismatched tenants must be rejected");
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("tenant mismatch"), "expected tenant mismatch, got: {err_msg}");
+        assert!(
+            err_msg.contains("tenant mismatch"),
+            "expected tenant mismatch, got: {err_msg}"
+        );
     }
 
     #[test]

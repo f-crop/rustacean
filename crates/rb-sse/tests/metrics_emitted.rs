@@ -46,8 +46,7 @@ async fn all_required_metric_names_are_emitted() {
     }
 
     // Polling the stream triggers RecvError::Lagged(n) → rb_sse_dropped_total.
-    let _ =
-        tokio::time::timeout(std::time::Duration::from_millis(100), lag_stream.next()).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_millis(100), lag_stream.next()).await;
 
     // ── Assertions ────────────────────────────────────────────────────────────
     let snapshot = snapshotter.snapshot();

@@ -7,6 +7,7 @@ use rb_schemas::{GraphRelationEvent, IngestStatusEvent, TypecheckedItemEvent};
 
 mod consumer;
 mod extractor;
+mod extractor_calls;
 
 fn validate_boot_env() -> Result<()> {
     let blob_store = std::env::var("RB_BLOB_STORE").unwrap_or_else(|_| "filesystem".to_owned());
@@ -25,18 +26,19 @@ async fn main() -> Result<()> {
 
     let _guard = rb_tracing::init("ingest-graph")?;
 
-    let blob_store = store_from_env().await.context("failed to init blob store")?;
+    let blob_store = store_from_env()
+        .await
+        .context("failed to init blob store")?;
 
     let item_consumer: Consumer<TypecheckedItemEvent> =
         Consumer::new(&ConsumerCfg::new("ingest-graph"))?;
     item_consumer.subscribe(&[consumer::TOPIC_TYPECHECKED_ITEMS])?;
 
-    let relation_producer =
-        Arc::new(Producer::<GraphRelationEvent>::new(&ProducerCfg::default())?);
-    let embed_producer =
-        Arc::new(Producer::<TypecheckedItemEvent>::new(&ProducerCfg::default())?);
-    let status_producer =
-        Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
+    let relation_producer = Arc::new(Producer::<GraphRelationEvent>::new(&ProducerCfg::default())?);
+    let embed_producer = Arc::new(Producer::<TypecheckedItemEvent>::new(
+        &ProducerCfg::default(),
+    )?);
+    let status_producer = Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
 
     tracing::info!("ingest-graph starting");
 

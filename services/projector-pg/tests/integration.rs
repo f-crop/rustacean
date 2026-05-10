@@ -9,8 +9,8 @@ mod common;
 
 use common::{make_pool, new_ctx, setup_tenant, teardown_tenant, test_url};
 use rb_schemas::{
-    GraphRelationEvent, ItemKind, ParsedItemEvent, RelationKind,
-    SourceFileEvent, TenantId, source_file_event, parsed_item_event,
+    GraphRelationEvent, ItemKind, ParsedItemEvent, RelationKind, SourceFileEvent, TenantId,
+    parsed_item_event, source_file_event,
 };
 
 macro_rules! skip_no_db {
@@ -160,7 +160,9 @@ async fn write_source_file_with_blob_ref() {
         sha256: "def456".to_string(),
         size_bytes: 1_000_000,
         emitted_at_ms: 0,
-        body: Some(source_file_event::Body::BlobRef("rb-blob://test".to_string())),
+        body: Some(source_file_event::Body::BlobRef(
+            "rb-blob://test".to_string(),
+        )),
     };
 
     projector_pg::write_source_file(&pool, &ctx, &tid, &ev)
@@ -177,7 +179,11 @@ async fn write_source_file_with_blob_ref() {
     .await
     .unwrap()
     .flatten();
-    assert_eq!(blob.as_deref(), Some("rb-blob://test"), "blob_ref must be stored");
+    assert_eq!(
+        blob.as_deref(),
+        Some("rb-blob://test"),
+        "blob_ref must be stored"
+    );
 
     teardown_tenant(&pool, &ctx).await;
 }
@@ -300,7 +306,9 @@ async fn write_parsed_item_with_blob_ref() {
         line_start: 1,
         line_end: 500,
         emitted_at_ms: 0,
-        body: Some(parsed_item_event::Body::BlobRef("rb-blob://ast-json".to_string())),
+        body: Some(parsed_item_event::Body::BlobRef(
+            "rb-blob://ast-json".to_string(),
+        )),
     };
 
     projector_pg::write_parsed_item(&pool, &ctx, &tid, &ev)
@@ -322,8 +330,8 @@ async fn write_parsed_item_with_blob_ref() {
     teardown_tenant(&pool, &ctx).await;
 }
 
-/// Regression for #274: re-ingestion must not overwrite source_text with NULL.
-/// When body=None arrives, COALESCE in the UPSERT must preserve the original source_text.
+/// Regression for #274: re-ingestion must not overwrite `source_text` with NULL.
+/// When body=None arrives, COALESCE in the UPSERT must preserve the original `source_text`.
 #[tokio::test]
 async fn write_parsed_item_reingest_preserves_source_text() {
     skip_no_db!(url);

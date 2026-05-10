@@ -18,10 +18,7 @@ pub enum FeatureResolveError {
     },
 
     #[error("unknown feature `{feature}` requested for crate `{crate_name}`")]
-    UnknownFeature {
-        crate_name: String,
-        feature: String,
-    },
+    UnknownFeature { crate_name: String, feature: String },
 
     #[error("cyclic feature dependency detected involving `{feature}`")]
     CyclicDependency { feature: String },

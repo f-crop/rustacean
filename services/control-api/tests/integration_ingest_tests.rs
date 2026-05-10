@@ -67,19 +67,14 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         neo4j_password: None,
         kafka_bootstrap_servers: "127.0.0.1:19999".to_owned(),
         dev_test_routes: false,
-        migrations_root: std::env::var("RB_MIGRATIONS_ROOT").ok().map(std::path::PathBuf::from),
+        migrations_root: std::env::var("RB_MIGRATIONS_ROOT")
+            .ok()
+            .map(std::path::PathBuf::from),
         qdrant_url: None,
         ollama_url: None,
         embedding_model: "nomic-embed-text".to_owned(),
-            claude_oauth_client_id: None,
-            litellm_url: None,
-            litellm_open_code_key: None,
-
-            oauth_encrypt_key: None,
-            oauth_encrypt_key_id: "oauth-claude-v1".to_owned(),
-            oauth_encrypt_key_prev: None,
-            oauth_encrypt_key_prev_id: "none".to_owned(),
-            oauth_rotate_keys_on_boot: false,
+        internal_secret: Some("test-internal-secret".to_owned()),
+        internal_listen_addr: "127.0.0.1:0".to_owned(),
     };
     let state = AppState {
         pool: pool.clone(),
@@ -99,8 +94,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
         mcp_sessions: control_api::McpSessionStore::new(),
         agent_registry: control_api::AgentRegistry::new(),
-        token_cipher: None,
-        token_cipher_prev: None,
+        agent_commands_producer: None,
+        internal_secret: "test-internal-secret".to_owned(),
     };
     Some((state, pool))
 }
@@ -176,8 +171,7 @@ async fn insert_ingest_fixtures(pool: &PgPool) -> IngestFixtures {
     // from_ne_bytes reinterprets 8 bytes as i64; no truncation occurs.
     let github_install_id =
         i64::from_ne_bytes(install_id.as_bytes()[0..8].try_into().expect("8 bytes"));
-    let github_repo_id =
-        i64::from_ne_bytes(repo_id.as_bytes()[0..8].try_into().expect("8 bytes"));
+    let github_repo_id = i64::from_ne_bytes(repo_id.as_bytes()[0..8].try_into().expect("8 bytes"));
 
     sqlx::query(
         "INSERT INTO control.github_installations \
@@ -210,7 +204,11 @@ async fn insert_ingest_fixtures(pool: &PgPool) -> IngestFixtures {
     .await
     .expect("insert repo");
 
-    IngestFixtures { session_token, repo_id, tenant_id }
+    IngestFixtures {
+        session_token,
+        repo_id,
+        tenant_id,
+    }
 }
 
 /// A `ProducerCfg` that points at an unreachable local port with a short
@@ -246,7 +244,11 @@ async fn ac5_trigger_returns_503_when_broker_unreachable() {
         .expect("producer construction succeeds even with unreachable bootstrap");
     state.ingest_producer = Some(Arc::new(producer));
 
-    let IngestFixtures { session_token, repo_id, .. } = insert_ingest_fixtures(&pool).await;
+    let IngestFixtures {
+        session_token,
+        repo_id,
+        ..
+    } = insert_ingest_fixtures(&pool).await;
 
     let resp = build(state)
         .oneshot(
@@ -295,8 +297,11 @@ async fn ac6_trigger_rolls_back_db_on_kafka_failure() {
         .expect("producer construction succeeds even with unreachable bootstrap");
     state.ingest_producer = Some(Arc::new(producer));
 
-    let IngestFixtures { session_token, repo_id, tenant_id } =
-        insert_ingest_fixtures(&pool).await;
+    let IngestFixtures {
+        session_token,
+        repo_id,
+        tenant_id,
+    } = insert_ingest_fixtures(&pool).await;
 
     let resp = build(state)
         .oneshot(

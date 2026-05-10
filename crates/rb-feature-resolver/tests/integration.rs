@@ -21,10 +21,22 @@ fn basic_default_features() {
     let req = FeatureSet::default();
     let resolved = resolve(Path::new("/nonexistent"), &manifest, &req).unwrap();
 
-    assert!(resolved.features().contains("default"), "default must be present");
-    assert!(resolved.features().contains("logging"), "default enables logging");
-    assert!(!resolved.features().contains("tracing"), "tracing not in default");
-    assert!(!resolved.features().contains("metrics"), "metrics not in default");
+    assert!(
+        resolved.features().contains("default"),
+        "default must be present"
+    );
+    assert!(
+        resolved.features().contains("logging"),
+        "default enables logging"
+    );
+    assert!(
+        !resolved.features().contains("tracing"),
+        "tracing not in default"
+    );
+    assert!(
+        !resolved.features().contains("metrics"),
+        "metrics not in default"
+    );
 }
 
 #[test]
@@ -92,7 +104,10 @@ fn optional_dep_activation_not_in_feature_set() {
     let resolved = resolve(Path::new("/nonexistent"), &manifest, &req).unwrap();
 
     assert!(resolved.features().contains("json"));
-    assert!(!resolved.features().contains("dep:serde_json"), "dep: refs must not leak");
+    assert!(
+        !resolved.features().contains("dep:serde_json"),
+        "dep: refs must not leak"
+    );
 }
 
 #[test]
@@ -103,7 +118,10 @@ fn cross_crate_feature_ref_not_in_feature_set() {
     let resolved = resolve(Path::new("/nonexistent"), &manifest, &req).unwrap();
 
     assert!(resolved.features().contains("derive"));
-    assert!(!resolved.features().contains("serde/derive"), "dep/feature refs must not leak");
+    assert!(
+        !resolved.features().contains("serde/derive"),
+        "dep/feature refs must not leak"
+    );
 }
 
 #[test]
@@ -129,7 +147,10 @@ fn cargo_args_are_sorted() {
 
     let mut sorted = args.clone();
     sorted.sort_unstable();
-    assert_eq!(args, sorted, "as_cargo_args must return sorted feature names");
+    assert_eq!(
+        args, sorted,
+        "as_cargo_args must return sorted feature names"
+    );
 }
 
 // ── unknown feature error ─────────────────────────────────────────────────────
@@ -140,5 +161,8 @@ fn unknown_feature_returns_error() {
     let req = FeatureSet::with_features(["does-not-exist"]).no_default_features();
     let err = resolve(Path::new("/nonexistent"), &manifest, &req).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("does-not-exist"), "error must name the unknown feature");
+    assert!(
+        msg.contains("does-not-exist"),
+        "error must name the unknown feature"
+    );
 }

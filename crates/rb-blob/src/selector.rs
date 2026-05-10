@@ -15,8 +15,7 @@ use crate::{BlobError, filesystem::FilesystemStore, store::BlobStore};
 /// Returns [`BlobError::UnknownBackend`] for unrecognised values, or
 /// backend-specific errors during initialisation.
 pub async fn store_from_env() -> Result<Arc<dyn BlobStore>, BlobError> {
-    let backend = std::env::var("RB_BLOB_STORE")
-        .unwrap_or_else(|_| "filesystem".to_string());
+    let backend = std::env::var("RB_BLOB_STORE").unwrap_or_else(|_| "filesystem".to_string());
 
     match backend.as_str() {
         "filesystem" => Ok(Arc::new(FilesystemStore::from_env()?)),
@@ -24,7 +23,7 @@ pub async fn store_from_env() -> Result<Arc<dyn BlobStore>, BlobError> {
             #[cfg(feature = "s3")]
             {
                 let store = crate::s3::S3Store::from_env().await?;
-                return Ok(Arc::new(store));
+                Ok(Arc::new(store))
             }
             #[cfg(not(feature = "s3"))]
             {
