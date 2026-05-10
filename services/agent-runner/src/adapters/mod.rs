@@ -77,7 +77,7 @@ pub async fn write_mcp_config(
 
     // C4: Validate URL scheme to prevent SSRF attacks
     if !api_base.starts_with("http://") && !api_base.starts_with("https://") {
-        anyhow::bail!("RUST_BRAIN_API_BASE must use http:// or https:// scheme, got: {api_base}",);
+        anyhow::bail!("RUST_BRAIN_API_BASE must use http:// or https:// scheme, got: {api_base}");
     }
 
     let mcp_config = serde_json::json!({
