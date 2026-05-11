@@ -17,17 +17,7 @@ use rb_storage_qdrant::TenantVectorStore;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-/// Placeholder for the MCP session store — kept for binary compatibility
-/// during migration.  Will be removed when MCP routes are fully retired.
-#[derive(Clone, Default)]
-pub struct McpSessionStore;
-
-impl McpSessionStore {
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
+pub use rb_mcp::McpSessionStore;
 
 use crate::config::Config;
 

@@ -136,7 +136,7 @@ pub async fn run(config: Config) -> Result<()> {
         http_client: reqwest::Client::new(),
         neo4j_uri: config.neo4j_uri.clone(),
         kafka_consistency: Arc::clone(&kafka_consistency),
-        mcp_sessions: McpSessionStore,
+        mcp_sessions: McpSessionStore::new(),
         agent_registry: AgentRegistry::new(),
         agent_commands_producer,
         internal_secret: config.internal_secret.clone().unwrap_or_default(),

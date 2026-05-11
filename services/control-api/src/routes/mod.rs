@@ -8,6 +8,7 @@ pub mod auth_verify;
 pub mod github;
 pub mod health;
 pub mod ingest;
+pub mod mcp;
 pub mod me;
 pub mod query;
 pub mod repos;
@@ -42,6 +43,7 @@ use crate::routes::{
     ingest::test_publish::test_publish,
     ingest::trigger::trigger_ingestion,
     me::{get_me, switch_tenant},
+    mcp::mcp_handler,
     query::graph::post_graph_query,
     query::impls::get_trait_impls,
     query::items::get_item,
@@ -127,6 +129,8 @@ pub fn build_public(state: AppState) -> Router {
         .route("/v1/ingest/events", get(events_stream))
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
+        // MCP endpoint (ADR-009)
+        .route("/mcp", post(mcp_handler))
         // Agent session routes (ADR-009 Option B)
         .route(
             "/v1/agents/sessions",

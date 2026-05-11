@@ -1097,6 +1097,7 @@ dependencies = [
  "rb-email",
  "rb-github",
  "rb-kafka",
+ "rb-mcp",
  "rb-query",
  "rb-schemas",
  "rb-secrets",
@@ -3824,6 +3825,16 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-opentelemetry",
+ "uuid",
+]
+
+[[package]]
+name = "rb-mcp"
+version = "0.1.0"
+dependencies = [
+ "dashmap",
+ "serde",
+ "serde_json",
  "uuid",
 ]
 
