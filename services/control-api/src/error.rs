@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use rb_kafka::KafkaError;
@@ -230,11 +230,18 @@ impl IntoResponse for AppError {
                 "session_cap_exceeded",
                 self.to_string(),
             ),
-            AppError::SessionRateLimitExceeded { retry_after_secs } => (
-                StatusCode::TOO_MANY_REQUESTS,
-                "rate_limit_exceeded",
-                format!("session creation rate limit exceeded; retry after {retry_after_secs}s"),
-            ),
+            AppError::SessionRateLimitExceeded { retry_after_secs } => {
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, retry_after_secs.to_string())],
+                    Json(json!({
+                        "error": "rate_limit_exceeded",
+                        "message": format!("session creation rate limit exceeded; retry after {retry_after_secs}s"),
+                        "retry_after_secs": retry_after_secs
+                    })),
+                )
+                    .into_response();
+            }
             AppError::TenantSessionCapExceeded => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "rate_limit_exceeded",

@@ -142,6 +142,14 @@ impl Default for SessionCreateRateLimiter {
 // ---------------------------------------------------------------------------
 
 /// Tracks active session counts per tenant for the per-tenant session cap.
+///
+/// **Known limitation (single-instance in-memory design):** The counter starts
+/// at zero on each process restart. Active sessions that were created before
+/// the restart and are still running do not pre-populate the counter, so the
+/// effective cap is temporarily higher than configured until those legacy
+/// sessions terminate naturally. This is acceptable for the current
+/// single-instance deployment; a multi-instance deployment would require
+/// querying the DB at startup or using a shared store (e.g. Redis).
 #[derive(Default)]
 pub struct TenantSessionCount {
     counts: DashMap<Uuid, AtomicUsize>,
