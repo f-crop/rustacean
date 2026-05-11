@@ -60,6 +60,8 @@ use crate::routes::{
         query::traversal::get_callees,
         agents::sessions::create_session,
         agents::sessions::delete_session,
+        agents::session_queries::get_session,
+        agents::session_queries::list_sessions,
         agents::events::session_events,
     ),
     components(
@@ -122,6 +124,9 @@ use crate::routes::{
             query::usages::UsagesResponse,
             agents::sessions::CreateSessionRequest,
             agents::sessions::CreateSessionResponse,
+            agents::session_queries::SessionItem,
+            agents::session_queries::ListSessionsResponse,
+            agents::session_queries::SessionDetail,
         )
     ),
     tags(

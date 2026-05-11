@@ -1,9 +1,12 @@
-//! Agent session management routes (ADR-009 Option B).
+//! Agent session lifecycle routes (ADR-009 Option B).
 //!
 //! - `POST /v1/agents/sessions`             — INSERT row + publish `SessionStart` to Kafka
 //! - `DELETE /v1/agents/sessions/{id}`      — publish `SessionTerminate` to Kafka
 //! - `PATCH /internal/agent/sessions/{id}/status`   — agent-runner callback to update DB
 //! - `DELETE /internal/agent/sessions/{id}/api-key` — agent-runner callback to revoke key
+//!
+//! Read-side endpoints (`GET /v1/agents/sessions`, `GET /v1/agents/sessions/{id}`)
+//! live in [`super::session_queries`].
 //!
 //! # Prompt security
 //!
