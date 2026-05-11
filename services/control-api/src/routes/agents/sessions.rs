@@ -223,7 +223,10 @@ pub async fn create_session(
         .map_err(|retry_after_secs| AppError::SessionRateLimitExceeded { retry_after_secs })?;
 
     let tenant_cap = state.config.tenant_session_cap;
-    if !state.tenant_session_count.try_increment(&caller.tenant_id, tenant_cap) {
+    if !state
+        .tenant_session_count
+        .try_increment(&caller.tenant_id, tenant_cap)
+    {
         return Err(AppError::TenantSessionCapExceeded);
     }
 

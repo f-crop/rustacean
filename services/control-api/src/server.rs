@@ -23,8 +23,10 @@ use rb_schemas::AgentSessionCommand;
 use crate::{
     config::Config,
     ingest_consumer, middleware, routes,
-    state::{AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore,
-        SessionCreateRateLimiter, TenantSessionCount},
+    state::{
+        AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore, SessionCreateRateLimiter,
+        TenantSessionCount,
+    },
 };
 
 /// Connects to Postgres, builds [`AppState`], and drives the server until shutdown.

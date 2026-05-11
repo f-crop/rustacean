@@ -7,7 +7,7 @@ use utoipa::OpenApi;
 
 use crate::routes::{
     agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github, health,
-    ingest, me, mcp, query, repos, tenants, tenants::delete as tenant_delete,
+    ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete,
     tenants::members as tenant_members,
 };
 

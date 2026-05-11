@@ -233,9 +233,7 @@ impl IntoResponse for AppError {
             AppError::SessionRateLimitExceeded { retry_after_secs } => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "rate_limit_exceeded",
-                format!(
-                    "session creation rate limit exceeded; retry after {retry_after_secs}s"
-                ),
+                format!("session creation rate limit exceeded; retry after {retry_after_secs}s"),
             ),
             AppError::TenantSessionCapExceeded => (
                 StatusCode::TOO_MANY_REQUESTS,

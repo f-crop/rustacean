@@ -130,7 +130,10 @@ impl SessionCreateRateLimiter {
 
 impl Default for SessionCreateRateLimiter {
     fn default() -> Self {
-        Self::new(DEFAULT_SESSION_CREATE_RATE_LIMIT, DEFAULT_SESSION_CREATE_WINDOW_SECS)
+        Self::new(
+            DEFAULT_SESSION_CREATE_RATE_LIMIT,
+            DEFAULT_SESSION_CREATE_WINDOW_SECS,
+        )
     }
 }
 
@@ -163,7 +166,10 @@ impl TenantSessionCount {
             if current >= max_sessions {
                 return false;
             }
-            if count.compare_exchange_weak(current, current + 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+            if count
+                .compare_exchange_weak(current, current + 1, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
                 return true;
             }
         }
@@ -176,7 +182,8 @@ impl TenantSessionCount {
             // Clean up zero-count entries to avoid unbounded map growth.
             if prev <= 1 {
                 drop(count);
-                self.counts.remove_if(tenant_id, |_, v| v.load(Ordering::Relaxed) == 0);
+                self.counts
+                    .remove_if(tenant_id, |_, v| v.load(Ordering::Relaxed) == 0);
             }
         }
     }
@@ -184,7 +191,9 @@ impl TenantSessionCount {
     /// Get the current active session count for a tenant.
     #[must_use]
     pub fn count(&self, tenant_id: &Uuid) -> usize {
-        self.counts.get(tenant_id).map_or(0, |c| c.load(Ordering::Relaxed))
+        self.counts
+            .get(tenant_id)
+            .map_or(0, |c| c.load(Ordering::Relaxed))
     }
 }
 
@@ -450,7 +459,7 @@ mod tests {
     fn tenant_session_count_decrement_cleans_up_zero() {
         let counter = TenantSessionCount::new();
         let tenant = Uuid::new_v4();
-        counter.try_increment(&tenant, 5);
+        assert!(counter.try_increment(&tenant, 5));
         counter.decrement(&tenant);
         assert_eq!(counter.count(&tenant), 0);
         assert!(counter.counts.is_empty() || counter.counts.get(&tenant).is_none());
@@ -461,7 +470,7 @@ mod tests {
         let counter = TenantSessionCount::new();
         let t1 = Uuid::new_v4();
         let t2 = Uuid::new_v4();
-        counter.try_increment(&t1, 1);
+        assert!(counter.try_increment(&t1, 1));
         assert!(!counter.try_increment(&t1, 1));
         assert!(counter.try_increment(&t2, 1));
     }
