@@ -376,7 +376,7 @@ pub async fn create_session(
     path = "/v1/agents/sessions/{id}",
     params(("id" = Uuid, Path, description = "Session ID")),
     responses(
-        (status = 202, description = "Termination queued"),
+        (status = 202, description = "Termination queued or session cancelled"),
         (status = 401, description = "Authentication required"),
         (status = 403, description = "Not your session, or API key lacks the `agent` scope"),
         (status = 404, description = "Session not found"),
@@ -384,6 +384,7 @@ pub async fn create_session(
     ),
     tag = "agents"
 )]
+#[allow(clippy::type_complexity)]
 pub async fn delete_session(
     State(state): State<AppState>,
     auth: AuthContext,
@@ -391,20 +392,48 @@ pub async fn delete_session(
 ) -> Result<impl IntoResponse, AppError> {
     let caller = require_session_or_agent_key(auth)?;
 
-    // Verify the session belongs to the caller's tenant.
-    let row: Option<(Uuid,)> =
-        sqlx::query_as("SELECT tenant_id FROM agents.agent_sessions WHERE id = $1")
-            .bind(session_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+    let row: Option<(
+        Uuid,
+        String,
+        Option<i32>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    )> = sqlx::query_as(
+        "SELECT tenant_id, status, pid, started_at FROM agents.agent_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
 
-    let (session_tenant_id,) = row.ok_or(AppError::NotFound)?;
+    let (session_tenant_id, status, pid, started_at) = row.ok_or(AppError::NotFound)?;
     if session_tenant_id != caller.tenant_id {
         return Err(AppError::InsufficientRole);
     }
 
-    // Publish SessionTerminate to Kafka.
+    if TERMINAL_STATUSES.contains(&status.as_str()) {
+        let _ = state.agent_registry.remove(&session_id);
+        tracing::info!(session_id = %session_id, status = %status, "delete on already-terminal session, returning 202");
+        return Ok(StatusCode::ACCEPTED);
+    }
+
+    // RUSAA-1118 A: Pending sessions with no PID/started_at can never receive
+    // a runner callback, so flip to cancelled synchronously instead of enqueuing
+    // a terminate command that will never be consumed.
+    if status == "pending" && pid.is_none() && started_at.is_none() {
+        sqlx::query(
+            "UPDATE agents.agent_sessions SET status = 'cancelled', completed_at = now() WHERE id = $1"
+        )
+        .bind(session_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
+
+        let _ = state.agent_registry.remove(&session_id);
+
+        tracing::info!(session_id = %session_id, "pending agent session cancelled synchronously");
+        return Ok(StatusCode::ACCEPTED);
+    }
+
     let command = AgentSessionCommand {
         session_id: session_id.to_string(),
         command: Some(agent_session_command::Command::Terminate(
@@ -587,9 +616,22 @@ mod tests {
 
     #[test]
     fn valid_agent_statuses_includes_expected() {
+        assert!(VALID_AGENT_STATUSES.contains(&"pending"));
         assert!(VALID_AGENT_STATUSES.contains(&"running"));
+        assert!(VALID_AGENT_STATUSES.contains(&"terminating"));
         assert!(VALID_AGENT_STATUSES.contains(&"terminated"));
+        assert!(VALID_AGENT_STATUSES.contains(&"cancelled"));
         assert!(!VALID_AGENT_STATUSES.contains(&"unknown"));
         assert!(!VALID_AGENT_STATUSES.contains(&"'DROP TABLE'"));
+    }
+
+    #[test]
+    fn terminal_statuses_are_subset_of_valid() {
+        for ts in TERMINAL_STATUSES {
+            assert!(
+                VALID_AGENT_STATUSES.contains(ts),
+                "TERMINAL_STATUSES entry '{ts}' must also appear in VALID_AGENT_STATUSES"
+            );
+        }
     }
 }
