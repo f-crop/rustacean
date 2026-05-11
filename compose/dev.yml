@@ -113,7 +113,8 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.source-files.v1           --partitions 6  --replication-factor 1 --config retention.ms=2592000000 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.projector.events          --partitions 12 --replication-factor 1 --config retention.ms=2592000000 &&
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.audit.events              --partitions 3  --replication-factor 1 --config retention.ms=7776000000 &&
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.tombstones.v1             --partitions 3  --replication-factor 1 --config retention.ms=604800000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.tombstones.v1             --partitions 3  --replication-factor 1 --config retention.ms=604800000 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.commands             --partitions 6  --replication-factor 1 --config retention.ms=604800000
       "
 
   loki:
@@ -506,6 +507,32 @@ services:
       otel-collector:
         condition: service_started
 
+  agent-runner:
+    build:
+      context: ..
+      dockerfile: docker/agent-runner/Dockerfile
+    image: ghcr.io/jarnura/rustacean/agent-runner:dev
+    pull_policy: never
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RB_AGENT_WORKSPACE_BASE: /data/agent-workspaces
+      RB_CONTROL_API_BASE_URL: "http://control-api:8080"
+      RB_INTERNAL_SECRET: "${RB_INTERNAL_SECRET:-dev-internal-secret-change-me}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: agent-runner
+      RUST_LOG: "info,agent_runner=debug"
+    volumes:
+      - agent-workspace-data:/data/agent-workspaces
+    networks:
+      - rb-net
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+
   caddy:
     image: caddy:2-alpine
     volumes:
@@ -575,3 +602,4 @@ volumes:
   ollama_data:
   caddy_data:
   blob-data:
+  agent-workspace-data:

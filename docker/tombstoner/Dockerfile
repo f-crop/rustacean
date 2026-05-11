@@ -25,6 +25,7 @@ COPY services/projector-pg/Cargo.toml         services/projector-pg/Cargo.toml
 COPY services/projector-neo4j/Cargo.toml      services/projector-neo4j/Cargo.toml
 COPY services/tombstoner/Cargo.toml           services/tombstoner/Cargo.toml
 COPY services/embed-worker/Cargo.toml         services/embed-worker/Cargo.toml
+COPY services/agent-runner/Cargo.toml         services/agent-runner/Cargo.toml
 
 # Stub sources so `cargo build` caches deps without the full source tree.
 RUN find crates services -name "Cargo.toml" | sed 's|Cargo.toml|src/lib.rs|' | \
