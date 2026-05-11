@@ -1,4 +1,4 @@
--- Control schema: RUSAA-1118 — add 'terminating' status to agent_sessions
+-- Control schema: #351 — add 'terminating' status to agent_sessions
 --
 -- DELETE /v1/agents/sessions/{id} now sets status = 'terminating' immediately
 -- so the session does not appear "pending" while awaiting agent-runner pickup.

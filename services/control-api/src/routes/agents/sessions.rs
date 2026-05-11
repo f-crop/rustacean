@@ -375,9 +375,9 @@ pub async fn delete_session(
         return Ok(StatusCode::ACCEPTED);
     }
 
-    // RUSAA-1118 A: Pending sessions with no PID/started_at can never receive
-    // a runner callback, so flip to cancelled synchronously instead of enqueuing
-    // a terminate command that will never be consumed.
+    // Pending sessions with no PID/started_at can never receive a runner
+    // callback, so flip to cancelled synchronously instead of enqueuing a
+    // terminate command that will never be consumed.
     if status == "pending" && pid.is_none() && started_at.is_none() {
         sqlx::query(
             "UPDATE agents.agent_sessions SET status = 'cancelled', completed_at = now() WHERE id = $1"
