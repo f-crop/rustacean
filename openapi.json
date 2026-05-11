@@ -133,6 +133,9 @@
           "401": {
             "description": "Authentication required"
           },
+          "403": {
+            "description": "API key lacks the `agent` scope"
+          },
           "429": {
             "description": "Process session cap reached"
           },
@@ -209,7 +212,7 @@
             "description": "Authentication required"
           },
           "403": {
-            "description": "Not your session"
+            "description": "Not your session, or API key lacks the `agent` scope"
           },
           "404": {
             "description": "Session not found"

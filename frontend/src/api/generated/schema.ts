@@ -1667,6 +1667,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description API key lacks the `agent` scope */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Process session cap reached */
             readonly 429: {
                 headers: {
@@ -1753,7 +1760,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Not your session */
+            /** @description Not your session, or API key lacks the `agent` scope */
             readonly 403: {
                 headers: {
                     readonly [name: string]: unknown;

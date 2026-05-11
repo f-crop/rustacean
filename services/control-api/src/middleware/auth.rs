@@ -296,205 +296,52 @@ pub fn require_read_auth(auth: AuthContext) -> Result<Uuid, AppError> {
     }
 }
 
+/// Caller identity authorized to start or terminate an agent session.
+///
+/// Returned by [`require_session_or_agent_key`]; carries the tenant and the
+/// human user whose credential authorized the call so the row written into
+/// `agents.agent_sessions` and `control.api_keys` is attributed correctly.
+#[derive(Debug, Clone, Copy)]
+pub struct AgentSessionAuth {
+    pub tenant_id: Uuid,
+    pub user_id: Uuid,
+}
+
+/// Require either a verified browser session OR an API key with the `agent` scope.
+///
+/// Per ADR-009 §7, agent sessions can be started by a logged-in human OR by an
+/// `agent`-scoped API key (e.g. a parent agent spawning a child). API keys
+/// that lack the `agent` scope are rejected with `403 insufficient_scope`
+/// rather than `401`, so callers can distinguish a missing credential from
+/// a credential that exists but is not authorized for this surface.
+///
+/// - `Session(info)` with `email_verified == true` → `Ok(...)`
+/// - `Session(info)` with `email_verified == false` → `EmailNotVerified` (403)
+/// - `ExpiredSession` → `SessionExpired` (401, `session_expired`)
+/// - `ApiKey(info)` containing `Scope::Agent` → `Ok(...)`
+/// - `ApiKey(info)` without `Scope::Agent` → `InsufficientScope` (403)
+/// - `Anonymous` → `Unauthorized` (401)
+pub fn require_session_or_agent_key(auth: AuthContext) -> Result<AgentSessionAuth, AppError> {
+    match auth {
+        AuthContext::Session(info) if info.email_verified => Ok(AgentSessionAuth {
+            tenant_id: info.tenant_id,
+            user_id: info.user_id,
+        }),
+        AuthContext::Session(_) => Err(AppError::EmailNotVerified),
+        AuthContext::ExpiredSession => Err(AppError::SessionExpired),
+        AuthContext::ApiKey(info) if info.scopes.contains(&Scope::Agent) => Ok(AgentSessionAuth {
+            tenant_id: info.tenant_id,
+            user_id: info.user_id,
+        }),
+        AuthContext::ApiKey(_) => Err(AppError::InsufficientScope),
+        AuthContext::Anonymous => Err(AppError::Unauthorized),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::http::{HeaderMap, HeaderValue};
-
-    fn parts_with_cookie(cookie: &str) -> Parts {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::COOKIE, HeaderValue::from_str(cookie).unwrap());
-        let mut req = axum::http::Request::builder().body(()).unwrap();
-        *req.headers_mut() = headers;
-        req.into_parts().0
-    }
-
-    fn parts_with_bearer(token: &str) -> Parts {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
-        );
-        let mut req = axum::http::Request::builder().body(()).unwrap();
-        *req.headers_mut() = headers;
-        req.into_parts().0
-    }
-
-    fn make_session(email_verified: bool) -> SessionInfo {
-        SessionInfo {
-            session_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            tenant_id: Uuid::new_v4(),
-            email_verified,
-        }
-    }
-
-    #[test]
-    fn extract_session_cookie_finds_rb_session() {
-        let parts = parts_with_cookie("rb_session=abc123; other=val");
-        assert_eq!(extract_session_cookie(&parts).as_deref(), Some("abc123"));
-    }
-
-    #[test]
-    fn extract_session_cookie_works_when_first() {
-        let parts = parts_with_cookie("rb_session=tok42");
-        assert_eq!(extract_session_cookie(&parts).as_deref(), Some("tok42"));
-    }
-
-    #[test]
-    fn extract_session_cookie_returns_none_when_absent() {
-        let parts = parts_with_cookie("other=value");
-        assert!(extract_session_cookie(&parts).is_none());
-    }
-
-    #[test]
-    fn extract_session_cookie_ignores_empty_value() {
-        let parts = parts_with_cookie("rb_session=");
-        assert!(extract_session_cookie(&parts).is_none());
-    }
-
-    #[test]
-    fn extract_session_cookie_handles_whitespace_around_parts() {
-        let parts = parts_with_cookie("first=a;  rb_session=tok99  ;last=b");
-        assert!(extract_session_cookie(&parts).is_some());
-    }
-
-    #[test]
-    fn extract_bearer_token_parses_valid_header() {
-        let parts = parts_with_bearer("rb_live_abc123def456");
-        assert_eq!(
-            extract_bearer_token(&parts).as_deref(),
-            Some("rb_live_abc123def456")
-        );
-    }
-
-    #[test]
-    fn extract_bearer_token_returns_none_when_absent() {
-        let parts = parts_with_cookie("rb_session=tok");
-        assert!(extract_bearer_token(&parts).is_none());
-    }
-
-    #[test]
-    fn extract_bearer_token_trims_whitespace() {
-        let parts = parts_with_bearer("  rb_live_abc  ");
-        assert_eq!(extract_bearer_token(&parts).as_deref(), Some("rb_live_abc"));
-    }
-
-    #[test]
-    fn parse_scopes_extracts_known_values() {
-        let json = serde_json::json!(["read", "write"]);
-        let scopes = parse_scopes(&json);
-        assert_eq!(scopes, vec![Scope::Read, Scope::Write]);
-    }
-
-    #[test]
-    fn parse_scopes_ignores_unknown_values() {
-        let json = serde_json::json!(["read", "superpower"]);
-        let scopes = parse_scopes(&json);
-        assert_eq!(scopes, vec![Scope::Read]);
-    }
-
-    #[test]
-    fn parse_scopes_returns_empty_for_non_array() {
-        let json = serde_json::json!("read");
-        let scopes = parse_scopes(&json);
-        assert!(scopes.is_empty());
-    }
-
-    #[test]
-    fn scope_roundtrips_via_serde() {
-        for scope in [Scope::Read, Scope::Write, Scope::Admin] {
-            let s = serde_json::to_string(&scope).unwrap();
-            let parsed: Scope = serde_json::from_str(&s).unwrap();
-            assert_eq!(scope, parsed);
-        }
-    }
-
-    #[test]
-    fn scope_from_str_all_variants() {
-        assert_eq!(Scope::from_str("read"), Some(Scope::Read));
-        assert_eq!(Scope::from_str("write"), Some(Scope::Write));
-        assert_eq!(Scope::from_str("admin"), Some(Scope::Admin));
-        assert_eq!(Scope::from_str("unknown"), None);
-    }
-
-    #[test]
-    fn require_scope_rejects_anonymous() {
-        let auth = AuthContext::Anonymous;
-        assert!(matches!(
-            require_scope(&auth, &Scope::Read),
-            Err(AppError::Unauthorized)
-        ));
-    }
-
-    #[test]
-    fn require_scope_rejects_session_auth() {
-        let auth = AuthContext::Session(SessionInfo {
-            session_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            tenant_id: Uuid::new_v4(),
-            email_verified: false,
-        });
-        assert!(matches!(
-            require_scope(&auth, &Scope::Read),
-            Err(AppError::Unauthorized)
-        ));
-    }
-
-    #[test]
-    fn require_scope_accepts_matching_scope() {
-        let info = ApiKeyInfo {
-            key_id: Uuid::new_v4(),
-            tenant_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            scopes: vec![Scope::Read, Scope::Write],
-        };
-        let auth = AuthContext::ApiKey(info);
-        assert!(require_scope(&auth, &Scope::Read).is_ok());
-        assert!(require_scope(&auth, &Scope::Write).is_ok());
-    }
-
-    #[test]
-    fn require_scope_rejects_missing_scope() {
-        let info = ApiKeyInfo {
-            key_id: Uuid::new_v4(),
-            tenant_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            scopes: vec![Scope::Read],
-        };
-        let auth = AuthContext::ApiKey(info);
-        assert!(matches!(
-            require_scope(&auth, &Scope::Write),
-            Err(AppError::InsufficientScope)
-        ));
-    }
-
-    #[test]
-    fn require_verified_session_accepts_verified() {
-        let info = make_session(true);
-        let auth = AuthContext::Session(info.clone());
-        let result = require_verified_session(auth).unwrap();
-        assert_eq!(result.user_id, info.user_id);
-    }
-
-    #[test]
-    fn require_verified_session_rejects_unverified_session() {
-        let auth = AuthContext::Session(make_session(false));
-        assert!(matches!(
-            require_verified_session(auth),
-            Err(AppError::EmailNotVerified)
-        ));
-    }
-
-    #[test]
-    fn require_verified_session_rejects_anonymous() {
-        assert!(matches!(
-            require_verified_session(AuthContext::Anonymous),
-            Err(AppError::Unauthorized)
-        ));
-    }
-}
+#[path = "auth_tests.rs"]
+mod tests;
