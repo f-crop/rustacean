@@ -57,6 +57,14 @@ RUN apt-get update -qq && \
     groupadd --gid 65532 nonroot && \
     useradd --uid 65532 --gid 65532 --no-create-home --system nonroot
 
+# Pre-create the agent workspace mount point with nonroot ownership.
+# Docker named volumes inherit ownership/permissions from the image's directory
+# on first mount, so this ensures the runner (UID 65532) can write to
+# /data/agent-workspaces without an init container or compose-level chown.
+RUN mkdir -p /data/agent-workspaces && \
+    chown 65532:65532 /data/agent-workspaces && \
+    chmod 0700 /data/agent-workspaces
+
 USER nonroot
 
 COPY --from=builder /app/target/release/rb-agent-runner /usr/local/bin/rb-agent-runner
