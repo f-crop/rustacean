@@ -7,7 +7,7 @@ use utoipa::OpenApi;
 
 use crate::routes::{
     agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github, health,
-    ingest, me, query, repos, tenants, tenants::delete as tenant_delete,
+    ingest, me, mcp, query, repos, tenants, tenants::delete as tenant_delete,
     tenants::members as tenant_members,
 };
 
@@ -63,6 +63,7 @@ use crate::routes::{
         agents::session_queries::get_session,
         agents::session_queries::list_sessions,
         agents::events::session_events,
+        mcp::mcp_handler,
     ),
     components(
         schemas(
@@ -141,7 +142,8 @@ use crate::routes::{
         (name = "github", description = "GitHub App integration"),
         (name = "query", description = "Code graph queries"),
         (name = "search", description = "Semantic code search"),
-        (name = "agents", description = "Agent session management (ADR-009 Option B)")
+        (name = "agents", description = "Agent session management (ADR-009 Option B)"),
+        (name = "mcp", description = "Model Context Protocol endpoint (ADR-009)")
     )
 )]
 pub struct ApiDoc;

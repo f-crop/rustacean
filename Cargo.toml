@@ -32,6 +32,7 @@ members = [
     "services/tombstoner",
     "services/embed-worker",
     "services/agent-runner",
+    "crates/rb-mcp",
 ]
 
 [workspace.package]
