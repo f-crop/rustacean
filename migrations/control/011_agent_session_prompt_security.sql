@@ -1,16 +1,18 @@
--- Control schema: Secure input_prompt in agent_sessions (ADR-009 §4.1 security hardening)
+-- Control schema: RUSAA-859 — Secure input_prompt in agent_sessions (H-1)
 --
--- Security hardening: ADR-009 §4.1 intended to store input_prompt
+-- Security audit finding H-1: ADR-009 §4.1 intended to store input_prompt
 -- (full text, 64 KiB cap) in agent_sessions.  Users include credentials and
 -- PII in prompts; storing the full text in a persistent row creates an
 -- indefinitely-lived plaintext exposure with no declared retention policy.
 --
--- Fix:
+-- Fix (Option 2 + Option 3 from RUSAA-859):
 --   - Store only a ≤256-char Unicode preview in the sessions row.
 --     The full prompt is forwarded to the runtime adapter but never persisted.
 --   - Declare an explicit 90-day retention policy for agent_sessions rows,
 --     consistent with the agent_events partition-drop schedule (ADR-009 §4.2).
 --     A `purge_old_agent_sessions()` function is provided for cron invocation.
+--
+-- Merge blocker for RUSAA-84.
 
 -- ---------------------------------------------------------------------------
 -- Add input_prompt_preview column
