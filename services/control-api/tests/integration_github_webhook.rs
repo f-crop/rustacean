@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use control_api::{AppState, Config, build};
+use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build};
 use hmac::{Hmac, Mac};
 use http_body_util::BodyExt as _;
 use jsonwebtoken::EncodingKey;
@@ -118,6 +118,8 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         agent_registry: control_api::AgentRegistry::new(),
         agent_commands_producer: None,
         internal_secret: "test-internal-secret".to_owned(),
+        session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
+        tenant_session_count: Arc::new(TenantSessionCount::new()),
     }
 }
 
@@ -143,6 +145,8 @@ fn state_without_gh() -> AppState {
         agent_registry: control_api::AgentRegistry::new(),
         agent_commands_producer: None,
         internal_secret: "test-internal-secret".to_owned(),
+        session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
+        tenant_session_count: Arc::new(TenantSessionCount::new()),
     }
 }
 
