@@ -1746,7 +1746,7 @@ export interface operations {
         };
         readonly requestBody?: never;
         readonly responses: {
-            /** @description Termination queued */
+            /** @description Termination queued or session cancelled */
             readonly 202: {
                 headers: {
                     readonly [name: string]: unknown;
