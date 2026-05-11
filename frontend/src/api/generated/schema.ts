@@ -26,6 +26,22 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/mcp": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["mcp_handler"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/ready": {
         readonly parameters: {
             readonly query?: never;
@@ -1531,6 +1547,35 @@ export interface operations {
                 content: {
                     readonly "application/json": components["schemas"]["HealthResponse"];
                 };
+            };
+        };
+    };
+    readonly mcp_handler: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": unknown;
+            };
+        };
+        readonly responses: {
+            /** @description JSON-RPC 2.0 response with Mcp-Session-Id header */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

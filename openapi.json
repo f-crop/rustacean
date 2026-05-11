@@ -36,6 +36,30 @@
         }
       }
     },
+    "/mcp": {
+      "post": {
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp_handler",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "JSON-RPC 2.0 response with Mcp-Session-Id header"
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
+      }
+    },
     "/ready": {
       "get": {
         "tags": [
@@ -3757,6 +3781,10 @@
     {
       "name": "agents",
       "description": "Agent session management (ADR-009 Option B)"
+    },
+    {
+      "name": "mcp",
+      "description": "Model Context Protocol endpoint (ADR-009)"
     }
   ]
 }
