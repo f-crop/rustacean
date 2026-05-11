@@ -2,6 +2,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
@@ -47,6 +48,152 @@ impl KafkaConsistencyState {
 impl Default for KafkaConsistencyState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SessionCreateRateLimiter — REQ-MC-02
+// ---------------------------------------------------------------------------
+
+/// Default: 10 session-creates per tenant per minute (REQ-MC-02).
+pub const DEFAULT_SESSION_CREATE_RATE_LIMIT: usize = 10;
+
+/// Default: 60-second sliding window for session creation (REQ-MC-02).
+pub const DEFAULT_SESSION_CREATE_WINDOW_SECS: u64 = 60;
+
+/// Default: 100 active sessions max per tenant (REQ-MC-02).
+#[allow(dead_code)]
+pub const DEFAULT_TENANT_SESSION_CAP: usize = 100;
+
+/// In-memory sliding-window rate limiter for agent session creation.
+///
+/// Tracks creation attempts per tenant. After `max_creates` creations in a
+/// `window_secs`-second window, further creates are rejected with 429.
+///
+/// The `check_and_record` method atomically checks and records an attempt,
+/// preventing TOCTOU races between concurrent requests from the same tenant.
+///
+/// Suitable for single-instance deployments. Multi-instance setups would
+/// need a Redis-backed implementation behind the same interface.
+#[derive(Clone)]
+pub struct SessionCreateRateLimiter {
+    /// Tenant ID → timestamps of session creation attempts within the window.
+    windows: Arc<DashMap<Uuid, Vec<Instant>>>,
+    /// Maximum session creations allowed per tenant in the sliding window.
+    pub max_creates: usize,
+    /// Sliding window duration in seconds.
+    pub window_secs: u64,
+}
+
+impl SessionCreateRateLimiter {
+    /// Create a new rate limiter with the given limits.
+    #[must_use]
+    pub fn new(max_creates: usize, window_secs: u64) -> Self {
+        Self {
+            windows: Arc::new(DashMap::new()),
+            max_creates,
+            window_secs,
+        }
+    }
+
+    /// Atomically check whether a tenant is rate-limited and record the attempt.
+    ///
+    /// If the tenant has not exceeded the threshold, the attempt is recorded
+    /// and `Ok(())` is returned. If the threshold is exceeded, returns
+    /// `Err(retry_after_secs)` without recording.
+    ///
+    /// This single-method design prevents TOCTOU races that would occur with
+    /// separate `check()` + `record()` calls.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(retry_after_secs)` when the tenant has exceeded its rate
+    /// limit within the current window.
+    pub fn check_and_record(&self, tenant_id: Uuid) -> Result<(), u64> {
+        let now = Instant::now();
+        let window = Duration::from_secs(self.window_secs);
+
+        let mut entry = self.windows.entry(tenant_id).or_default();
+        entry.retain(|t| now.duration_since(*t) < window);
+
+        if entry.len() >= self.max_creates {
+            let oldest = entry.iter().copied().min().unwrap_or(now);
+            let elapsed = now.duration_since(oldest).as_secs();
+            let retry_after = self.window_secs.saturating_sub(elapsed);
+            Err(retry_after.max(1))
+        } else {
+            entry.push(now);
+            Ok(())
+        }
+    }
+}
+
+impl Default for SessionCreateRateLimiter {
+    fn default() -> Self {
+        Self::new(
+            DEFAULT_SESSION_CREATE_RATE_LIMIT,
+            DEFAULT_SESSION_CREATE_WINDOW_SECS,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TenantSessionCount — per-tenant active session cap (REQ-MC-02)
+// ---------------------------------------------------------------------------
+
+/// Tracks active session counts per tenant for the per-tenant session cap.
+#[derive(Default)]
+pub struct TenantSessionCount {
+    counts: DashMap<Uuid, AtomicUsize>,
+}
+
+impl TenantSessionCount {
+    /// Create a new tenant session counter.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Attempt to increment the session count for a tenant.
+    ///
+    /// Returns `false` if the tenant is already at or above `max_sessions`.
+    /// Uses atomic compare-and-swap for thread safety.
+    #[must_use]
+    pub fn try_increment(&self, tenant_id: &Uuid, max_sessions: usize) -> bool {
+        let count = self.counts.entry(*tenant_id).or_insert(AtomicUsize::new(0));
+        loop {
+            let current = count.load(Ordering::Relaxed);
+            if current >= max_sessions {
+                return false;
+            }
+            if count
+                .compare_exchange_weak(current, current + 1, Ordering::SeqCst, Ordering::Relaxed)
+                .is_ok()
+            {
+                return true;
+            }
+        }
+    }
+
+    /// Decrement the session count for a tenant.
+    pub fn decrement(&self, tenant_id: &Uuid) {
+        if let Some(count) = self.counts.get(tenant_id) {
+            let prev = count.fetch_sub(1, Ordering::Relaxed);
+            // Clean up zero-count entries to avoid unbounded map growth.
+            if prev <= 1 {
+                drop(count);
+                self.counts
+                    .remove_if(tenant_id, |_, v| v.load(Ordering::Relaxed) == 0);
+            }
+        }
+    }
+
+    /// Get the current active session count for a tenant.
+    #[must_use]
+    pub fn count(&self, tenant_id: &Uuid) -> usize {
+        self.counts
+            .get(tenant_id)
+            .map_or(0, |c| c.load(Ordering::Relaxed))
     }
 }
 
@@ -234,4 +381,97 @@ pub struct AppState {
     pub agent_registry: AgentRegistry,
     /// Kafka producer for `rb.agent.commands`. `None` when Kafka is not reachable.
     pub agent_commands_producer: Option<Arc<Producer<AgentSessionCommand>>>,
+    /// Per-tenant sliding-window rate limiter for session creation (REQ-MC-02).
+    pub session_create_rate_limiter: Arc<SessionCreateRateLimiter>,
+    /// Per-tenant active session counter (REQ-MC-02 tenant cap).
+    pub tenant_session_count: Arc<TenantSessionCount>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_rate_limiter_allows_under_limit() {
+        let limiter = SessionCreateRateLimiter::new(3, 60);
+        let tenant = Uuid::new_v4();
+        assert!(limiter.check_and_record(tenant).is_ok());
+        assert!(limiter.check_and_record(tenant).is_ok());
+        assert!(limiter.check_and_record(tenant).is_ok());
+    }
+
+    #[test]
+    fn session_rate_limiter_rejects_at_limit() {
+        let limiter = SessionCreateRateLimiter::new(3, 60);
+        let tenant = Uuid::new_v4();
+        limiter.check_and_record(tenant).unwrap();
+        limiter.check_and_record(tenant).unwrap();
+        limiter.check_and_record(tenant).unwrap();
+        assert!(limiter.check_and_record(tenant).is_err());
+    }
+
+    #[test]
+    fn session_rate_limiter_multi_tenant_isolation() {
+        let limiter = SessionCreateRateLimiter::new(2, 60);
+        let t1 = Uuid::new_v4();
+        let t2 = Uuid::new_v4();
+        limiter.check_and_record(t1).unwrap();
+        limiter.check_and_record(t1).unwrap();
+        assert!(limiter.check_and_record(t1).is_err());
+        assert!(limiter.check_and_record(t2).is_ok());
+        assert!(limiter.check_and_record(t2).is_ok());
+        assert!(limiter.check_and_record(t2).is_err());
+    }
+
+    #[test]
+    fn session_rate_limiter_window_expiry_resets() {
+        let limiter = SessionCreateRateLimiter::new(2, 1);
+        let tenant = Uuid::new_v4();
+        limiter.check_and_record(tenant).unwrap();
+        limiter.check_and_record(tenant).unwrap();
+        assert!(limiter.check_and_record(tenant).is_err());
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        assert!(limiter.check_and_record(tenant).is_ok());
+    }
+
+    #[test]
+    fn session_rate_limiter_default_matches_constants() {
+        let limiter = SessionCreateRateLimiter::default();
+        assert_eq!(limiter.max_creates, DEFAULT_SESSION_CREATE_RATE_LIMIT);
+        assert_eq!(limiter.window_secs, DEFAULT_SESSION_CREATE_WINDOW_SECS);
+    }
+
+    #[test]
+    fn tenant_session_count_increment_decrement() {
+        let counter = TenantSessionCount::new();
+        let tenant = Uuid::new_v4();
+        assert!(counter.try_increment(&tenant, 2));
+        assert_eq!(counter.count(&tenant), 1);
+        assert!(counter.try_increment(&tenant, 2));
+        assert_eq!(counter.count(&tenant), 2);
+        assert!(!counter.try_increment(&tenant, 2));
+        counter.decrement(&tenant);
+        assert_eq!(counter.count(&tenant), 1);
+        assert!(counter.try_increment(&tenant, 2));
+    }
+
+    #[test]
+    fn tenant_session_count_decrement_cleans_up_zero() {
+        let counter = TenantSessionCount::new();
+        let tenant = Uuid::new_v4();
+        assert!(counter.try_increment(&tenant, 5));
+        counter.decrement(&tenant);
+        assert_eq!(counter.count(&tenant), 0);
+        assert!(counter.counts.is_empty() || counter.counts.get(&tenant).is_none());
+    }
+
+    #[test]
+    fn tenant_session_count_multi_tenant_independent() {
+        let counter = TenantSessionCount::new();
+        let t1 = Uuid::new_v4();
+        let t2 = Uuid::new_v4();
+        assert!(counter.try_increment(&t1, 1));
+        assert!(!counter.try_increment(&t1, 1));
+        assert!(counter.try_increment(&t2, 1));
+    }
 }

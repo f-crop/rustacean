@@ -23,7 +23,10 @@ use rb_schemas::AgentSessionCommand;
 use crate::{
     config::Config,
     ingest_consumer, middleware, routes,
-    state::{AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore},
+    state::{
+        AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore, SessionCreateRateLimiter,
+        TenantSessionCount,
+    },
 };
 
 /// Connects to Postgres, builds [`AppState`], and drives the server until shutdown.
@@ -140,6 +143,11 @@ pub async fn run(config: Config) -> Result<()> {
         agent_registry: AgentRegistry::new(),
         agent_commands_producer,
         internal_secret: config.internal_secret.clone().unwrap_or_default(),
+        session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::new(
+            config.session_create_rate_limit,
+            config.session_create_window_secs,
+        )),
+        tenant_session_count: Arc::new(TenantSessionCount::new()),
     };
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do

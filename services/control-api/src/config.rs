@@ -67,6 +67,17 @@ pub struct Config {
 
     pub internal_secret: Option<String>,
     pub internal_listen_addr: String,
+
+    // --- Agent session rate limiting (REQ-MC-02) ---
+    /// `RB_SESSION_CREATE_RATE_LIMIT` — max session creates per tenant per window.
+    /// Defaults to 10.
+    pub session_create_rate_limit: usize,
+    /// `RB_SESSION_CREATE_WINDOW_SECS` — sliding window size in seconds.
+    /// Defaults to 60.
+    pub session_create_window_secs: u64,
+    /// `RB_TENANT_SESSION_CAP` — max concurrent active sessions per tenant.
+    /// Defaults to 100.
+    pub tenant_session_cap: usize,
 }
 
 impl Config {
@@ -138,6 +149,18 @@ impl Config {
                 .filter(|s| !s.is_empty()),
             internal_listen_addr: env::var("RB_INTERNAL_LISTEN_ADDR")
                 .unwrap_or_else(|_| "127.0.0.1:8081".to_owned()),
+            session_create_rate_limit: env::var("RB_SESSION_CREATE_RATE_LIMIT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10),
+            session_create_window_secs: env::var("RB_SESSION_CREATE_WINDOW_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(60),
+            tenant_session_cap: env::var("RB_TENANT_SESSION_CAP")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(100),
         })
     }
 
@@ -255,6 +278,9 @@ impl Config {
             embedding_model: "nomic-embed-text".to_owned(),
             internal_secret: None,
             internal_listen_addr: "127.0.0.1:0".to_owned(),
+            session_create_rate_limit: 10,
+            session_create_window_secs: 60,
+            tenant_session_cap: 100,
         }
     }
 }

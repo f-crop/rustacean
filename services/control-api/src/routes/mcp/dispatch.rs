@@ -38,9 +38,15 @@ pub(super) async fn dispatch_search_items(
         .and_then(|v| v.as_str())
         .and_then(|s| s.parse().ok());
 
-    let qdrant = state.qdrant.as_deref().ok_or(AppError::ServiceUnavailable)?;
-    let ollama_url =
-        state.config.ollama_url.as_deref().ok_or(AppError::ServiceUnavailable)?;
+    let qdrant = state
+        .qdrant
+        .as_deref()
+        .ok_or(AppError::ServiceUnavailable)?;
+    let ollama_url = state
+        .config
+        .ollama_url
+        .as_deref()
+        .ok_or(AppError::ServiceUnavailable)?;
 
     if let Some(rid) = repo_id_filter {
         let owned: Option<(Uuid,)> = sqlx::query_as(
@@ -54,18 +60,25 @@ pub(super) async fn dispatch_search_items(
         owned.ok_or(AppError::NotFound)?;
     }
 
-    let vector = embed_query(&state.http_client, ollama_url, &state.config.embedding_model, query)
-        .await?;
+    let vector = embed_query(
+        &state.http_client,
+        ollama_url,
+        &state.config.embedding_model,
+        query,
+    )
+    .await?;
 
     let tenant = TenantId::from(tenant_id);
-    let opts = SearchOptions { limit, repo_id: repo_id_filter };
+    let opts = SearchOptions {
+        limit,
+        repo_id: repo_id_filter,
+    };
     let hits = semantic_search(qdrant, &tenant, &vector, opts).await?;
 
     let results: Vec<serde_json::Value> = hits
         .into_iter()
         .map(|h| {
-            let crate_name =
-                h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
+            let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
             serde_json::json!({
                 "fqn": h.fqn,
                 "crate_name": crate_name,
@@ -109,7 +122,9 @@ pub(super) async fn dispatch_get_item(
     let symbol = items::get_by_fqn(&state.pool, &ctx, repo_id, fqn).await?;
 
     match symbol {
-        None => Ok(ToolCallResult::success("No symbol found for the given repo_id and fqn.")),
+        None => Ok(ToolCallResult::success(
+            "No symbol found for the given repo_id and fqn.",
+        )),
         Some(s) => {
             let payload = serde_json::json!({
                 "id": s.id,
@@ -137,15 +152,10 @@ async fn embed_query(
     let url = format!("{}/api/embeddings", ollama_url.trim_end_matches('/'));
     let body = serde_json::json!({ "model": model, "prompt": query });
 
-    let resp = http
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::warn!("Ollama request failed: {e}");
-            AppError::ServiceUnavailable
-        })?;
+    let resp = http.post(&url).json(&body).send().await.map_err(|e| {
+        tracing::warn!("Ollama request failed: {e}");
+        AppError::ServiceUnavailable
+    })?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -170,7 +180,11 @@ async fn embed_query(
     #[allow(clippy::cast_possible_truncation)]
     embedding
         .iter()
-        .map(|v| v.as_f64().map(|f| f as f32).ok_or(AppError::ServiceUnavailable))
+        .map(|v| {
+            v.as_f64()
+                .map(|f| f as f32)
+                .ok_or(AppError::ServiceUnavailable)
+        })
         .collect()
 }
 

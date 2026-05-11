@@ -16,4 +16,7 @@ pub use openapi::ApiDoc;
 #[allow(deprecated)]
 pub use routes::build;
 pub use server::run;
-pub use state::{AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore};
+pub use state::{
+    AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore, SessionCreateRateLimiter,
+    TenantSessionCount,
+};

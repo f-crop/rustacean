@@ -12,7 +12,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use control_api::{AppState, Config, build};
+use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build};
 use rb_sse::{EventBus, SseConfig};
 
 async fn collect_body(body: Body) -> Vec<u8> {
@@ -69,6 +69,9 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         embedding_model: "nomic-embed-text".to_owned(),
         internal_secret: Some("test-internal-secret".to_owned()),
         internal_listen_addr: "127.0.0.1:0".to_owned(),
+        session_create_rate_limit: 10,
+        session_create_window_secs: 60,
+        tenant_session_cap: 100,
     };
     let state = AppState {
         pool: pool.clone(),
@@ -90,6 +93,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         agent_registry: control_api::AgentRegistry::new(),
         agent_commands_producer: None,
         internal_secret: "test-internal-secret".to_owned(),
+        session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
+        tenant_session_count: Arc::new(TenantSessionCount::new()),
     };
     Some((state, pool))
 }

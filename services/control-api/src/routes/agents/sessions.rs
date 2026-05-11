@@ -57,7 +57,16 @@ const INITIAL_MESSAGE_MAX_BYTES: usize = 64 * 1024;
 const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
 
 /// Statuses that agent-runner is allowed to set via the internal callback.
-const VALID_AGENT_STATUSES: &[&str] = &["pending", "running", "terminated"];
+const VALID_AGENT_STATUSES: &[&str] = &[
+    "pending",
+    "running",
+    "terminating",
+    "terminated",
+    "cancelled",
+];
+
+/// Statuses that are terminal — a session in one of these will not transition further.
+const TERMINAL_STATUSES: &[&str] = &["terminated", "cancelled"];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -208,23 +217,39 @@ pub async fn create_session(
 ) -> Result<impl IntoResponse, AppError> {
     let caller = require_session_or_agent_key(auth)?;
 
+    state
+        .session_create_rate_limiter
+        .check_and_record(caller.tenant_id)
+        .map_err(|retry_after_secs| AppError::SessionRateLimitExceeded { retry_after_secs })?;
+
+    let tenant_cap = state.config.tenant_session_cap;
+    if !state
+        .tenant_session_count
+        .try_increment(&caller.tenant_id, tenant_cap)
+    {
+        return Err(AppError::TenantSessionCapExceeded);
+    }
+
     let runtime = parse_runtime(&req.runtime).ok_or(AppError::InvalidInput)?;
 
     if req.initial_prompt.len() > INITIAL_MESSAGE_MAX_BYTES {
+        state.tenant_session_count.decrement(&caller.tenant_id);
         return Err(AppError::InvalidInput);
     }
 
-    // Derive and validate workspace path before any DB writes.
     let workspace_rel = if let Some(ref path) = req.workspace_path {
-        validate_workspace_path(path)?;
+        if let Err(e) = validate_workspace_path(path) {
+            state.tenant_session_count.decrement(&caller.tenant_id);
+            return Err(e);
+        }
         path.clone()
     } else {
         // Default: tenant_id/session_id — safe by construction (UUIDs contain no `/..`).
         format!("{}/{}", caller.tenant_id, Uuid::new_v4())
     };
 
-    // C4: Acquire slot via atomic counter to ensure cap is held for session lifetime.
     if !state.agent_registry.try_increment() {
+        state.tenant_session_count.decrement(&caller.tenant_id);
         return Err(AppError::SessionCapExceeded);
     }
 
@@ -309,14 +334,16 @@ pub async fn create_session(
                 .execute(&state.pool)
                 .await;
 
+            state.tenant_session_count.decrement(&caller.tenant_id);
+
             return Err(AppError::Internal(anyhow::anyhow!("Kafka publish failed")));
         }
     } else {
+        let _ = state.agent_registry.remove(&session_id);
+        state.tenant_session_count.decrement(&caller.tenant_id);
         return Err(AppError::KafkaNotConfigured);
     }
 
-    // Register the session in the in-memory registry so the cap is enforced
-    // for the lifetime of the session, not just this request handler.
     state.agent_registry.insert(SessionHandle::new(
         session_id,
         caller.tenant_id,
@@ -458,8 +485,9 @@ pub async fn patch_session_status(
     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
     // Release the session slot in the registry when the process terminates.
-    if req.status == "terminated" {
+    if TERMINAL_STATUSES.contains(&req.status.as_str()) {
         let _ = state.agent_registry.remove(&session_id);
+        state.tenant_session_count.decrement(&req.tenant_id);
     }
 
     Ok(StatusCode::NO_CONTENT)

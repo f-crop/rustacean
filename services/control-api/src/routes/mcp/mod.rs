@@ -7,10 +7,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use rb_mcp::{
-    InitializeParams, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse,
-    MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND, SESSION_NOT_FOUND, TENANT_DRIFT,
-    TOOL_NOT_FOUND, UNAUTHORIZED_MCP,
-    InitializeResult, ToolCallParams, ToolsListResult, phase1_tools,
+    InitializeParams, InitializeResult, JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse,
+    MCP_PROTOCOL_VERSION, METHOD_NOT_FOUND, SESSION_NOT_FOUND, TENANT_DRIFT, TOOL_NOT_FOUND,
+    ToolCallParams, ToolsListResult, UNAUTHORIZED_MCP, phase1_tools,
 };
 use uuid::Uuid;
 
@@ -19,9 +18,9 @@ use crate::{
     state::AppState,
 };
 
-pub use handler::mcp_handler;
 #[allow(unused_imports)]
 pub use handler::__path_mcp_handler;
+pub use handler::mcp_handler;
 
 mod handler {
     use super::{AppState, AuthContext, HeaderMap, Response, State, dispatch};
@@ -42,7 +41,9 @@ mod handler {
         headers: HeaderMap,
         body: axum::body::Bytes,
     ) -> Response {
-        dispatch(&state, auth, headers, body).await.unwrap_or_else(|e| e)
+        dispatch(&state, auth, headers, body)
+            .await
+            .unwrap_or_else(|e| e)
     }
 }
 
@@ -63,14 +64,16 @@ async fn dispatch(
     };
 
     if rpc.jsonrpc != "2.0" {
-        return Err(rpc_err(rpc.id, rb_mcp::INVALID_REQUEST, "jsonrpc must be '2.0'"));
+        return Err(rpc_err(
+            rpc.id,
+            rb_mcp::INVALID_REQUEST,
+            "jsonrpc must be '2.0'",
+        ));
     }
 
     match rpc.method.as_str() {
         "initialize" => handle_initialize(state, auth, rpc),
-        "notifications/initialized" => {
-            Ok((StatusCode::ACCEPTED, "").into_response())
-        }
+        "notifications/initialized" => Ok((StatusCode::ACCEPTED, "").into_response()),
         "ping" => Ok(rpc_ok(rpc.id, serde_json::json!({}))),
         "tools/list" => handle_tools_list(state, auth, &headers, rpc),
         "tools/call" => handle_tools_call(state, auth, headers, rpc).await,
@@ -79,11 +82,7 @@ async fn dispatch(
 }
 
 #[allow(clippy::result_large_err)]
-fn handle_initialize(
-    state: &AppState,
-    auth: AuthContext,
-    rpc: JsonRpcRequest,
-) -> McpResult {
+fn handle_initialize(state: &AppState, auth: AuthContext, rpc: JsonRpcRequest) -> McpResult {
     let tenant_id = require_auth_tenant(auth)
         .map_err(|()| rpc_err(rpc.id.clone(), UNAUTHORIZED_MCP, "authentication required"))?;
 
@@ -125,8 +124,10 @@ fn handle_tools_list(
     rpc: JsonRpcRequest,
 ) -> McpResult {
     validate_session(state, auth, headers, rpc.id.clone())?;
-    let result = serde_json::to_value(ToolsListResult { tools: phase1_tools() })
-        .unwrap_or(serde_json::json!({}));
+    let result = serde_json::to_value(ToolsListResult {
+        tools: phase1_tools(),
+    })
+    .unwrap_or(serde_json::json!({}));
     Ok(rpc_ok(rpc.id, result))
 }
 
@@ -139,9 +140,11 @@ async fn handle_tools_call(
     let (session_tenant_id, actor_user_id) =
         validate_session(state, auth, &headers, rpc.id.clone())?;
 
-    let params: ToolCallParams = match rpc.params.as_ref().and_then(|p| {
-        serde_json::from_value(p.clone()).ok()
-    }) {
+    let params: ToolCallParams = match rpc
+        .params
+        .as_ref()
+        .and_then(|p| serde_json::from_value(p.clone()).ok())
+    {
         Some(p) => p,
         None => {
             return Err(rpc_err(
@@ -155,12 +158,8 @@ async fn handle_tools_call(
     let args = params.arguments.unwrap_or(serde_json::json!({}));
 
     let tool_result = match params.name.as_str() {
-        "search_items" => {
-            dispatch::dispatch_search_items(state, session_tenant_id, &args).await
-        }
-        "get_item" => {
-            dispatch::dispatch_get_item(state, session_tenant_id, &args).await
-        }
+        "search_items" => dispatch::dispatch_search_items(state, session_tenant_id, &args).await,
+        "get_item" => dispatch::dispatch_get_item(state, session_tenant_id, &args).await,
         _ => {
             return Err(rpc_err(rpc.id, TOOL_NOT_FOUND, "unknown tool"));
         }
@@ -224,7 +223,11 @@ fn validate_session(
         .unwrap_or(Uuid::nil());
 
     match state.mcp_sessions.tenant_id(&session_id) {
-        None => Err(rpc_err(req_id, SESSION_NOT_FOUND, "session not found or expired")),
+        None => Err(rpc_err(
+            req_id,
+            SESSION_NOT_FOUND,
+            "session not found or expired",
+        )),
         Some(session_tenant) if session_tenant != auth_tenant_id => {
             tracing::warn!(
                 auth_tenant = %auth_tenant_id,
@@ -241,7 +244,10 @@ fn rpc_ok(id: Option<serde_json::Value>, result: serde_json::Value) -> Response 
     axum::Json(JsonRpcResponse::ok(id, result)).into_response()
 }
 
-fn rpc_json_ok(id: Option<serde_json::Value>, result: serde_json::Value) -> axum::Json<JsonRpcResponse> {
+fn rpc_json_ok(
+    id: Option<serde_json::Value>,
+    result: serde_json::Value,
+) -> axum::Json<JsonRpcResponse> {
     axum::Json(JsonRpcResponse::ok(id, result))
 }
 
@@ -283,7 +289,10 @@ mod tests {
     #[test]
     fn verified_session_returns_tenant() {
         let tid = Uuid::new_v4();
-        assert_eq!(require_auth_tenant(AuthContext::Session(verified_session(tid))), Ok(tid));
+        assert_eq!(
+            require_auth_tenant(AuthContext::Session(verified_session(tid))),
+            Ok(tid)
+        );
     }
 
     #[test]

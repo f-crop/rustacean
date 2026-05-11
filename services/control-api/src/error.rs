@@ -76,6 +76,10 @@ pub enum AppError {
     KafkaPublish(#[from] KafkaError),
     #[error("process session cap reached; try again later")]
     SessionCapExceeded,
+    #[error("session creation rate limit exceeded; retry after {retry_after_secs}s")]
+    SessionRateLimitExceeded { retry_after_secs: u64 },
+    #[error("tenant active session cap exceeded")]
+    TenantSessionCapExceeded,
     #[error("runtime adapter is not configured on this instance")]
     RuntimeNotConfigured,
     #[error("redirect_uri origin does not match the allowed origin")]
@@ -225,6 +229,16 @@ impl IntoResponse for AppError {
                 StatusCode::TOO_MANY_REQUESTS,
                 "session_cap_exceeded",
                 self.to_string(),
+            ),
+            AppError::SessionRateLimitExceeded { retry_after_secs } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limit_exceeded",
+                format!("session creation rate limit exceeded; retry after {retry_after_secs}s"),
+            ),
+            AppError::TenantSessionCapExceeded => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limit_exceeded",
+                "tenant active session cap exceeded".to_owned(),
             ),
             AppError::RuntimeNotConfigured => (
                 StatusCode::SERVICE_UNAVAILABLE,
