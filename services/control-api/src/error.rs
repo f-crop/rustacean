@@ -82,6 +82,8 @@ pub enum AppError {
     TenantSessionCapExceeded,
     #[error("runtime adapter is not configured on this instance")]
     RuntimeNotConfigured,
+    #[error("session is not currently running")]
+    SessionNotRunning,
     #[error("redirect_uri origin does not match the allowed origin")]
     BadRedirectUri,
     #[error("database error: {0}")]
@@ -244,6 +246,11 @@ impl IntoResponse for AppError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "runtime_not_configured",
                 self.to_string(),
+            ),
+            AppError::SessionNotRunning => (
+                StatusCode::CONFLICT,
+                "session_not_running",
+                "session is not currently running".to_owned(),
             ),
             AppError::BadRedirectUri => (
                 StatusCode::BAD_REQUEST,

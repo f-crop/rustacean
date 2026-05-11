@@ -206,7 +206,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Termination queued"
+            "description": "Termination queued or session cancelled"
           },
           "401": {
             "description": "Authentication required"

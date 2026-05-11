@@ -337,7 +337,6 @@ pub fn require_session_or_agent_key(auth: AuthContext) -> Result<AgentSessionAut
         AuthContext::Anonymous => Err(AppError::Unauthorized),
     }
 }
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

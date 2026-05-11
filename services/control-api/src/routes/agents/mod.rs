@@ -1,6 +1,7 @@
 //! Agent execution routes (ADR-009 Option B — process-spawning via rb-agent-runner).
 
 pub mod events;
+pub mod session_lifecycle;
 pub mod session_queries;
 pub mod sessions;
 

@@ -31,7 +31,7 @@ use chrono::Utc;
 use rb_auth::ApiKey;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{
-    AgentRuntime, AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
+    AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
     agent_session_command,
 };
 use serde::{Deserialize, Serialize};
@@ -43,12 +43,13 @@ use crate::{
     state::{AppState, SessionHandle},
 };
 
+use super::session_lifecycle::{
+    TERMINAL_STATUSES, VALID_AGENT_STATUSES, parse_runtime, prompt_preview, validate_workspace_path,
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/// Maximum Unicode code points stored as a prompt preview in the DB.
-const PROMPT_PREVIEW_MAX_CHARS: usize = 256;
 
 /// Maximum byte length accepted for `initial_prompt` (64 KiB, per ADR-009 §4.1).
 const INITIAL_MESSAGE_MAX_BYTES: usize = 64 * 1024;
@@ -56,38 +57,10 @@ const INITIAL_MESSAGE_MAX_BYTES: usize = 64 * 1024;
 /// Kafka topic for agent commands.
 const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
 
-/// Statuses that agent-runner is allowed to set via the internal callback.
-const VALID_AGENT_STATUSES: &[&str] = &[
-    "pending",
-    "running",
-    "terminating",
-    "terminated",
-    "cancelled",
-];
-
-/// Statuses that are terminal — a session in one of these will not transition further.
-const TERMINAL_STATUSES: &[&str] = &["terminated", "cancelled"];
-
 // ---------------------------------------------------------------------------
-// Helpers
+// DB helpers
 // ---------------------------------------------------------------------------
 
-/// Returns the first ≤`PROMPT_PREVIEW_MAX_CHARS` Unicode code points of `s`.
-fn prompt_preview(s: &str) -> String {
-    s.chars().take(PROMPT_PREVIEW_MAX_CHARS).collect()
-}
-
-fn parse_runtime(s: &str) -> Option<AgentRuntime> {
-    match s {
-        "claude_code" => Some(AgentRuntime::ClaudeCode),
-        "opencode" => Some(AgentRuntime::Opencode),
-        "pi" => Some(AgentRuntime::Pi),
-        _ => None,
-    }
-}
-
-/// Validate that `workspace_path` is a safe relative path (no `..`, no absolute).
-/// Returns an error on invalid input so the session is never created.
 async fn db_insert_session_api_key(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     api_key_id: Uuid,
@@ -155,20 +128,6 @@ async fn db_insert_agent_session(
         tracing::error!("failed to insert agent_session: {e}");
         AppError::Internal(anyhow::anyhow!("DB insert failed"))
     })
-}
-
-fn validate_workspace_path(path: &str) -> Result<(), AppError> {
-    let p = std::path::Path::new(path);
-    if p.is_absolute() {
-        return Err(AppError::InvalidInput);
-    }
-    for component in p.components() {
-        use std::path::Component;
-        if matches!(component, Component::ParentDir | Component::CurDir) {
-            return Err(AppError::InvalidInput);
-        }
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -376,7 +335,7 @@ pub async fn create_session(
     path = "/v1/agents/sessions/{id}",
     params(("id" = Uuid, Path, description = "Session ID")),
     responses(
-        (status = 202, description = "Termination queued"),
+        (status = 202, description = "Termination queued or session cancelled"),
         (status = 401, description = "Authentication required"),
         (status = 403, description = "Not your session, or API key lacks the `agent` scope"),
         (status = 404, description = "Session not found"),
@@ -384,6 +343,7 @@ pub async fn create_session(
     ),
     tag = "agents"
 )]
+#[allow(clippy::type_complexity)]
 pub async fn delete_session(
     State(state): State<AppState>,
     auth: AuthContext,
@@ -391,20 +351,48 @@ pub async fn delete_session(
 ) -> Result<impl IntoResponse, AppError> {
     let caller = require_session_or_agent_key(auth)?;
 
-    // Verify the session belongs to the caller's tenant.
-    let row: Option<(Uuid,)> =
-        sqlx::query_as("SELECT tenant_id FROM agents.agent_sessions WHERE id = $1")
-            .bind(session_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+    let row: Option<(
+        Uuid,
+        String,
+        Option<i32>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    )> = sqlx::query_as(
+        "SELECT tenant_id, status, pid, started_at FROM agents.agent_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
 
-    let (session_tenant_id,) = row.ok_or(AppError::NotFound)?;
+    let (session_tenant_id, status, pid, started_at) = row.ok_or(AppError::NotFound)?;
     if session_tenant_id != caller.tenant_id {
         return Err(AppError::InsufficientRole);
     }
 
-    // Publish SessionTerminate to Kafka.
+    if TERMINAL_STATUSES.contains(&status.as_str()) {
+        let _ = state.agent_registry.remove(&session_id);
+        tracing::info!(session_id = %session_id, status = %status, "delete on already-terminal session, returning 202");
+        return Ok(StatusCode::ACCEPTED);
+    }
+
+    // Pending sessions with no PID/started_at can never receive a runner
+    // callback, so flip to cancelled synchronously instead of enqueuing a
+    // terminate command that will never be consumed.
+    if status == "pending" && pid.is_none() && started_at.is_none() {
+        sqlx::query(
+            "UPDATE agents.agent_sessions SET status = 'cancelled', completed_at = now() WHERE id = $1"
+        )
+        .bind(session_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
+
+        let _ = state.agent_registry.remove(&session_id);
+
+        tracing::info!(session_id = %session_id, "pending agent session cancelled synchronously");
+        return Ok(StatusCode::ACCEPTED);
+    }
+
     let command = AgentSessionCommand {
         session_id: session_id.to_string(),
         command: Some(agent_session_command::Command::Terminate(
@@ -533,63 +521,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prompt_preview_short_string_unchanged() {
-        assert_eq!(prompt_preview("Hello, world!"), "Hello, world!");
-    }
-
-    #[test]
-    fn prompt_preview_truncates_at_256_chars() {
-        let s: String = "x".repeat(1000);
-        let preview = prompt_preview(&s);
-        assert_eq!(preview.chars().count(), PROMPT_PREVIEW_MAX_CHARS);
-    }
-
-    #[test]
-    fn prompt_preview_handles_multibyte_unicode() {
-        let s: String = "🦀".repeat(300);
-        let preview = prompt_preview(&s);
-        assert_eq!(preview.chars().count(), PROMPT_PREVIEW_MAX_CHARS);
-        assert!(std::str::from_utf8(preview.as_bytes()).is_ok());
-    }
-
-    #[test]
-    fn parse_runtime_valid_values() {
-        assert_eq!(parse_runtime("claude_code"), Some(AgentRuntime::ClaudeCode));
-        assert_eq!(parse_runtime("opencode"), Some(AgentRuntime::Opencode));
-        assert_eq!(parse_runtime("pi"), Some(AgentRuntime::Pi));
-    }
-
-    #[test]
-    fn parse_runtime_invalid_returns_none() {
-        assert_eq!(parse_runtime("unknown"), None);
-        assert_eq!(parse_runtime(""), None);
-    }
-
-    #[test]
     fn initial_message_max_bytes_is_64kib() {
         assert_eq!(INITIAL_MESSAGE_MAX_BYTES, 65_536);
-    }
-
-    #[test]
-    fn validate_workspace_path_rejects_traversal() {
-        assert!(validate_workspace_path("../etc/passwd").is_err());
-        assert!(validate_workspace_path("/absolute/path").is_err());
-        assert!(validate_workspace_path("a/../../b").is_err());
-        assert!(validate_workspace_path("./relative").is_err());
-    }
-
-    #[test]
-    fn validate_workspace_path_accepts_valid_paths() {
-        assert!(validate_workspace_path("tenant/session").is_ok());
-        assert!(validate_workspace_path("abc123").is_ok());
-        assert!(validate_workspace_path("tenant-id/session-id").is_ok());
-    }
-
-    #[test]
-    fn valid_agent_statuses_includes_expected() {
-        assert!(VALID_AGENT_STATUSES.contains(&"running"));
-        assert!(VALID_AGENT_STATUSES.contains(&"terminated"));
-        assert!(!VALID_AGENT_STATUSES.contains(&"unknown"));
-        assert!(!VALID_AGENT_STATUSES.contains(&"'DROP TABLE'"));
     }
 }

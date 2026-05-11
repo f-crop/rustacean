@@ -3,10 +3,14 @@
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
-    response::IntoResponse,
+    response::{
+        IntoResponse,
+        sse::{KeepAlive, Sse},
+    },
 };
+use futures::stream;
 use rb_schemas::TenantId;
-use rb_sse::EventId;
+use rb_sse::{EventId, SseEnvelope};
 use uuid::Uuid;
 
 use crate::{
@@ -14,6 +18,8 @@ use crate::{
     middleware::auth::{AuthContext, Scope},
     state::AppState,
 };
+
+use super::session_lifecycle::{LIVE_STATUSES, TERMINAL_STATUSES};
 
 #[utoipa::path(
     get,
@@ -32,7 +38,7 @@ pub async fn session_events(
     Path(session_id): Path<Uuid>,
     auth: AuthContext,
     headers: HeaderMap,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<axum::response::Response, AppError> {
     let caller_tenant_id = match &auth {
         AuthContext::Session(info) if info.email_verified => info.tenant_id,
         AuthContext::Session(_) => return Err(AppError::EmailNotVerified),
@@ -41,17 +47,18 @@ pub async fn session_events(
         AuthContext::Anonymous => return Err(AppError::Unauthorized),
     };
 
-    let row: Option<(Uuid, Uuid)> =
-        sqlx::query_as("SELECT tenant_id, user_id FROM agents.agent_sessions WHERE id = $1")
-            .bind(session_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("DB error in session_events: {e}");
-                AppError::Internal(anyhow::anyhow!("DB query failed"))
-            })?;
+    let row: Option<(Uuid, Uuid, String)> = sqlx::query_as(
+        "SELECT tenant_id, user_id, status FROM agents.agent_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("DB error in session_events: {e}");
+        AppError::Internal(anyhow::anyhow!("DB query failed"))
+    })?;
 
-    let (session_tenant_id, session_owner_id) = row.ok_or(AppError::NotFound)?;
+    let (session_tenant_id, session_owner_id, status) = row.ok_or(AppError::NotFound)?;
 
     if session_tenant_id != caller_tenant_id {
         return Err(AppError::InsufficientRole);
@@ -69,17 +76,39 @@ pub async fn session_events(
         return Err(AppError::InsufficientRole);
     }
 
-    let tenant_id = TenantId::from(caller_tenant_id);
+    if LIVE_STATUSES.contains(&status.as_str()) {
+        let tenant_id = TenantId::from(caller_tenant_id);
 
-    let last_event_id = headers
-        .get("last-event-id")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .map(|s| EventId::from(s.to_owned()));
+        let last_event_id = headers
+            .get("last-event-id")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .map(|s| EventId::from(s.to_owned()));
 
-    Ok(state
-        .sse_bus
-        .subscribe_session(&tenant_id, &session_id, last_event_id.as_ref()))
+        return Ok(state
+            .sse_bus
+            .subscribe_session(&tenant_id, &session_id, last_event_id.as_ref())
+            .into_response());
+    }
+
+    if TERMINAL_STATUSES.contains(&status.as_str()) {
+        return Ok(sse_error_response(&status));
+    }
+
+    Err(AppError::SessionNotRunning)
+}
+
+fn sse_error_response(status: &str) -> axum::response::Response {
+    let error_data = serde_json::json!({
+        "error": "session_not_running",
+        "status": status,
+        "message": format!("session is in terminal state: {status}")
+    });
+    let envelope = SseEnvelope::new("session.error", error_data.to_string());
+    let event = envelope.to_axum_event();
+    let one_shot = stream::once(async move { Ok::<_, std::convert::Infallible>(event) });
+    let keepalive = KeepAlive::new().interval(std::time::Duration::from_secs(30));
+    Sse::new(one_shot).keep_alive(keepalive).into_response()
 }
 
 #[cfg(test)]
@@ -228,5 +257,31 @@ mod tests {
             _ => false,
         };
         assert!(!is_owner);
+    }
+
+    #[tokio::test]
+    async fn sse_error_response_contains_status() {
+        use futures::StreamExt;
+
+        let response = sse_error_response("terminated");
+        let (parts, body) = response.into_parts();
+        assert_eq!(
+            parts
+                .headers
+                .get("content-type")
+                .map(|v| v.to_str().unwrap()),
+            Some("text/event-stream")
+        );
+
+        let body_bytes = axum::body::to_bytes(body, 1024).await.unwrap();
+        let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+        assert!(
+            body_str.contains("session.error"),
+            "SSE event type must be session.error, got: {body_str}"
+        );
+        assert!(
+            body_str.contains("terminated"),
+            "SSE data must contain status, got: {body_str}"
+        );
     }
 }
