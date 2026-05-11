@@ -296,6 +296,48 @@ pub fn require_read_auth(auth: AuthContext) -> Result<Uuid, AppError> {
     }
 }
 
+/// Caller identity authorized to start or terminate an agent session.
+///
+/// Returned by [`require_session_or_agent_key`]; carries the tenant and the
+/// human user whose credential authorized the call so the row written into
+/// `agents.agent_sessions` and `control.api_keys` is attributed correctly.
+#[derive(Debug, Clone, Copy)]
+pub struct AgentSessionAuth {
+    pub tenant_id: Uuid,
+    pub user_id: Uuid,
+}
+
+/// Require either a verified browser session OR an API key with the `agent` scope.
+///
+/// Per ADR-009 §7, agent sessions can be started by a logged-in human OR by an
+/// `agent`-scoped API key (e.g. a parent agent spawning a child). API keys
+/// that lack the `agent` scope are rejected with `403 insufficient_scope`
+/// rather than `401`, so callers can distinguish a missing credential from
+/// a credential that exists but is not authorized for this surface.
+///
+/// - `Session(info)` with `email_verified == true` → `Ok(...)`
+/// - `Session(info)` with `email_verified == false` → `EmailNotVerified` (403)
+/// - `ExpiredSession` → `SessionExpired` (401, `session_expired`)
+/// - `ApiKey(info)` containing `Scope::Agent` → `Ok(...)`
+/// - `ApiKey(info)` without `Scope::Agent` → `InsufficientScope` (403)
+/// - `Anonymous` → `Unauthorized` (401)
+pub fn require_session_or_agent_key(auth: AuthContext) -> Result<AgentSessionAuth, AppError> {
+    match auth {
+        AuthContext::Session(info) if info.email_verified => Ok(AgentSessionAuth {
+            tenant_id: info.tenant_id,
+            user_id: info.user_id,
+        }),
+        AuthContext::Session(_) => Err(AppError::EmailNotVerified),
+        AuthContext::ExpiredSession => Err(AppError::SessionExpired),
+        AuthContext::ApiKey(info) if info.scopes.contains(&Scope::Agent) => Ok(AgentSessionAuth {
+            tenant_id: info.tenant_id,
+            user_id: info.user_id,
+        }),
+        AuthContext::ApiKey(_) => Err(AppError::InsufficientScope),
+        AuthContext::Anonymous => Err(AppError::Unauthorized),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -494,6 +536,105 @@ mod tests {
     fn require_verified_session_rejects_anonymous() {
         assert!(matches!(
             require_verified_session(AuthContext::Anonymous),
+            Err(AppError::Unauthorized)
+        ));
+    }
+
+    fn make_api_key(scopes: Vec<Scope>) -> ApiKeyInfo {
+        ApiKeyInfo {
+            key_id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            scopes,
+        }
+    }
+
+    #[test]
+    fn require_session_or_agent_key_accepts_verified_session() {
+        let info = make_session(true);
+        let expected_tenant = info.tenant_id;
+        let expected_user = info.user_id;
+        let auth = AuthContext::Session(info);
+        let result = require_session_or_agent_key(auth).unwrap();
+        assert_eq!(result.tenant_id, expected_tenant);
+        assert_eq!(result.user_id, expected_user);
+    }
+
+    #[test]
+    fn require_session_or_agent_key_rejects_unverified_session() {
+        let auth = AuthContext::Session(make_session(false));
+        assert!(matches!(
+            require_session_or_agent_key(auth),
+            Err(AppError::EmailNotVerified)
+        ));
+    }
+
+    #[test]
+    fn require_session_or_agent_key_rejects_expired_session() {
+        assert!(matches!(
+            require_session_or_agent_key(AuthContext::ExpiredSession),
+            Err(AppError::SessionExpired)
+        ));
+    }
+
+    #[test]
+    fn require_session_or_agent_key_accepts_agent_scoped_key() {
+        let info = make_api_key(vec![Scope::Agent]);
+        let expected_tenant = info.tenant_id;
+        let expected_user = info.user_id;
+        let auth = AuthContext::ApiKey(info);
+        let result = require_session_or_agent_key(auth).unwrap();
+        assert_eq!(result.tenant_id, expected_tenant);
+        assert_eq!(result.user_id, expected_user);
+    }
+
+    #[test]
+    fn require_session_or_agent_key_accepts_agent_among_multiple_scopes() {
+        let info = make_api_key(vec![Scope::Read, Scope::Agent]);
+        let auth = AuthContext::ApiKey(info);
+        assert!(require_session_or_agent_key(auth).is_ok());
+    }
+
+    #[test]
+    fn require_session_or_agent_key_rejects_read_only_key_with_insufficient_scope() {
+        let auth = AuthContext::ApiKey(make_api_key(vec![Scope::Read]));
+        assert!(matches!(
+            require_session_or_agent_key(auth),
+            Err(AppError::InsufficientScope)
+        ));
+    }
+
+    #[test]
+    fn require_session_or_agent_key_rejects_admin_only_key_with_insufficient_scope() {
+        let auth = AuthContext::ApiKey(make_api_key(vec![Scope::Admin]));
+        assert!(matches!(
+            require_session_or_agent_key(auth),
+            Err(AppError::InsufficientScope)
+        ));
+    }
+
+    #[test]
+    fn require_session_or_agent_key_rejects_write_only_key_with_insufficient_scope() {
+        let auth = AuthContext::ApiKey(make_api_key(vec![Scope::Write]));
+        assert!(matches!(
+            require_session_or_agent_key(auth),
+            Err(AppError::InsufficientScope)
+        ));
+    }
+
+    #[test]
+    fn require_session_or_agent_key_rejects_scopeless_key_with_insufficient_scope() {
+        let auth = AuthContext::ApiKey(make_api_key(vec![]));
+        assert!(matches!(
+            require_session_or_agent_key(auth),
+            Err(AppError::InsufficientScope)
+        ));
+    }
+
+    #[test]
+    fn require_session_or_agent_key_rejects_anonymous() {
+        assert!(matches!(
+            require_session_or_agent_key(AuthContext::Anonymous),
             Err(AppError::Unauthorized)
         ));
     }

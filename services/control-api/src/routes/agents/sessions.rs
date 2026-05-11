@@ -39,7 +39,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::auth::{AuthContext, require_verified_session},
+    middleware::auth::{AuthContext, require_session_or_agent_key},
     state::{AppState, SessionHandle},
 };
 
@@ -194,6 +194,7 @@ pub struct CreateSessionResponse {
         (status = 202, description = "Session created, pending agent-runner pickup"),
         (status = 400, description = "Invalid runtime or fields"),
         (status = 401, description = "Authentication required"),
+        (status = 403, description = "API key lacks the `agent` scope"),
         (status = 429, description = "Process session cap reached"),
         (status = 503, description = "Kafka unavailable"),
     ),
@@ -205,7 +206,7 @@ pub async fn create_session(
     auth: AuthContext,
     Json(req): Json<CreateSessionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let session = require_verified_session(auth)?;
+    let caller = require_session_or_agent_key(auth)?;
 
     let runtime = parse_runtime(&req.runtime).ok_or(AppError::InvalidInput)?;
 
@@ -219,7 +220,7 @@ pub async fn create_session(
         path.clone()
     } else {
         // Default: tenant_id/session_id — safe by construction (UUIDs contain no `/..`).
-        format!("{}/{}", session.tenant_id, Uuid::new_v4())
+        format!("{}/{}", caller.tenant_id, Uuid::new_v4())
     };
 
     // C4: Acquire slot via atomic counter to ensure cap is held for session lifetime.
@@ -250,8 +251,8 @@ pub async fn create_session(
     db_insert_session_api_key(
         &mut *tx,
         api_key_id,
-        session.tenant_id,
-        session.user_id,
+        caller.tenant_id,
+        caller.user_id,
         session_id,
         &key_hash,
         &scopes_json,
@@ -262,8 +263,8 @@ pub async fn create_session(
         &mut *tx,
         &NewAgentSession {
             session_id,
-            tenant_id: session.tenant_id,
-            user_id: session.user_id,
+            tenant_id: caller.tenant_id,
+            user_id: caller.user_id,
             runtime: &req.runtime,
             preview: &preview,
             workspace_rel: &workspace_rel,
@@ -289,7 +290,7 @@ pub async fn create_session(
         })),
     };
 
-    let tenant_id = TenantId::from(session.tenant_id);
+    let tenant_id = TenantId::from(caller.tenant_id);
     let envelope = EventEnvelope::new(tenant_id, command);
 
     if let Some(producer) = state.agent_commands_producer.as_ref() {
@@ -318,8 +319,8 @@ pub async fn create_session(
     // for the lifetime of the session, not just this request handler.
     state.agent_registry.insert(SessionHandle::new(
         session_id,
-        session.tenant_id,
-        session.user_id,
+        caller.tenant_id,
+        caller.user_id,
         req.runtime.clone(),
         100_000,
     ));
@@ -350,7 +351,7 @@ pub async fn create_session(
     responses(
         (status = 202, description = "Termination queued"),
         (status = 401, description = "Authentication required"),
-        (status = 403, description = "Not your session"),
+        (status = 403, description = "Not your session, or API key lacks the `agent` scope"),
         (status = 404, description = "Session not found"),
         (status = 503, description = "Kafka unavailable"),
     ),
@@ -361,7 +362,7 @@ pub async fn delete_session(
     auth: AuthContext,
     Path(session_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
-    let session = require_verified_session(auth)?;
+    let caller = require_session_or_agent_key(auth)?;
 
     // Verify the session belongs to the caller's tenant.
     let row: Option<(Uuid,)> =
@@ -372,7 +373,7 @@ pub async fn delete_session(
             .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
 
     let (session_tenant_id,) = row.ok_or(AppError::NotFound)?;
-    if session_tenant_id != session.tenant_id {
+    if session_tenant_id != caller.tenant_id {
         return Err(AppError::InsufficientRole);
     }
 
@@ -387,7 +388,7 @@ pub async fn delete_session(
         )),
     };
 
-    let tenant_id = TenantId::from(session.tenant_id);
+    let tenant_id = TenantId::from(caller.tenant_id);
     let envelope = EventEnvelope::new(tenant_id, command);
 
     if let Some(producer) = state.agent_commands_producer.as_ref() {
