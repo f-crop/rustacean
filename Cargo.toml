@@ -45,7 +45,7 @@ authors = ["Jarnura <jarnura47@gmail.com>"]
 
 [workspace.dependencies]
 # Async
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.40", features = ["full"] }
 futures = "0.3"
 # Tracing
 tracing = "0.1"
