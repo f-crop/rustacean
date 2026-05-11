@@ -22,8 +22,8 @@ use axum::{
 use crate::middleware::internal_auth::require_internal_secret;
 use crate::routes::{
     agents::{
-        create_session, delete_session, delete_session_api_key, patch_session_status,
-        session_events,
+        create_session, delete_session, delete_session_api_key, get_session, list_sessions,
+        patch_session_status, session_events,
     },
     api_keys::{create_api_key, list_api_keys, revoke_api_key},
     audit::list_audit_events,
@@ -128,8 +128,8 @@ pub fn build_public(state: AppState) -> Router {
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
         // Agent session routes (ADR-009 Option B)
-        .route("/v1/agents/sessions", post(create_session))
-        .route("/v1/agents/sessions/{id}", delete(delete_session))
+        .route("/v1/agents/sessions", post(create_session).get(list_sessions))
+        .route("/v1/agents/sessions/{id}", get(get_session).delete(delete_session))
         .route("/v1/agents/sessions/{id}/events", get(session_events))
         .with_state(state)
 }

@@ -1,6 +1,8 @@
 //! Agent session management routes (ADR-009 Option B).
 //!
+//! - `GET  /v1/agents/sessions`             — list sessions for the caller's tenant
 //! - `POST /v1/agents/sessions`             — INSERT row + publish `SessionStart` to Kafka
+//! - `GET  /v1/agents/sessions/{id}`        — get session detail
 //! - `DELETE /v1/agents/sessions/{id}`      — publish `SessionTerminate` to Kafka
 //! - `PATCH /internal/agent/sessions/{id}/status`   — agent-runner callback to update DB
 //! - `DELETE /internal/agent/sessions/{id}/api-key` — agent-runner callback to revoke key
@@ -24,7 +26,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rb_auth::ApiKey;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{
@@ -493,6 +495,219 @@ pub async fn delete_session_api_key(
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/agents/sessions
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct SessionItem {
+    pub id: Uuid,
+    pub runtime_kind: String,
+    pub status: String,
+    pub input_prompt_preview: String,
+    pub workspace_path: String,
+    pub tokens_used: i64,
+    pub token_budget: i64,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ListSessionsResponse {
+    pub sessions: Vec<SessionItem>,
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct SessionDetail {
+    pub id: Uuid,
+    pub runtime_kind: String,
+    pub status: String,
+    pub input_prompt_preview: String,
+    pub workspace_path: String,
+    pub tokens_used: i64,
+    pub token_budget: i64,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub pid: Option<i32>,
+    pub exit_code: Option<i32>,
+    pub failed_at: Option<DateTime<Utc>>,
+    pub failure_reason: Option<String>,
+}
+
+type SessionRow = (
+    Uuid,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    DateTime<Utc>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+);
+
+type SessionDetailRow = (
+    Uuid,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    DateTime<Utc>,
+    Option<DateTime<Utc>>,
+    Option<DateTime<Utc>>,
+    Option<i32>,
+    Option<i32>,
+    Option<DateTime<Utc>>,
+    Option<String>,
+);
+
+/// List all agent sessions for the current session's tenant.
+///
+/// Returns sessions ordered by `created_at DESC`.
+/// Requires an active session.
+#[utoipa::path(
+    get,
+    path = "/v1/agents/sessions",
+    responses(
+        (status = 200, description = "List of agent sessions", body = ListSessionsResponse),
+        (status = 401, description = "Not authenticated"),
+    ),
+    tag = "agents"
+)]
+pub async fn list_sessions(
+    State(state): State<AppState>,
+    auth: AuthContext,
+) -> Result<impl IntoResponse, AppError> {
+    let session = require_verified_session(auth)?;
+
+    const MAX_SESSIONS: i64 = 100;
+
+    let rows: Vec<SessionRow> = sqlx::query_as(
+        "SELECT id, runtime_kind, status, input_prompt_preview, workspace_path,
+                tokens_used, token_budget, created_at, started_at, completed_at
+         FROM agents.agent_sessions
+         WHERE tenant_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2",
+    )
+    .bind(session.tenant_id)
+    .bind(MAX_SESSIONS)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+
+    let sessions = rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                runtime_kind,
+                status,
+                input_prompt_preview,
+                workspace_path,
+                tokens_used,
+                token_budget,
+                created_at,
+                started_at,
+                completed_at,
+            )| SessionItem {
+                id,
+                runtime_kind,
+                status,
+                input_prompt_preview,
+                workspace_path,
+                tokens_used,
+                token_budget,
+                created_at,
+                started_at,
+                completed_at,
+            },
+        )
+        .collect();
+
+    Ok(Json(ListSessionsResponse { sessions }))
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/agents/sessions/{id}
+// ---------------------------------------------------------------------------
+
+/// Get a single agent session by ID.
+///
+/// Returns 404 if the session does not exist or does not belong to the caller's tenant.
+/// Requires an active session.
+#[utoipa::path(
+    get,
+    path = "/v1/agents/sessions/{id}",
+    params(("id" = Uuid, Path, description = "Session ID")),
+    responses(
+        (status = 200, description = "Session details", body = SessionDetail),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Session belongs to another tenant"),
+        (status = 404, description = "Session not found"),
+    ),
+    tag = "agents"
+)]
+pub async fn get_session(
+    State(state): State<AppState>,
+    auth: AuthContext,
+    Path(session_id): Path<Uuid>,
+) -> Result<impl IntoResponse, AppError> {
+    let session = require_verified_session(auth)?;
+
+    let row: Option<SessionDetailRow> = sqlx::query_as(
+        "SELECT id, runtime_kind, status, input_prompt_preview, workspace_path,
+                tokens_used, token_budget, created_at, started_at, completed_at,
+                pid, exit_code, failed_at, failure_reason
+         FROM agents.agent_sessions
+         WHERE id = $1 AND tenant_id = $2",
+    )
+    .bind(session_id)
+    .bind(session.tenant_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+
+    let (
+        id,
+        runtime_kind,
+        status,
+        input_prompt_preview,
+        workspace_path,
+        tokens_used,
+        token_budget,
+        created_at,
+        started_at,
+        completed_at,
+        pid,
+        exit_code,
+        failed_at,
+        failure_reason,
+    ) = row.ok_or(AppError::NotFound)?;
+
+    Ok(Json(SessionDetail {
+        id,
+        runtime_kind,
+        status,
+        input_prompt_preview,
+        workspace_path,
+        tokens_used,
+        token_budget,
+        created_at,
+        started_at,
+        completed_at,
+        pid,
+        exit_code,
+        failed_at,
+        failure_reason,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -559,5 +774,68 @@ mod tests {
         assert!(VALID_AGENT_STATUSES.contains(&"terminated"));
         assert!(!VALID_AGENT_STATUSES.contains(&"unknown"));
         assert!(!VALID_AGENT_STATUSES.contains(&"'DROP TABLE'"));
+    }
+
+    #[test]
+    fn session_item_serializes_all_fields() {
+        let item = SessionItem {
+            id: Uuid::new_v4(),
+            runtime_kind: "claude_code".to_owned(),
+            status: "running".to_owned(),
+            input_prompt_preview: "hello".to_owned(),
+            workspace_path: "tenant/session".to_owned(),
+            tokens_used: 42,
+            token_budget: 100_000,
+            created_at: Utc::now(),
+            started_at: Some(Utc::now()),
+            completed_at: None,
+        };
+        let val = serde_json::to_value(&item).unwrap();
+        assert!(val.get("id").is_some());
+        assert_eq!(val["runtime_kind"], "claude_code");
+        assert_eq!(val["status"], "running");
+        assert!(val.get("tokens_used").is_some());
+        assert!(val.get("token_budget").is_some());
+        assert!(val.get("created_at").is_some());
+        assert!(val["started_at"].is_string());
+        assert!(val["completed_at"].is_null());
+        // Security: no api_key_id or system_prompt
+        assert!(val.get("api_key_id").is_none());
+        assert!(val.get("system_prompt").is_none());
+    }
+
+    #[test]
+    fn session_detail_serializes_extra_fields() {
+        let detail = SessionDetail {
+            id: Uuid::new_v4(),
+            runtime_kind: "opencode".to_owned(),
+            status: "failed".to_owned(),
+            input_prompt_preview: String::new(),
+            workspace_path: String::new(),
+            tokens_used: 0,
+            token_budget: 100_000,
+            created_at: Utc::now(),
+            started_at: None,
+            completed_at: None,
+            pid: Some(1234),
+            exit_code: Some(1),
+            failed_at: Some(Utc::now()),
+            failure_reason: Some("OOM".to_owned()),
+        };
+        let val = serde_json::to_value(&detail).unwrap();
+        assert_eq!(val["pid"], 1234);
+        assert_eq!(val["exit_code"], 1);
+        assert!(val["failed_at"].is_string());
+        assert_eq!(val["failure_reason"], "OOM");
+        // Security: no api_key_id or system_prompt
+        assert!(val.get("api_key_id").is_none());
+        assert!(val.get("system_prompt").is_none());
+    }
+
+    #[test]
+    fn list_sessions_response_wraps_sessions_array() {
+        let resp = ListSessionsResponse { sessions: vec![] };
+        let val = serde_json::to_value(&resp).unwrap();
+        assert!(val["sessions"].is_array());
     }
 }

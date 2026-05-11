@@ -4,4 +4,7 @@ pub mod events;
 pub mod sessions;
 
 pub use events::session_events;
-pub use sessions::{create_session, delete_session, delete_session_api_key, patch_session_status};
+pub use sessions::{
+    create_session, delete_session, delete_session_api_key, get_session, list_sessions,
+    patch_session_status,
+};
