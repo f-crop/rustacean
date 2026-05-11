@@ -371,6 +371,18 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
     Some((state, pool))
 }
 
+/// Same as [`real_db_state`] but with `migrations_root` set so signup runs the
+/// per-tenant migrations against the newly created tenant schema.  Skipped
+/// gracefully when `RB_DATABASE_URL` or `RB_MIGRATIONS_ROOT` is absent.
+async fn real_db_state_with_migrations() -> Option<(AppState, PgPool)> {
+    let migrations_root = std::env::var("RB_MIGRATIONS_ROOT").ok()?;
+    let (mut state, pool) = real_db_state().await?;
+    let mut config = (*state.config).clone();
+    config.migrations_root = Some(std::path::PathBuf::from(migrations_root));
+    state.config = Arc::new(config);
+    Some((state, pool))
+}
+
 fn json_body(v: &serde_json::Value) -> Body {
     Body::from(serde_json::to_vec(v).expect("serialise JSON"))
 }
@@ -529,6 +541,91 @@ async fn integration_login_rate_limit() {
         StatusCode::TOO_MANY_REQUESTS,
         "6th attempt must be rate-limited"
     );
+}
+
+/// RUSAA-1096: signup must run all per-tenant migrations, including the
+/// agent_sessions table that ADR-009 Option B requires for per-tenant
+/// process-spawning agent session metadata.
+///
+/// Skipped when `RB_DATABASE_URL` or `RB_MIGRATIONS_ROOT` is unset.
+#[tokio::test]
+async fn integration_signup_provisions_tenant_agent_sessions_table() {
+    let Some((state, pool)) = real_db_state_with_migrations().await else {
+        return;
+    };
+    let app = build(state);
+    let email = format!(
+        "integ-tenant-agentsess-{}@test.example",
+        Uuid::new_v4().simple()
+    );
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/auth/signup")
+                .header("content-type", "application/json")
+                .body(json_body(&serde_json::json!({
+                    "email": email,
+                    "password": "correct-horse-battery-staple",
+                    "tenant_name": "RUSAA-1096 Agent Sessions Provision",
+                })))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED, "signup must return 201");
+
+    let (schema_name,): (String,) = sqlx::query_as(
+        "SELECT t.schema_name FROM control.tenants t \
+         JOIN control.tenant_members tm ON tm.tenant_id = t.id \
+         JOIN control.users u ON u.id = tm.user_id \
+         WHERE u.email = $1",
+    )
+    .bind(&email)
+    .fetch_one(&pool)
+    .await
+    .expect("must look up tenant schema for new user");
+
+    let (table_count,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM information_schema.tables \
+         WHERE table_schema = $1 AND table_name = 'agent_sessions'",
+    )
+    .bind(&schema_name)
+    .fetch_one(&pool)
+    .await
+    .expect("must query information_schema");
+    assert_eq!(
+        table_count, 1,
+        "agent_sessions must exist in new tenant schema {schema_name}"
+    );
+
+    // Sanity-check core columns so a future migration drift is caught fast.
+    let columns: Vec<(String,)> = sqlx::query_as(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = $1 AND table_name = 'agent_sessions' \
+         ORDER BY ordinal_position",
+    )
+    .bind(&schema_name)
+    .fetch_all(&pool)
+    .await
+    .expect("must query information_schema.columns");
+    let names: Vec<&str> = columns.iter().map(|c| c.0.as_str()).collect();
+    for required in [
+        "id",
+        "tenant_id",
+        "session_id",
+        "runtime",
+        "status",
+        "workspace_path",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(
+            names.contains(&required),
+            "agent_sessions must have `{required}` column (got {names:?})"
+        );
+    }
 }
 
 /// Signup response must set `rb_session` cookie with Secure + `HttpOnly` flags.
