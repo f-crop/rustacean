@@ -1,54 +1,33 @@
 # syntax=docker/dockerfile:1
 
-# ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM rust:1-bookworm AS builder
-
+# ── Stage 1: chef base ────────────────────────────────────────────────────────
+FROM lukemathwalker/cargo-chef:latest-rust-1-bookworm AS chef
 WORKDIR /app
 
-# Cache dependency downloads before copying source.
-COPY Cargo.toml Cargo.lock ./
-COPY crates/rb-tracing/Cargo.toml        crates/rb-tracing/Cargo.toml
-COPY crates/rb-schemas/Cargo.toml        crates/rb-schemas/Cargo.toml
-COPY crates/rb-kafka/Cargo.toml          crates/rb-kafka/Cargo.toml
-COPY crates/rb-tenant/Cargo.toml         crates/rb-tenant/Cargo.toml
-COPY crates/rb-storage-pg/Cargo.toml     crates/rb-storage-pg/Cargo.toml
-COPY crates/rb-storage-neo4j/Cargo.toml  crates/rb-storage-neo4j/Cargo.toml
-COPY services/migrate/Cargo.toml              services/migrate/Cargo.toml
-COPY services/control-api/Cargo.toml          services/control-api/Cargo.toml
-COPY services/audit-worker/Cargo.toml         services/audit-worker/Cargo.toml
-COPY services/ingest-clone/Cargo.toml         services/ingest-clone/Cargo.toml
-COPY services/expand-worker/Cargo.toml        services/expand-worker/Cargo.toml
-COPY services/parse-worker/Cargo.toml         services/parse-worker/Cargo.toml
-COPY services/typecheck-worker/Cargo.toml     services/typecheck-worker/Cargo.toml
-COPY services/ingest-graph/Cargo.toml         services/ingest-graph/Cargo.toml
-COPY services/projector-pg/Cargo.toml         services/projector-pg/Cargo.toml
-COPY services/projector-neo4j/Cargo.toml      services/projector-neo4j/Cargo.toml
-COPY services/tombstoner/Cargo.toml           services/tombstoner/Cargo.toml
-COPY services/embed-worker/Cargo.toml         services/embed-worker/Cargo.toml
-COPY services/agent-runner/Cargo.toml         services/agent-runner/Cargo.toml
+# ── Stage 2: planner ──────────────────────────────────────────────────────────
+# Builds a recipe.json that captures the dependency graph from the full source
+# tree. Only changes when Cargo.toml / Cargo.lock files change.
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Stub sources so `cargo build` caches deps without the full source tree.
-RUN find crates services -name "Cargo.toml" | sed 's|Cargo.toml|src/lib.rs|' | \
-    xargs -I{} sh -c 'mkdir -p "$(dirname {})" && touch "{}"' && \
-    mkdir -p services/tombstoner/src && \
-    printf 'fn main() {}' > services/tombstoner/src/main.rs && \
-    cargo build --release -p tombstoner 2>/dev/null || true && \
-    rm -rf crates/*/src services/*/src
+# ── Stage 3: builder ──────────────────────────────────────────────────────────
+# Install apt build deps FIRST so they are cached independently of recipe.json.
+# Then cook deps (cached unless the recipe changes), then copy source + build.
+FROM chef AS builder
 
-# Copy real source and build.
-COPY crates/                  crates/
-COPY services/tombstoner/     services/tombstoner/
-COPY proto/                   proto/
-
-# Install rdkafka build deps.
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         cmake libssl-dev libsasl2-dev zlib1g-dev libcurl4-openssl-dev pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json -p tombstoner
+
+COPY . .
 RUN cargo build --release -p tombstoner
 
-# ── Stage 2: minimal runtime image ────────────────────────────────────────────
+# ── Stage 4: minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update -qq && \
