@@ -61,6 +61,29 @@
       }
     },
     "/v1/agents/sessions": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List all agent sessions for the current session's tenant.",
+        "description": "Returns sessions ordered by `created_at DESC`.\nRequires an active session.",
+        "operationId": "list_sessions",
+        "responses": {
+          "200": {
+            "description": "List of agent sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSessionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      },
       "post": {
         "tags": [
           "agents"
@@ -96,6 +119,47 @@
       }
     },
     "/v1/agents/sessions/{id}": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Get a single agent session by ID.",
+        "description": "Performs a two-step lookup (matching `delete_session`'s pattern) so that\na cross-tenant access attempt yields 403 instead of 404. The query selects\nby `id` only; tenant ownership is then verified in application code.",
+        "operationId": "get_session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Session belongs to another tenant"
+          },
+          "404": {
+            "description": "Session not found"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "agents"
@@ -2565,6 +2629,20 @@
           }
         }
       },
+      "ListSessionsResponse": {
+        "type": "object",
+        "required": [
+          "sessions"
+        ],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionItem"
+            }
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": [
@@ -3003,6 +3081,147 @@
             "type": "number",
             "format": "float",
             "description": "Cosine similarity score in `[0, 1]`."
+          }
+        }
+      },
+      "SessionDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "runtime_kind",
+          "status",
+          "input_prompt_preview",
+          "workspace_path",
+          "tokens_used",
+          "token_budget",
+          "created_at"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "failed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "failure_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_prompt_preview": {
+            "type": "string"
+          },
+          "pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "runtime_kind": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "token_budget": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tokens_used": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "workspace_path": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "runtime_kind",
+          "status",
+          "input_prompt_preview",
+          "workspace_path",
+          "tokens_used",
+          "token_budget",
+          "created_at"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "input_prompt_preview": {
+            "type": "string"
+          },
+          "runtime_kind": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          },
+          "token_budget": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tokens_used": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "workspace_path": {
+            "type": "string"
           }
         }
       },

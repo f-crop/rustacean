@@ -50,7 +50,12 @@ export interface paths {
             readonly path?: never;
             readonly cookie?: never;
         };
-        readonly get?: never;
+        /**
+         * List all agent sessions for the current session's tenant.
+         * @description Returns sessions ordered by `created_at DESC`.
+         *     Requires an active session.
+         */
+        readonly get: operations["list_sessions"];
         readonly put?: never;
         readonly post: operations["create_session"];
         readonly delete?: never;
@@ -66,7 +71,13 @@ export interface paths {
             readonly path?: never;
             readonly cookie?: never;
         };
-        readonly get?: never;
+        /**
+         * Get a single agent session by ID.
+         * @description Performs a two-step lookup (matching `delete_session`'s pattern) so that
+         *     a cross-tenant access attempt yields 403 instead of 404. The query selects
+         *     by `id` only; tenant ownership is then verified in application code.
+         */
+        readonly get: operations["get_session"];
         readonly put?: never;
         readonly post?: never;
         readonly delete: operations["delete_session"];
@@ -1134,6 +1145,9 @@ export interface components {
             /** Format: int64 */
             readonly total_count: number;
         };
+        readonly ListSessionsResponse: {
+            readonly sessions: readonly components["schemas"]["SessionItem"][];
+        };
         readonly LoginRequest: {
             /** @description RFC 5322 email address. */
             readonly email: string;
@@ -1284,6 +1298,49 @@ export interface components {
              * @description Cosine similarity score in `[0, 1]`.
              */
             readonly score: number;
+        };
+        readonly SessionDetail: {
+            /** Format: date-time */
+            readonly completed_at?: string | null;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: int32 */
+            readonly exit_code?: number | null;
+            /** Format: date-time */
+            readonly failed_at?: string | null;
+            readonly failure_reason?: string | null;
+            /** Format: uuid */
+            readonly id: string;
+            readonly input_prompt_preview: string;
+            /** Format: int32 */
+            readonly pid?: number | null;
+            readonly runtime_kind: string;
+            /** Format: date-time */
+            readonly started_at?: string | null;
+            readonly status: string;
+            /** Format: int64 */
+            readonly token_budget: number;
+            /** Format: int64 */
+            readonly tokens_used: number;
+            readonly workspace_path: string;
+        };
+        readonly SessionItem: {
+            /** Format: date-time */
+            readonly completed_at?: string | null;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: uuid */
+            readonly id: string;
+            readonly input_prompt_preview: string;
+            readonly runtime_kind: string;
+            /** Format: date-time */
+            readonly started_at?: string | null;
+            readonly status: string;
+            /** Format: int64 */
+            readonly token_budget: number;
+            /** Format: int64 */
+            readonly tokens_used: number;
+            readonly workspace_path: string;
         };
         readonly SignupRequest: {
             /** @description RFC 5322 email address. */
@@ -1504,6 +1561,33 @@ export interface operations {
             };
         };
     };
+    readonly list_sessions: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description List of agent sessions */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListSessionsResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     readonly create_session: {
         readonly parameters: {
             readonly query?: never;
@@ -1547,6 +1631,50 @@ export interface operations {
             };
             /** @description Kafka unavailable */
             readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_session: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Session details */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["SessionDetail"];
+                };
+            };
+            /** @description Not authenticated */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session belongs to another tenant */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found */
+            readonly 404: {
                 headers: {
                     readonly [name: string]: unknown;
                 };

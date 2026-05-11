@@ -128,8 +128,14 @@ pub fn build_public(state: AppState) -> Router {
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
         // Agent session routes (ADR-009 Option B)
-        .route("/v1/agents/sessions", post(create_session).get(list_sessions))
-        .route("/v1/agents/sessions/{id}", get(get_session).delete(delete_session))
+        .route(
+            "/v1/agents/sessions",
+            post(create_session).get(list_sessions),
+        )
+        .route(
+            "/v1/agents/sessions/{id}",
+            get(get_session).delete(delete_session),
+        )
         .route("/v1/agents/sessions/{id}/events", get(session_events))
         .with_state(state)
 }
