@@ -20,20 +20,99 @@ jobs:
     name: detect changed paths
     runs-on: ubuntu-latest
     outputs:
-      docker: ${{ steps.filter.outputs.docker }}
+      # JSON array of image names whose filter matched changed files. The
+      # docker-build matrix expands this with fromJson(); an empty array
+      # skips the matrix job entirely.
+      images: ${{ steps.compute.outputs.images }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # YAML anchor `workspace` is the conservative bucket: anything that
+          # could change the dep graph for every Rust image. Each per-image
+          # filter starts with *workspace, then adds its own service + docker
+          # paths. A pure source-only change under `services/<x>/**` matches
+          # only that image, not the others.
           filters: |
-            docker:
-              - 'docker/**'
-              - 'Dockerfile*'
+            workspace: &workspace
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - 'services/**'
+              - 'rust-toolchain.toml'
               - 'crates/**'
+              - 'proto/**'
+              - '.github/workflows/ci.yml'
+            agent-runner:
+              - *workspace
+              - 'services/agent-runner/**'
+              - 'docker/agent-runner/**'
+            control-api:
+              - *workspace
+              - 'services/control-api/**'
+              - 'services/migrate/**'
+              - 'docker/control-api/**'
+              - 'migrations/**'
+            embed-worker:
+              - *workspace
+              - 'services/embed-worker/**'
+              - 'docker/embed-worker/**'
+            expand-worker:
+              - *workspace
+              - 'services/expand-worker/**'
+              - 'docker/expand-worker/**'
+            frontend:
+              - 'frontend/**'
+              - 'docker/frontend/**'
+              - '.github/workflows/ci.yml'
+            ingest-clone:
+              - *workspace
+              - 'services/ingest-clone/**'
+              - 'docker/ingest-clone/**'
+            ingest-graph:
+              - *workspace
+              - 'services/ingest-graph/**'
+              - 'docker/ingest-graph/**'
+            parse-worker:
+              - *workspace
+              - 'services/parse-worker/**'
+              - 'docker/parse-worker/**'
+            projector-neo4j:
+              - *workspace
+              - 'services/projector-neo4j/**'
+              - 'docker/projector-neo4j/**'
+            projector-pg:
+              - *workspace
+              - 'services/projector-pg/**'
+              - 'docker/projector-pg/**'
+            tombstoner:
+              - *workspace
+              - 'services/tombstoner/**'
+              - 'docker/tombstoner/**'
+            typecheck-worker:
+              - *workspace
+              - 'services/typecheck-worker/**'
+              - 'docker/typecheck-worker/**'
+      - id: compute
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          CHANGED: ${{ steps.filter.outputs.changes }}
+        run: |
+          set -euo pipefail
+          ALL='["agent-runner","control-api","embed-worker","expand-worker","frontend","ingest-clone","ingest-graph","parse-worker","projector-neo4j","projector-pg","tombstoner","typecheck-worker"]'
+          # On push-to-main, always build every image so :sha-<sha> tags exist
+          # for every service. The path filter is only an optimisation for PRs.
+          if [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
+            echo "images=$ALL" >> "$GITHUB_OUTPUT"
+            echo "Selected images: ALL (push to main)"
+          else
+            # Strip the `workspace` meta-filter — it has no docker/workspace/
+            # image, only exists as the shared anchor included by every Rust
+            # image's filter. jq drops it cleanly.
+            SELECTED="$(printf '%s' "${CHANGED:-[]}" | jq -c '. - ["workspace"]')"
+            echo "images=$SELECTED" >> "$GITHUB_OUTPUT"
+            echo "Selected images: $SELECTED"
+          fi
 
   # ── Real Rust jobs ─────────────────────────────────────────────────────────
 
@@ -210,13 +289,20 @@ jobs:
   # ── Stub jobs (wired in later waves) ──────────────────────────────────────
 
   docker-build:
-    name: docker build + push
+    name: docker build + push (${{ matrix.image }})
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.docker == 'true' || github.event_name == 'push'
+    # Skip the matrix entirely when no image filter matched. fromJson('[]')
+    # produces an empty matrix and GHA would still spawn a no-op job, so we
+    # guard with an explicit if.
+    if: needs.changes.outputs.images != '[]' && needs.changes.outputs.images != ''
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.changes.outputs.images) }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -228,17 +314,21 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push control-api image
+      - name: Build and push ${{ matrix.image }} image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/control-api/Dockerfile
+          file: docker/${{ matrix.image }}/Dockerfile
           push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # Tag every image on main with both :dev (rolling) and :sha-<sha>
+          # (deterministic). PRs only build locally — no push, no tag drift.
           tags: |
-            ghcr.io/${{ github.repository }}/control-api:dev
-            ghcr.io/${{ github.repository }}/control-api:sha-${{ github.sha }}
-          cache-from: type=gha,scope=control-api
-          cache-to: type=gha,scope=control-api,mode=max
+            ghcr.io/${{ github.repository }}/${{ matrix.image }}:dev
+            ghcr.io/${{ github.repository }}/${{ matrix.image }}:sha-${{ github.sha }}
+          # Per-image GHA cache scope so concurrent matrix entries do not
+          # stomp each other's dependency layers.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
 
   frontend-e2e:
     name: frontend e2e
