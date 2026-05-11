@@ -1,0 +1,85 @@
+name: PR Migration Hygiene
+
+# Detects mutation of already-merged migration files. A migration file that
+# exists on both the merge-base and the PR HEAD must have an identical
+# sha256 in both — otherwise the file was edited in-place and the migrator
+# will reject it on boot. Additions and deletions are allowed.
+#
+# Escape hatch: applying the label `migration-override` to the PR skips
+# this check. Use only with explicit board/CTO approval — mutating an
+# already-applied migration in production requires a coordinated schema
+# rollback. Prefer adding a forward migration over editing an old one.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  migration-checksum:
+    name: migration checksum guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for migration-override label
+        id: label
+        env:
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels) }}
+        run: |
+          if echo "$LABELS_JSON" | grep -q '"migration-override"'; then
+            echo "override=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "override=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compare merge-base vs HEAD migration checksums
+        if: steps.label.outputs.override != 'true'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          MERGE_BASE=$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")
+          echo "merge-base: $MERGE_BASE"
+          echo "head:       $PR_HEAD_SHA"
+
+          FAILED=0
+
+          for dir in migrations/control migrations/tenant; do
+            # Files present on the merge-base under this dir.
+            base_files=$(git ls-tree -r --name-only "$MERGE_BASE" -- "$dir" 2>/dev/null \
+              | grep -E '\.sql$' || true)
+
+            for path in $base_files; do
+              # Skip files deleted on HEAD (deletions allowed).
+              if ! git cat-file -e "${PR_HEAD_SHA}:${path}" 2>/dev/null; then
+                continue
+              fi
+
+              old_sha=$(git show "${MERGE_BASE}:${path}" | sha256sum | awk '{print $1}')
+              new_sha=$(git show "${PR_HEAD_SHA}:${path}"  | sha256sum | awk '{print $1}')
+
+              if [ "$old_sha" != "$new_sha" ]; then
+                echo "::error file=${path}::Migration file mutated. Already-applied migrations must never change content."
+                echo "::error file=${path}::  old sha256 (merge-base ${MERGE_BASE:0:8}): ${old_sha}"
+                echo "::error file=${path}::  new sha256 (head      ${PR_HEAD_SHA:0:8}): ${new_sha}"
+                echo "::error file=${path}::  Add a new forward migration instead. If a rollback is required, request board/CTO approval and apply the 'migration-override' label."
+                FAILED=1
+              fi
+            done
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+          echo "OK: no merged migration files were mutated."
+
+      - name: Override active — record reason
+        if: steps.label.outputs.override == 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "::warning::migration-override label active on PR #${PR_NUMBER}; checksum guard skipped. Verify board/CTO approval is recorded on the PR."
