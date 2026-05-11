@@ -104,6 +104,11 @@ impl SessionCreateRateLimiter {
     ///
     /// This single-method design prevents TOCTOU races that would occur with
     /// separate `check()` + `record()` calls.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(retry_after_secs)` when the tenant has exceeded its rate
+    /// limit within the current window.
     pub fn check_and_record(&self, tenant_id: Uuid) -> Result<(), u64> {
         let now = Instant::now();
         let window = Duration::from_secs(self.window_secs);
@@ -150,6 +155,7 @@ impl TenantSessionCount {
     ///
     /// Returns `false` if the tenant is already at or above `max_sessions`.
     /// Uses atomic compare-and-swap for thread safety.
+    #[must_use]
     pub fn try_increment(&self, tenant_id: &Uuid, max_sessions: usize) -> bool {
         let count = self.counts.entry(*tenant_id).or_insert(AtomicUsize::new(0));
         loop {
@@ -157,9 +163,8 @@ impl TenantSessionCount {
             if current >= max_sessions {
                 return false;
             }
-            match count.compare_exchange_weak(current, current + 1, Ordering::SeqCst, Ordering::Relaxed) {
-                Ok(_) => return true,
-                Err(_) => {}
+            if count.compare_exchange_weak(current, current + 1, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+                return true;
             }
         }
     }
@@ -179,7 +184,7 @@ impl TenantSessionCount {
     /// Get the current active session count for a tenant.
     #[must_use]
     pub fn count(&self, tenant_id: &Uuid) -> usize {
-        self.counts.get(tenant_id).map(|c| c.load(Ordering::Relaxed)).unwrap_or(0)
+        self.counts.get(tenant_id).map_or(0, |c| c.load(Ordering::Relaxed))
     }
 }
 
