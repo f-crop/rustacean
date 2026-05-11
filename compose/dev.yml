@@ -250,6 +250,8 @@ services:
       RB_GH_APP_ID: "${RB_GH_APP_ID:-}"
       RB_GH_APP_PRIVATE_KEY: "${RB_GH_APP_PRIVATE_KEY:-}"
       RB_GH_APP_WEBHOOK_SECRET: "${RB_GH_APP_WEBHOOK_SECRET:-dev-secret-do-not-use-in-prod}"
+      RB_INTERNAL_SECRET: "${RB_INTERNAL_SECRET:-dev-internal-secret-change-me}"
+      RB_INTERNAL_LISTEN_ADDR: "0.0.0.0:8081"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_SERVICE_NAME: control-api
       RUST_LOG: "info,control_api=debug"
@@ -516,7 +518,7 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       RB_AGENT_WORKSPACE_BASE: /data/agent-workspaces
-      RB_CONTROL_API_BASE_URL: "http://control-api:8080"
+      RB_CONTROL_API_BASE_URL: "http://control-api:8081"
       RB_INTERNAL_SECRET: "${RB_INTERNAL_SECRET:-dev-internal-secret-change-me}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_SERVICE_NAME: agent-runner
