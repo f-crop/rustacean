@@ -31,7 +31,7 @@ use chrono::Utc;
 use rb_auth::ApiKey;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{
-    AgentRuntime, AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
+    AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
     agent_session_command,
 };
 use serde::{Deserialize, Serialize};
@@ -43,12 +43,13 @@ use crate::{
     state::{AppState, SessionHandle},
 };
 
+use super::session_lifecycle::{
+    TERMINAL_STATUSES, VALID_AGENT_STATUSES, parse_runtime, prompt_preview, validate_workspace_path,
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/// Maximum Unicode code points stored as a prompt preview in the DB.
-const PROMPT_PREVIEW_MAX_CHARS: usize = 256;
 
 /// Maximum byte length accepted for `initial_prompt` (64 KiB, per ADR-009 §4.1).
 const INITIAL_MESSAGE_MAX_BYTES: usize = 64 * 1024;
@@ -56,38 +57,10 @@ const INITIAL_MESSAGE_MAX_BYTES: usize = 64 * 1024;
 /// Kafka topic for agent commands.
 const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
 
-/// Statuses that agent-runner is allowed to set via the internal callback.
-const VALID_AGENT_STATUSES: &[&str] = &[
-    "pending",
-    "running",
-    "terminating",
-    "terminated",
-    "cancelled",
-];
-
-/// Statuses that are terminal — a session in one of these will not transition further.
-const TERMINAL_STATUSES: &[&str] = &["terminated", "cancelled"];
-
 // ---------------------------------------------------------------------------
-// Helpers
+// DB helpers
 // ---------------------------------------------------------------------------
 
-/// Returns the first ≤`PROMPT_PREVIEW_MAX_CHARS` Unicode code points of `s`.
-fn prompt_preview(s: &str) -> String {
-    s.chars().take(PROMPT_PREVIEW_MAX_CHARS).collect()
-}
-
-fn parse_runtime(s: &str) -> Option<AgentRuntime> {
-    match s {
-        "claude_code" => Some(AgentRuntime::ClaudeCode),
-        "opencode" => Some(AgentRuntime::Opencode),
-        "pi" => Some(AgentRuntime::Pi),
-        _ => None,
-    }
-}
-
-/// Validate that `workspace_path` is a safe relative path (no `..`, no absolute).
-/// Returns an error on invalid input so the session is never created.
 async fn db_insert_session_api_key(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     api_key_id: Uuid,
@@ -155,20 +128,6 @@ async fn db_insert_agent_session(
         tracing::error!("failed to insert agent_session: {e}");
         AppError::Internal(anyhow::anyhow!("DB insert failed"))
     })
-}
-
-fn validate_workspace_path(path: &str) -> Result<(), AppError> {
-    let p = std::path::Path::new(path);
-    if p.is_absolute() {
-        return Err(AppError::InvalidInput);
-    }
-    for component in p.components() {
-        use std::path::Component;
-        if matches!(component, Component::ParentDir | Component::CurDir) {
-            return Err(AppError::InvalidInput);
-        }
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -562,76 +521,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prompt_preview_short_string_unchanged() {
-        assert_eq!(prompt_preview("Hello, world!"), "Hello, world!");
-    }
-
-    #[test]
-    fn prompt_preview_truncates_at_256_chars() {
-        let s: String = "x".repeat(1000);
-        let preview = prompt_preview(&s);
-        assert_eq!(preview.chars().count(), PROMPT_PREVIEW_MAX_CHARS);
-    }
-
-    #[test]
-    fn prompt_preview_handles_multibyte_unicode() {
-        let s: String = "🦀".repeat(300);
-        let preview = prompt_preview(&s);
-        assert_eq!(preview.chars().count(), PROMPT_PREVIEW_MAX_CHARS);
-        assert!(std::str::from_utf8(preview.as_bytes()).is_ok());
-    }
-
-    #[test]
-    fn parse_runtime_valid_values() {
-        assert_eq!(parse_runtime("claude_code"), Some(AgentRuntime::ClaudeCode));
-        assert_eq!(parse_runtime("opencode"), Some(AgentRuntime::Opencode));
-        assert_eq!(parse_runtime("pi"), Some(AgentRuntime::Pi));
-    }
-
-    #[test]
-    fn parse_runtime_invalid_returns_none() {
-        assert_eq!(parse_runtime("unknown"), None);
-        assert_eq!(parse_runtime(""), None);
-    }
-
-    #[test]
     fn initial_message_max_bytes_is_64kib() {
         assert_eq!(INITIAL_MESSAGE_MAX_BYTES, 65_536);
-    }
-
-    #[test]
-    fn validate_workspace_path_rejects_traversal() {
-        assert!(validate_workspace_path("../etc/passwd").is_err());
-        assert!(validate_workspace_path("/absolute/path").is_err());
-        assert!(validate_workspace_path("a/../../b").is_err());
-        assert!(validate_workspace_path("./relative").is_err());
-    }
-
-    #[test]
-    fn validate_workspace_path_accepts_valid_paths() {
-        assert!(validate_workspace_path("tenant/session").is_ok());
-        assert!(validate_workspace_path("abc123").is_ok());
-        assert!(validate_workspace_path("tenant-id/session-id").is_ok());
-    }
-
-    #[test]
-    fn valid_agent_statuses_includes_expected() {
-        assert!(VALID_AGENT_STATUSES.contains(&"pending"));
-        assert!(VALID_AGENT_STATUSES.contains(&"running"));
-        assert!(VALID_AGENT_STATUSES.contains(&"terminating"));
-        assert!(VALID_AGENT_STATUSES.contains(&"terminated"));
-        assert!(VALID_AGENT_STATUSES.contains(&"cancelled"));
-        assert!(!VALID_AGENT_STATUSES.contains(&"unknown"));
-        assert!(!VALID_AGENT_STATUSES.contains(&"'DROP TABLE'"));
-    }
-
-    #[test]
-    fn terminal_statuses_are_subset_of_valid() {
-        for ts in TERMINAL_STATUSES {
-            assert!(
-                VALID_AGENT_STATUSES.contains(ts),
-                "TERMINAL_STATUSES entry '{ts}' must also appear in VALID_AGENT_STATUSES"
-            );
-        }
     }
 }

@@ -19,8 +19,7 @@ use crate::{
     state::AppState,
 };
 
-const LIVE_STATUSES: &[&str] = &["pending", "running", "terminating"];
-const TERMINAL_STATUSES: &[&str] = &["terminated", "cancelled"];
+use super::session_lifecycle::{LIVE_STATUSES, TERMINAL_STATUSES};
 
 #[utoipa::path(
     get,
@@ -258,33 +257,6 @@ mod tests {
             _ => false,
         };
         assert!(!is_owner);
-    }
-
-    #[test]
-    fn live_statuses_includes_expected() {
-        assert!(LIVE_STATUSES.contains(&"pending"));
-        assert!(LIVE_STATUSES.contains(&"running"));
-        assert!(LIVE_STATUSES.contains(&"terminating"));
-        assert!(!LIVE_STATUSES.contains(&"terminated"));
-        assert!(!LIVE_STATUSES.contains(&"cancelled"));
-    }
-
-    #[test]
-    fn terminal_statuses_includes_expected() {
-        assert!(TERMINAL_STATUSES.contains(&"terminated"));
-        assert!(TERMINAL_STATUSES.contains(&"cancelled"));
-        assert!(!TERMINAL_STATUSES.contains(&"running"));
-        assert!(!TERMINAL_STATUSES.contains(&"pending"));
-    }
-
-    #[test]
-    fn live_and_terminal_are_disjoint() {
-        for s in LIVE_STATUSES {
-            assert!(
-                !TERMINAL_STATUSES.contains(s),
-                "status '{s}' appears in both LIVE_STATUSES and TERMINAL_STATUSES"
-            );
-        }
     }
 
     #[tokio::test]
