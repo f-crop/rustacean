@@ -59,6 +59,13 @@ export {
   type AuditEventsParams,
 } from "./useAuditEvents";
 export {
+  useAgentSessions,
+  agentSessionsQueryKey,
+  type SessionItem,
+  type ListSessionsResponse,
+} from "./useAgentSessions";
+export { useCreateSession } from "./useCreateSession";
+export {
   useRecentIngestions,
   useInvalidateRecentIngestions,
   recentIngestionsQueryKey,

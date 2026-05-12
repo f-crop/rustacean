@@ -1,9 +1,8 @@
-import { useMe, useRecentIngestions, useInvalidateRecentIngestions } from "@/api";
-import { useEffect } from "react";
+import { useMe, useAgentSessions } from "@/api";
+import { useState } from "react";
 import { PageContainer } from "@/components/repos/PageContainer";
-import { useEventStream } from "@/hooks/useEventStream";
 import { SessionHistory } from "@/components/agent-execution/SessionHistory";
-import { ExecutionStream } from "@/components/agent-execution/ExecutionStream";
+import { CreateSessionDialog } from "@/components/agent-execution/CreateSessionDialog";
 
 export function AgentExecutionPage(): JSX.Element {
   const me = useMe({ retry: false });
@@ -27,78 +26,62 @@ export function AgentExecutionPage(): JSX.Element {
     );
   }
 
-  return <AgentExecutionInner tenantId={me.data.current_tenant.id} />;
+  return <AgentExecutionInner />;
 }
 
-interface AgentExecutionInnerProps {
-  readonly tenantId: string;
-}
+function AgentExecutionInner(): JSX.Element {
+  const [dialogOpen, setDialogOpen] = useState(false);
 
-function AgentExecutionInner({ tenantId }: AgentExecutionInnerProps): JSX.Element {
-  const apiBase = import.meta.env.VITE_API_BASE_URL ?? "";
+  const sessions = useAgentSessions({
+    refetchInterval: 10_000,
+  });
 
-  // useRecentIngestions fetches from the backend's ingestion-runs table,
-  // which backs the "Agent Execution" view — each ingestion run corresponds
-  // to an agent execution session.
-  const recentSessions = useRecentIngestions(tenantId);
-  const invalidateSessions = useInvalidateRecentIngestions();
-
-  const { events, lastEventId, readyState } = useEventStream(`${apiBase}/v1/ingest/events`);
-
-  useEffect(() => {
-    const latestIngest = events
-      .filter((e) => e.type === "ingest.status")
-      .at(-1);
-    if (!latestIngest) return;
-    try {
-      const parsed = JSON.parse(latestIngest.data) as { status?: string };
-      if (parsed.status === "succeeded" || parsed.status === "done") {
-        void invalidateSessions(tenantId);
-      }
-    } catch {
-      // malformed event — ignore
-    }
-  }, [events, tenantId, invalidateSessions]);
-
-  const sessions = recentSessions.data?.runs ?? [];
+  const sessionList = sessions.data?.sessions ?? [];
 
   return (
     <PageContainer>
       <header className="mb-6 flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Agent Execution
-        </h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Agent Execution
+          </h1>
+          <button
+            type="button"
+            onClick={() => setDialogOpen(true)}
+            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            New Session
+          </button>
+        </div>
         <p className="text-sm text-muted-foreground">
-          View execution sessions, live event streams, and trace details.
+          View and manage agent execution sessions.
         </p>
       </header>
 
-      <div className="space-y-8">
-        <section aria-labelledby="sessions-heading">
-          <h2
-            id="sessions-heading"
-            className="mb-3 text-base font-semibold tracking-tight"
-          >
-            Session History
-          </h2>
-          <SessionHistory
-            sessions={sessions}
-            isLoading={recentSessions.isLoading}
-            isError={recentSessions.isError}
-            error={recentSessions.error}
-          />
-        </section>
+      <section aria-labelledby="sessions-heading">
+        <h2
+          id="sessions-heading"
+          className="mb-3 text-base font-semibold tracking-tight"
+        >
+          Session History
+        </h2>
+        <SessionHistory
+          sessions={sessionList}
+          isLoading={sessions.isLoading}
+          isError={sessions.isError}
+          error={sessions.error}
+        />
+      </section>
 
-        <section aria-labelledby="stream-heading">
-          <h2
-            id="stream-heading"
-            className="mb-3 text-base font-semibold tracking-tight"
-          >
-            Execution Stream
-          </h2>
-          <ExecutionStream events={events} lastEventId={lastEventId} readyState={readyState} />
-        </section>
-      </div>
+      {dialogOpen && (
+        <CreateSessionDialog
+          onClose={() => setDialogOpen(false)}
+          onSuccess={() => {
+            setDialogOpen(false);
+            void sessions.refetch();
+          }}
+        />
+      )}
     </PageContainer>
   );
 }
