@@ -74,6 +74,9 @@ sha2.workspace = true
 hex.workspace = true
 # Construct rdkafka error variants in unit tests (e.g. AllBrokersDown → 503).
 rdkafka.workspace = true
+# HTTP mocking for the manifest-exchange integration test.
+wiremock.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

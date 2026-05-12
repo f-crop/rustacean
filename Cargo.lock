@@ -161,6 +161,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert-json-diff"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "async-lock"
 version = "3.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1173,10 +1183,12 @@ dependencies = [
  "tower 0.5.3",
  "tower-http",
  "tracing",
+ "tracing-subscriber",
  "urlencoding",
  "utoipa",
  "utoipa-axum",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]
@@ -1388,6 +1400,18 @@ dependencies = [
  "deadpool-runtime",
  "num_cpus",
  "retain_mut",
+ "tokio",
+]
+
+[[package]]
+name = "deadpool"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0be2b1d1d6ec8d846f05e137292d0b89133caf95ef33695424c09568bdd39b1b"
+dependencies = [
+ "deadpool-runtime",
+ "lazy_static",
+ "num_cpus",
  "tokio",
 ]
 
@@ -2871,7 +2895,7 @@ dependencies = [
  "bytes",
  "chrono",
  "chrono-tz",
- "deadpool",
+ "deadpool 0.9.5",
  "delegate",
  "futures",
  "log",
@@ -3909,6 +3933,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "urlencoding",
  "uuid",
 ]
 
@@ -6245,6 +6270,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee1708bef14716a11bae175f579062d4554d95be2c6829f518df847b7b3fdd0"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "wiremock"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08db1edfb05d9b3c1542e521aea074442088292f00b5f28e435c714a98f85031"
+dependencies = [
+ "assert-json-diff",
+ "base64",
+ "deadpool 0.12.3",
+ "futures",
+ "http 1.4.0",
+ "http-body-util",
+ "hyper 1.9.0",
+ "hyper-util",
+ "log",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

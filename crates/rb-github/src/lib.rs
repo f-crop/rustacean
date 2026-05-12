@@ -4,6 +4,7 @@ mod client;
 mod error;
 mod installation_token;
 mod loader;
+mod manifest_exchange;
 mod repos;
 mod secret;
 mod state_token;
@@ -17,6 +18,7 @@ pub use app_config_store::{
 pub use client::{AppIdentity, AppOwner, InstallationInfo, RepoInfo};
 pub use error::GhError;
 pub use loader::GhAppLoader;
+pub use manifest_exchange::{DEFAULT_GITHUB_API_BASE, ManifestConversion, exchange_manifest_code};
 pub use repos::{RepoItem, RepoPage};
 pub use secret::Secret;
 pub use state_token::hash_token;

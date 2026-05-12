@@ -35,6 +35,10 @@ pub struct Config {
     /// Phase 1 (no rows yet); becomes required in Phase 2 once the per-request
     /// loader queries the table.
     pub gh_app_enc_key_b64: Option<String>,
+    /// `RB_GH_API_BASE` — GitHub REST API base URL. Defaults to
+    /// `https://api.github.com`. Override in integration tests to point at
+    /// a wiremock stub.
+    pub gh_api_base: String,
 
     // --- Neo4j (REQ-DP-04, REQ-DP-07) ---
     /// `RB_NEO4J_URI` — bolt URI for the Neo4j instance (e.g. `bolt://neo4j:7687`).
@@ -141,6 +145,8 @@ impl Config {
             gh_app_enc_key_b64: env::var("RB_GH_APP_ENC_KEY")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            gh_api_base: env::var("RB_GH_API_BASE")
+                .unwrap_or_else(|_| rb_github::DEFAULT_GITHUB_API_BASE.to_owned()),
             neo4j_uri: env::var("RB_NEO4J_URI").ok().filter(|s| !s.is_empty()),
             neo4j_user: env::var("RB_NEO4J_USER").unwrap_or_else(|_| "neo4j".to_owned()),
             neo4j_password: env::var("RB_NEO4J_PASSWORD").ok().filter(|s| !s.is_empty()),
@@ -296,6 +302,7 @@ impl Config {
             gh_app_private_key_b64: None,
             gh_app_webhook_secret: None,
             gh_app_enc_key_b64: None,
+            gh_api_base: rb_github::DEFAULT_GITHUB_API_BASE.to_owned(),
             neo4j_uri: None,
             neo4j_user: "neo4j".to_owned(),
             neo4j_password: None,

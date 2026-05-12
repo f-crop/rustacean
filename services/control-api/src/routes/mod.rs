@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod agents;
 pub mod api_keys;
 pub mod audit;
@@ -22,6 +23,7 @@ use axum::{
 
 use crate::middleware::internal_auth::require_internal_secret;
 use crate::routes::{
+    admin::github::{get_app_callback, get_app_status, post_app_manifest},
     agents::{
         create_session, delete_session, delete_session_api_key, get_session, list_sessions,
         patch_session_status, session_events,
@@ -90,6 +92,9 @@ pub fn build_public(state: AppState) -> Router {
             post(transfer_ownership),
         )
         .route("/v1/health/github-app", get(github_app_health))
+        .route("/v1/admin/github/app-manifest", post(post_app_manifest))
+        .route("/v1/admin/github/app-callback", get(get_app_callback))
+        .route("/v1/admin/github/app-status", get(get_app_status))
         .route("/v1/github/webhook", post(github_webhook))
         .route("/v1/github/install-url", get(github_install_url))
         .route("/v1/github/callback", get(github_callback))

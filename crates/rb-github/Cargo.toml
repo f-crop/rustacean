@@ -29,6 +29,7 @@ aes-gcm.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 arc-swap.workspace = true
+urlencoding = "2"
 
 [dev-dependencies]
 tokio = { workspace = true }
