@@ -124,8 +124,8 @@ services:
     volumes:
       - ../infra/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
       - loki_data:/loki
-    ports:
-      - "${LOKI_HOST_PORT:-3100}:3100"
+    # No host-port publishing — Loki is only consumed in-network by otel-collector
+    # (otlphttp/loki exporter) and grafana (provisioned datasource at http://loki:3100).
     networks:
       - rb-net
     healthcheck:
@@ -148,7 +148,6 @@ services:
     depends_on:
       - tempo
       - prometheus
-      - loki
 
   tempo:
     image: grafana/tempo:2.7.2

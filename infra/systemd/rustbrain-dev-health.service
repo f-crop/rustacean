@@ -17,7 +17,7 @@ ExecStart=/opt/rustbrain/scripts/dev-health-check.sh
 SuccessExitStatus=0 1
 
 # Source tailscale port overrides into the health-check shell so
-# CONTROL_API_HOST_PORT=18080, LOKI_HOST_PORT=13300, etc. resolve correctly.
+# CONTROL_API_HOST_PORT=18080, FRONTEND_HOST_PORT=15173, etc. resolve correctly.
 # docker compose --env-file only exports vars to containers, not to this shell.
 Environment="COMPOSE_ENV_FILE=/opt/rustbrain/compose/tailscale.env"
 

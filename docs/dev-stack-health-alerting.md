@@ -12,9 +12,9 @@ The `rustbrain-dev-health` systemd timer runs `scripts/dev-health-check.sh` ever
 | `kafka` container running | same |
 | control-api `/health` | `GET http://localhost:18080/health` → expects 200 |
 | frontend | `GET http://localhost:15173/` → expects 200 |
-| Loki `/ready` | `GET http://localhost:13300/ready` → expects 200 |
+| Loki `/ready` | `docker exec rustbrain-dev-loki-1 wget --spider http://localhost:3100/ready` (in-network probe) |
 
-Ports resolve from `compose/tailscale.env` (`CONTROL_API_HOST_PORT`, `FRONTEND_HOST_PORT`, `LOKI_HOST_PORT`).
+Host ports resolve from `compose/tailscale.env` (`CONTROL_API_HOST_PORT`, `FRONTEND_HOST_PORT`). Loki does not publish a host port — the probe runs inside the container, so a Loki check fails iff the container itself is unhealthy.
 
 ## Alert behaviour
 
