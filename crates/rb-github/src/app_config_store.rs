@@ -448,7 +448,7 @@ mod tests {
     /// Minimal 2048-bit RSA private key fixture for `try_build_gh_app` tests.
     /// Generated once with `openssl genrsa 2048` and committed here so the
     /// test does not shell out at runtime.
-    const TEST_RSA_PEM: &str = "-----BEGIN RSA PRIVATE KEY-----\n\
+    const TEST_RSA_PEM: &str = /* gitleaks:allow */ "-----BEGIN RSA PRIVATE KEY-----\n\
 MIIEowIBAAKCAQEAtm5VskdYukSx2KsOZ24Sb1m+EtFsi3PtvR58dxhcN4UISKtm\n\
 WjE+wXymvNkN0YHaZJjJzo2Y/N79Zhxn1m6Ywda4ZWAJV3IIYZbk6BByv8mhVgGQ\n\
 1qFTsCdH/CdMzqj+vfk3rvf3YyMaJOZ/+xtmVKMHcmGtFMu8MDmZbeP1aanCkVm8\n\
@@ -474,7 +474,7 @@ TLAm9ZIpKjrlOM4ja2zNXOcVbnvFwdRgxlNGAU5cKQpZbVDp5YXJaQRkbU1IUlnz\n\
 y96luQKBgGHF9XLI5tFdMxQE3pjyaHe7Tt5VYV6f8K56nC4Iqfdki/IFiBg83p3R\n\
 zVa6Vv1iEhPwwm/PV/zVScVqxX2nJOOoa4Lk7dlPTu62Onki++YdsGGUtV+gC2bM\n\
 EkrxIBjqfn0FWqzC2WhRzeTLE+xq0NHcCS7vJOzvSqLNqUtmvE0t\n\
------END RSA PRIVATE KEY-----\n";
+-----END RSA PRIVATE KEY-----\n"; // gitleaks:allow — test-only 2048-bit RSA fixture, not a real key
 
     fn fixture_app_config() -> AppConfig {
         AppConfig {
