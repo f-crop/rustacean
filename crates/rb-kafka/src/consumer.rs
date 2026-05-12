@@ -49,6 +49,12 @@ impl<E: ProstMessage + Default> Consumer<E> {
             // 30 s matches librdkafka's protocol default and silences REQTMOUT noise.
             .set("socket.timeout.ms", "30000")
             .set("request.timeout.ms", "30000")
+            // librdkafka caches "topic does not exist" responses for the full
+            // refresh interval (default 5 min). When the broker creates the
+            // topic just after our first metadata fetch — e.g., compose
+            // kafka-init -> consumer race — the stream goes silent for 5 min.
+            // 10 s gives us quick recovery without saturating the broker.
+            .set("topic.metadata.refresh.interval.ms", "10000")
             .create()?;
 
         // DLQ delivery is best-effort: acks=1 avoids blocking the consume loop on
@@ -69,6 +75,83 @@ impl<E: ProstMessage + Default> Consumer<E> {
     pub fn subscribe(&self, topics: &[&str]) -> Result<(), KafkaError> {
         self.inner.subscribe(topics)?;
         Ok(())
+    }
+
+    /// Block until every named topic is visible in broker metadata, or `timeout` elapses.
+    ///
+    /// Defense against the kafka-init -> consumer race in docker compose: even when
+    /// `depends_on: kafka-init: service_completed_successfully` orders the start,
+    /// the first `subscribe()` can race a still-propagating metadata refresh and the
+    /// consumer logs `UnknownTopicOrPartition` once, then goes silent for up to one
+    /// `topic.metadata.refresh.interval.ms` window. Calling this *before* subscribe
+    /// surfaces the missing topic as a loud error and turns it into a bounded retry.
+    ///
+    /// Per attempt we ask the broker for metadata with a 5 s timeout, sleep 1 s
+    /// between attempts on failure, and use `spawn_blocking` so the rdkafka
+    /// blocking call does not stall the tokio reactor.
+    pub async fn wait_for_topics(
+        &self,
+        topics: &[&str],
+        timeout: Duration,
+    ) -> Result<(), KafkaError> {
+        let deadline = std::time::Instant::now() + timeout;
+        let inner = self.inner.clone();
+        let topic_set: Vec<String> = topics.iter().map(|t| (*t).to_owned()).collect();
+        let mut attempt: u32 = 0;
+
+        loop {
+            attempt += 1;
+            let inner = inner.clone();
+            let topic_set_clone = topic_set.clone();
+            let metadata_result = tokio::task::spawn_blocking(move || {
+                inner
+                    .fetch_metadata(None, Duration::from_secs(5))
+                    .map(|md| {
+                        topic_set_clone
+                            .iter()
+                            .map(|wanted| {
+                                md.topics()
+                                    .iter()
+                                    .find(|t| t.name() == wanted.as_str())
+                                    .map(|t| {
+                                        (
+                                            wanted.clone(),
+                                            !t.partitions().is_empty() && t.error().is_none(),
+                                        )
+                                    })
+                                    .unwrap_or((wanted.clone(), false))
+                            })
+                            .collect::<Vec<(String, bool)>>()
+                    })
+            })
+            .await
+            .map_err(|join_err| KafkaError::Broker(format!("join error: {join_err}")))?;
+
+            match metadata_result {
+                Ok(status) => {
+                    let missing: Vec<String> = status
+                        .iter()
+                        .filter(|(_, ok)| !ok)
+                        .map(|(name, _)| name.clone())
+                        .collect();
+                    if missing.is_empty() {
+                        tracing::info!(?topic_set, attempt, "kafka topics visible");
+                        return Ok(());
+                    }
+                    tracing::warn!(?missing, attempt, "kafka topics not visible yet; retrying");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, attempt, "fetch_metadata failed; retrying");
+                }
+            }
+
+            if std::time::Instant::now() >= deadline {
+                return Err(KafkaError::Broker(format!(
+                    "topics {topic_set:?} not visible after {attempt} attempts within {timeout:?}"
+                )));
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 
     #[allow(clippy::too_many_lines)]
@@ -329,4 +412,38 @@ fn extract_headers(h: Option<&rdkafka::message::BorrowedHeaders>) -> Vec<(String
             Some((key, value))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rb_schemas::AgentSessionCommand;
+
+    /// Defense for the agent-runner kafka startup race (RUSAA-1171):
+    /// pointing the consumer at an unreachable bootstrap address must
+    /// time out the `wait_for_topics()` helper instead of hanging forever
+    /// or sliding past silently.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn wait_for_topics_times_out_when_broker_unreachable() {
+        let cfg = ConsumerCfg {
+            bootstrap_servers: "127.0.0.1:1".to_owned(), // no kafka here
+            group_id: "rb-kafka-wait-for-topics-test".to_owned(),
+            enable_auto_commit: false,
+            isolation_level: "read_committed".to_owned(),
+            auto_offset_reset: "earliest".to_owned(),
+            max_poll_interval: Duration::from_secs(300),
+            session_timeout: Duration::from_secs(30),
+        };
+        let consumer: Consumer<AgentSessionCommand> =
+            Consumer::new(&cfg).expect("consumer construction");
+        let err = consumer
+            .wait_for_topics(&["rb.agent.commands"], Duration::from_millis(1500))
+            .await
+            .expect_err("expected timeout error against unreachable broker");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("rb.agent.commands"),
+            "error message should name the missing topic: {msg}"
+        );
+    }
 }

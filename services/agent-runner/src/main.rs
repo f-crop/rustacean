@@ -26,6 +26,22 @@ async fn main() -> Result<()> {
 
     let consumer: Consumer<AgentSessionCommand> =
         Consumer::new(&ConsumerCfg::new("rb-agent-runner"))?;
+
+    // Defense against the kafka-init -> agent-runner metadata race observed in
+    // compose dev/UAT: even when `depends_on: kafka-init` blocks startup until
+    // topic creation succeeds, the broker can take a beat to publish the new
+    // topic in its metadata cache. Calling subscribe directly in that window
+    // logs UnknownTopicOrPartition once and then the stream goes silent for up
+    // to one `topic.metadata.refresh.interval.ms`. Bounded retry here turns
+    // that silent stall into a loud, short, observable wait.
+    consumer
+        .wait_for_topics(
+            &[consumer::TOPIC_AGENT_COMMANDS],
+            std::time::Duration::from_secs(60),
+        )
+        .await
+        .context("rb.agent.commands topic not visible to broker within 60s")?;
+
     consumer.subscribe(&[consumer::TOPIC_AGENT_COMMANDS])?;
 
     tracing::info!(workspace_base = %workspace_base.display(), "rb-agent-runner starting");
