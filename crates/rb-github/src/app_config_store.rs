@@ -245,7 +245,7 @@ impl AppConfigStore {
                     webhook_secret_ciphertext, webhook_secret_nonce, \
                     encryption_key_id, installed_by_user_id, is_active, \
                     created_at, deactivated_at \
-               FROM github_app_config \
+               FROM control.github_app_config \
               WHERE is_active = true \
               LIMIT 1",
         )
@@ -276,7 +276,7 @@ impl AppConfigStore {
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
-            "UPDATE github_app_config \
+            "UPDATE control.github_app_config \
                 SET is_active = false, deactivated_at = now() \
               WHERE is_active = true",
         )
@@ -284,7 +284,7 @@ impl AppConfigStore {
         .await?;
 
         let id: (i64,) = sqlx::query_as(
-            "INSERT INTO github_app_config \
+            "INSERT INTO control.github_app_config \
                  (app_id, slug, client_id, \
                   client_secret_ciphertext, client_secret_nonce, \
                   private_key_ciphertext, private_key_nonce, \
