@@ -27,12 +27,13 @@ pub struct GithubAppHealthResponse {
 pub async fn github_app_health(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let Some(gh) = &state.gh else {
+    let Some(gh) = state.gh_loader.current() else {
         return Ok((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
                 "error": "github_app_not_configured",
-                "message": "GitHub App env vars are not set"
+                "message": "no active control.github_app_config row and \
+                            RB_GH_APP_ID / RB_GH_APP_PRIVATE_KEY are not set"
             })),
         )
             .into_response());

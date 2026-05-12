@@ -80,7 +80,7 @@ pub async fn list_available_repos(
     let per_page = params.per_page.clamp(1, 100);
     let page = params.page.max(1);
 
-    let Some(gh) = state.gh.clone() else {
+    let Some(gh) = state.gh_loader.current() else {
         return Err(AppError::GithubAppNotConfigured);
     };
 

@@ -6,7 +6,7 @@ use base64::Engine as _;
 use jsonwebtoken::EncodingKey;
 use rb_auth::{LoginRateLimiter, PasswordHasher};
 use rb_email::{SmtpConfig, from_transport};
-use rb_github::{GhApp, Secret};
+use rb_github::{AppConfigStore, EncryptionKey, GhApp, GhAppLoader, Secret, try_build_gh_app};
 use rb_kafka::{ConsumerCfg, Producer, ProducerCfg};
 use rb_sse::{EventBus, SseConfig};
 use rb_storage_neo4j::TenantGraph;
@@ -68,14 +68,24 @@ pub async fn run(config: Config) -> Result<()> {
     )
     .context("invalid argon2 parameters")?;
 
-    let gh = build_gh_app(&config)?;
-
+    // GitHub App resolution order (Phase 2 of the Manifest flow):
+    //   1. If RB_GH_APP_ENC_KEY is set AND control.github_app_config has an
+    //      active row, build the App from the DB row (decrypt-on-read).
+    //   2. Otherwise, fall back to the env-var path (RB_GH_APP_ID +
+    //      RB_GH_APP_PRIVATE_KEY + RB_GH_APP_WEBHOOK_SECRET).
+    //   3. Otherwise, the loader holds None and GitHub routes return 503
+    //      via the existing GithubAppNotConfigured path.
+    //
+    // Phase 3's admin callback will hot-swap the loader without restart by
+    // calling GhAppLoader::set after a successful manifest exchange.
+    let gh = resolve_gh_app(&config, &pool).await?;
     let gh = gh.map(Arc::new);
     if let Some(g) = &gh {
         // Spawn the installation-token cache sweep now that we are inside
         // the tokio runtime (REQ-GH-05).
         g.start_token_sweep();
     }
+    let gh_loader = Arc::new(GhAppLoader::new(gh));
 
     let sse_bus = Arc::new(EventBus::new(SseConfig::default()));
 
@@ -129,7 +139,7 @@ pub async fn run(config: Config) -> Result<()> {
         hasher: Arc::new(hasher),
         login_rate_limiter: Arc::new(LoginRateLimiter::new()),
         config: Arc::new(config.clone()),
-        gh,
+        gh_loader,
         sse_bus: Arc::clone(&sse_bus),
         ingest_producer,
         tombstone_producer,
@@ -223,16 +233,54 @@ fn build_producer<P, Err: std::fmt::Display>(result: Result<P, Err>, name: &str)
     }
 }
 
-/// Constructs a [`GhApp`] from config, or returns `None` when the GitHub App
-/// env vars are not set (feature is disabled; GitHub routes return 503).
+/// Resolve the active GitHub App at startup using the Phase 2 source-priority
+/// rules: prefer the singleton-active row in `control.github_app_config` (if
+/// `RB_GH_APP_ENC_KEY` is configured), fall back to the legacy env-var path,
+/// otherwise return `None` (GitHub routes 503).
 ///
-/// Fails fast at startup if keys are present but malformed — an operator
-/// mistake should surface immediately, not at first API call.
-fn build_gh_app(config: &Config) -> Result<Option<GhApp>> {
+/// Fails fast on any malformed credential — operator mistakes surface at boot,
+/// not at first API call.
+async fn resolve_gh_app(config: &Config, pool: &sqlx::PgPool) -> Result<Option<GhApp>> {
+    // 1. DB-first path. Only attempted when an encryption key is configured;
+    //    without one we cannot decrypt stored secrets even if a row exists.
+    if let Some(key_b64) = config.gh_app_enc_key_b64.as_deref() {
+        let key = EncryptionKey::from_base64(key_b64)
+            .context("RB_GH_APP_ENC_KEY: invalid AES-256-GCM key material")?;
+        let store = AppConfigStore::new(pool.clone(), key);
+        match store.load_active().await {
+            Ok(Some(cfg)) => {
+                let app = try_build_gh_app(&cfg)
+                    .context("active control.github_app_config row could not be hydrated")?;
+                tracing::info!(
+                    app_id = cfg.app_id,
+                    slug = %cfg.slug,
+                    source = "db",
+                    "GitHub App loaded from control.github_app_config"
+                );
+                return Ok(Some(app));
+            }
+            Ok(None) => {
+                tracing::info!(
+                    "RB_GH_APP_ENC_KEY set but no active github_app_config row — falling back to env"
+                );
+            }
+            Err(e) => {
+                // Surface as boot failure: if the store is reachable but a
+                // row is corrupted, we do not want to silently fall through
+                // to env vars and confuse the operator.
+                return Err(anyhow::anyhow!(e)
+                    .context("failed to load active github_app_config row"));
+            }
+        }
+    }
+
+    // 2. Legacy env-var path (unchanged semantics from Phase 1).
     let (Some(app_id), Some(pem_b64)) =
         (config.gh_app_id, config.gh_app_private_key_b64.as_deref())
     else {
-        tracing::info!("RB_GH_APP_ID / RB_GH_APP_PRIVATE_KEY not set — GitHub App disabled");
+        tracing::info!(
+            "RB_GH_APP_ID / RB_GH_APP_PRIVATE_KEY not set and no DB row — GitHub App disabled"
+        );
         return Ok(None);
     };
 
@@ -261,6 +309,7 @@ fn build_gh_app(config: &Config) -> Result<Option<GhApp>> {
         .to_vec();
     let webhook_secret = Secret::new(webhook_secret_bytes);
 
+    tracing::info!(app_id, source = "env", "GitHub App loaded from env vars");
     Ok(Some(GhApp::new(app_id, encoding_key, webhook_secret)))
 }
 

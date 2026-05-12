@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use rb_auth::{LoginRateLimiter, PasswordHasher};
 use rb_email::EmailSender;
-use rb_github::GhApp;
+use rb_github::GhAppLoader;
 use rb_kafka::Producer;
 use rb_query::ModuleTreeCache;
 use rb_schemas::{AgentSessionCommand, IngestRequest, Tombstone};
@@ -369,9 +369,12 @@ pub struct AppState {
     pub config: Arc<Config>,
     /// Cached copy of `RB_INTERNAL_SECRET` for internal endpoint auth.
     pub internal_secret: String,
-    /// GitHub App handle. `None` when `RB_GH_APP_ID` / `RB_GH_APP_PRIVATE_KEY`
-    /// are not configured; GitHub routes return 503 in that case.
-    pub gh: Option<Arc<GhApp>>,
+    /// Hot-reloadable GitHub App handle. `gh_loader.current()` returns the
+    /// active `GhApp` (DB-first via [`rb_github::AppConfigStore`], env
+    /// fallback) or `None` when no App is configured — GitHub routes return
+    /// 503 in the `None` case. Phase 3's admin-manifest callback swaps a
+    /// freshly-registered App into this loader without a process restart.
+    pub gh_loader: Arc<GhAppLoader>,
     /// SSE event bus — per-tenant live event fan-out for `GET /v1/ingest/events`.
     pub sse_bus: Arc<EventBus>,
     /// Kafka producer for `rb.ingest.clone.commands`. `None` when Kafka is not

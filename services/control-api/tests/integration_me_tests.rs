@@ -80,7 +80,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         hasher: Arc::new(hasher),
         login_rate_limiter: Arc::new(LoginRateLimiter::new()),
         config: Arc::new(config),
-        gh: None,
+        gh_loader: std::sync::Arc::new(rb_github::GhAppLoader::new(None)),
         sse_bus: Arc::new(EventBus::new(SseConfig::default())),
         ingest_producer: None,
         tombstone_producer: None,

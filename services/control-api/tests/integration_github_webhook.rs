@@ -100,11 +100,11 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         hasher: Arc::new(PasswordHasher::from_config(64, 1, 1).expect("hasher")),
         login_rate_limiter: Arc::new(LoginRateLimiter::new()),
         config: Arc::new(config),
-        gh: Some(Arc::new(GhApp::new(
+        gh_loader: Arc::new(rb_github::GhAppLoader::new(Some(Arc::new(GhApp::new(
             12345,
             rsa_key(),
             Secret::new(secret.to_vec()),
-        ))),
+        ))))),
         sse_bus: Arc::new(EventBus::new(SseConfig::default())),
         ingest_producer: None,
         tombstone_producer: None,
@@ -131,7 +131,7 @@ fn state_without_gh() -> AppState {
         hasher: Arc::new(PasswordHasher::from_config(64, 1, 1).expect("hasher")),
         login_rate_limiter: Arc::new(LoginRateLimiter::new()),
         config: Arc::new(config),
-        gh: None,
+        gh_loader: Arc::new(rb_github::GhAppLoader::new(None)),
         sse_bus: Arc::new(EventBus::new(SseConfig::default())),
         ingest_producer: None,
         tombstone_producer: None,
