@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# git post-merge hook — triggers dev-stack-auto-rebuild after `git pull` on main.
+#
+# Fires when:
+#   - You run `git pull` (or `git merge`) that fast-forwards or merges new commits
+#     into your local main.
+#
+# Skips when:
+#   - Current branch != main (feature branch work doesn't touch the dev stack)
+#   - $RB_SKIP_AUTO_REBUILD is set (manual override for batched ops)
+#   - compose/.no-auto-rebuild bypass file exists (consumed by the rebuild script)
+#
+# The hook only kicks off the rebuild; the rebuild script itself decides which
+# services actually need to be rebuilt based on the diff.
+#
+# Install with: scripts/install-git-hooks.sh
+
+set -euo pipefail
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+if [[ "$BRANCH" != "main" ]]; then
+  exit 0
+fi
+
+if [[ -n "${RB_SKIP_AUTO_REBUILD:-}" ]]; then
+  echo "[post-merge] RB_SKIP_AUTO_REBUILD set — skipping dev-stack rebuild"
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+REBUILD_SCRIPT="$REPO_ROOT/scripts/dev-stack-auto-rebuild.sh"
+
+if [[ ! -x "$REBUILD_SCRIPT" ]]; then
+  echo "[post-merge] $REBUILD_SCRIPT not found or not executable — skipping" >&2
+  exit 0
+fi
+
+# ORIG_HEAD is set by git pull/merge to the SHA before the merge. Use it as PREV_SHA;
+# fall back to HEAD^1 if missing (e.g. on the very first pull).
+PREV_SHA="$(git rev-parse ORIG_HEAD 2>/dev/null || git rev-parse HEAD^1 2>/dev/null || true)"
+NEW_SHA="$(git rev-parse HEAD)"
+
+if [[ -z "$PREV_SHA" || "$PREV_SHA" == "$NEW_SHA" ]]; then
+  exit 0
+fi
+
+echo "[post-merge] dev-stack auto-rebuild: $PREV_SHA → $NEW_SHA"
+
+# Run in background so `git pull` returns immediately. Logs are appended to the
+# rebuild log file (see dev-stack-auto-rebuild.sh) and the systemd-style state dir.
+LOG_DIR="${RB_LOG_DIR:-$HOME/.local/state/rustbrain}"
+mkdir -p "$LOG_DIR"
+nohup "$REBUILD_SCRIPT" "$PREV_SHA" "$NEW_SHA" \
+  >>"$LOG_DIR/post-merge-rebuild.log" 2>&1 &
+disown || true
+
+echo "[post-merge] rebuild backgrounded — tail $LOG_DIR/post-merge-rebuild.log to follow"
