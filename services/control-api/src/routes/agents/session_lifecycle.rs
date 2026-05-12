@@ -18,10 +18,15 @@ pub const VALID_AGENT_STATUSES: &[&str] = &[
     "terminating",
     "terminated",
     "cancelled",
+    "failed",
 ];
 
 /// Statuses that are terminal — a session in one of these will not transition further.
-pub const TERMINAL_STATUSES: &[&str] = &["terminated", "cancelled"];
+///
+/// `failed` belongs here so the tenant session-count is decremented and the
+/// `/v1/agents/sessions/{id}/events` SSE endpoint serves a one-shot terminal
+/// error envelope instead of trying to subscribe to a closed bus.
+pub const TERMINAL_STATUSES: &[&str] = &["terminated", "cancelled", "failed"];
 
 /// Statuses considered "live" — an SSE stream should open for these.
 pub const LIVE_STATUSES: &[&str] = &["pending", "running", "terminating"];
@@ -126,6 +131,7 @@ mod tests {
         assert!(VALID_AGENT_STATUSES.contains(&"terminating"));
         assert!(VALID_AGENT_STATUSES.contains(&"terminated"));
         assert!(VALID_AGENT_STATUSES.contains(&"cancelled"));
+        assert!(VALID_AGENT_STATUSES.contains(&"failed"));
         assert!(!VALID_AGENT_STATUSES.contains(&"unknown"));
         assert!(!VALID_AGENT_STATUSES.contains(&"'DROP TABLE'"));
     }

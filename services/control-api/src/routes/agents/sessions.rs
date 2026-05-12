@@ -22,29 +22,28 @@
 //! every internal request is rejected with 401.
 
 use axum::{
-    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
+    Json,
 };
 use chrono::Utc;
 use rb_auth::ApiKey;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{
-    AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
-    agent_session_command,
+    agent_session_command, AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::auth::{AuthContext, require_session_or_agent_key},
+    middleware::auth::{require_session_or_agent_key, AuthContext},
     state::{AppState, SessionHandle},
 };
 
 use super::session_lifecycle::{
-    TERMINAL_STATUSES, VALID_AGENT_STATUSES, parse_runtime, prompt_preview, validate_workspace_path,
+    parse_runtime, prompt_preview, validate_workspace_path, TERMINAL_STATUSES, VALID_AGENT_STATUSES,
 };
 
 // ---------------------------------------------------------------------------
@@ -57,78 +56,9 @@ const INITIAL_MESSAGE_MAX_BYTES: usize = 64 * 1024;
 /// Kafka topic for agent commands.
 const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
 
-// ---------------------------------------------------------------------------
-// DB helpers
-// ---------------------------------------------------------------------------
-
-async fn db_insert_session_api_key(
-    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
-    api_key_id: Uuid,
-    tenant_id: Uuid,
-    user_id: Uuid,
-    session_id: Uuid,
-    key_hash: &str,
-    scopes_json: &serde_json::Value,
-) -> Result<(), AppError> {
-    sqlx::query(
-        "INSERT INTO control.api_keys \
-         (id, tenant_id, key_hash, name, scopes, created_by_user_id) \
-         VALUES ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(api_key_id)
-    .bind(tenant_id)
-    .bind(key_hash)
-    .bind(format!("agent-session-{session_id}"))
-    .bind(scopes_json)
-    .bind(user_id)
-    .execute(executor)
-    .await
-    .map(|_| ())
-    .map_err(|e| {
-        tracing::error!("failed to insert session api_key: {e}");
-        AppError::Internal(anyhow::anyhow!("DB insert failed"))
-    })
-}
-
-struct NewAgentSession<'a> {
-    session_id: Uuid,
-    tenant_id: Uuid,
-    user_id: Uuid,
-    runtime: &'a str,
-    preview: &'a str,
-    workspace_rel: &'a str,
-    api_key_id: Uuid,
-    now: chrono::DateTime<chrono::Utc>,
-}
-
-async fn db_insert_agent_session(
-    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
-    row: &NewAgentSession<'_>,
-) -> Result<(), AppError> {
-    sqlx::query(
-        r"INSERT INTO agents.agent_sessions
-            (id, tenant_id, user_id, runtime_kind, model, system_prompt,
-             status, token_budget, tokens_used, input_prompt_preview,
-             workspace_path, api_key_id, created_at)
-          VALUES ($1, $2, $3, $4, 'n/a', '',
-                  'pending', 100000, 0, $5, $6, $7, $8)",
-    )
-    .bind(row.session_id)
-    .bind(row.tenant_id)
-    .bind(row.user_id)
-    .bind(row.runtime)
-    .bind(row.preview)
-    .bind(row.workspace_rel)
-    .bind(row.api_key_id)
-    .bind(row.now)
-    .execute(executor)
-    .await
-    .map(|_| ())
-    .map_err(|e| {
-        tracing::error!("failed to insert agent_session: {e}");
-        AppError::Internal(anyhow::anyhow!("DB insert failed"))
-    })
-}
+#[path = "sessions_db.rs"]
+mod sessions_db;
+use sessions_db::{NewAgentSession, db_insert_agent_session, db_insert_session_api_key};
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -430,8 +360,51 @@ pub struct PatchSessionStatusRequest {
     pub status: String,
     pub pid: Option<i64>,
     pub exit_code: Option<i32>,
+    /// Optional error string — recorded into `failure_reason` when status="failed".
+    /// Ignored for all other statuses.
+    #[serde(default)]
+    pub error: Option<String>,
     /// Required: `tenant_id` must match the session's tenant for authorization.
     pub tenant_id: Uuid,
+}
+
+/// Map a runner-reported status to the `event_type` stored in `agents.agent_events`.
+///
+/// Returns `None` for statuses that do not generate a lifecycle event row
+/// (e.g. `terminating`, `cancelled`, `pending`).
+fn lifecycle_event_type(status: &str) -> Option<&'static str> {
+    match status {
+        "running" => Some("session.running"),
+        "failed" => Some("session.failed"),
+        "terminated" => Some("session.completed"),
+        _ => None,
+    }
+}
+
+/// Canonical sequence values matching the runner's sentinel constants.
+///
+/// - `failed`     → `i64::MIN + 1`  (`ERROR_SEQ` in agent-runner/src/consumer.rs)
+/// - `terminated` → `i64::MIN + 2`  (`TERMINATED_SEQ` in agent-runner/src/session.rs)
+/// - `running`    → `0`             (Started event seq)
+fn lifecycle_event_seq(status: &str) -> i64 {
+    match status {
+        "failed" => i64::MIN + 1,
+        "terminated" => i64::MIN + 2,
+        _ => 0,
+    }
+}
+
+/// Build the JSONB payload for a lifecycle event row in `agents.agent_events`.
+fn lifecycle_event_payload(req: &PatchSessionStatusRequest) -> serde_json::Value {
+    match req.status.as_str() {
+        "running" => serde_json::json!({ "pid": req.pid }),
+        "failed" => serde_json::json!({
+            "failure_reason": req.error,
+            "exit_code": req.exit_code,
+        }),
+        "terminated" => serde_json::json!({ "exit_code": req.exit_code }),
+        _ => serde_json::json!({}),
+    }
 }
 
 pub async fn patch_session_status(
@@ -458,24 +431,84 @@ pub async fn patch_session_status(
         return Err(AppError::Unauthorized);
     }
 
-    let result = sqlx::query(
-        "UPDATE agents.agent_sessions
-         SET status = $1, pid = $2, exit_code = $3
-         WHERE id = $4 AND tenant_id = $5
-           AND status NOT IN ('terminated', 'cancelled')",
-    )
-    .bind(&req.status)
-    .bind(req.pid)
-    .bind(req.exit_code)
-    .bind(session_id)
-    .bind(req.tenant_id)
-    .execute(&state.pool)
-    .await
+    // The `status NOT IN (...)` guard makes terminal states sticky.  Without it a
+    // late callback could overwrite `failed` with `running` or similar.
+    let result = if req.status == "failed" {
+        sqlx::query(
+            "UPDATE agents.agent_sessions
+             SET status = $1, pid = $2, exit_code = $3,
+                 failed_at = now(),
+                 failure_reason = COALESCE($6, failure_reason)
+             WHERE id = $4 AND tenant_id = $5
+               AND status NOT IN ('terminated', 'cancelled', 'failed', 'completed')",
+        )
+        .bind(&req.status)
+        .bind(req.pid)
+        .bind(req.exit_code)
+        .bind(session_id)
+        .bind(req.tenant_id)
+        .bind(req.error.as_deref())
+        .execute(&state.pool)
+        .await
+    } else {
+        sqlx::query(
+            "UPDATE agents.agent_sessions
+             SET status = $1, pid = $2, exit_code = $3
+             WHERE id = $4 AND tenant_id = $5
+               AND status NOT IN ('terminated', 'cancelled', 'failed')",
+        )
+        .bind(&req.status)
+        .bind(req.pid)
+        .bind(req.exit_code)
+        .bind(session_id)
+        .bind(req.tenant_id)
+        .execute(&state.pool)
+        .await
+    }
     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
-    if TERMINAL_STATUSES.contains(&req.status.as_str()) && result.rows_affected() > 0 {
-        let _ = state.agent_registry.remove(&session_id);
-        state.tenant_session_count.decrement(&req.tenant_id);
+    if result.rows_affected() > 0 {
+        if TERMINAL_STATUSES.contains(&req.status.as_str()) {
+            let _ = state.agent_registry.remove(&session_id);
+            state.tenant_session_count.decrement(&req.tenant_id);
+        }
+
+        if let Some(event_type) = lifecycle_event_type(&req.status) {
+            let seq = lifecycle_event_seq(&req.status);
+            let payload = lifecycle_event_payload(&req);
+            let payload_str = payload.to_string();
+
+            if let Err(e) = sqlx::query(
+                "INSERT INTO agents.agent_events \
+                 (session_id, tenant_id, event_type, sequence, payload) \
+                 VALUES ($1, $2, $3, $4, $5::jsonb)",
+            )
+            .bind(session_id)
+            .bind(req.tenant_id)
+            .bind(event_type)
+            .bind(seq)
+            .bind(&payload_str)
+            .execute(&state.pool)
+            .await
+            {
+                tracing::warn!(
+                    session_id = %session_id,
+                    status = %req.status,
+                    "agent_events insert failed: {e}"
+                );
+            }
+
+            let tenant_id = TenantId::from(req.tenant_id);
+            let sse_data = serde_json::json!({
+                "session_id": session_id,
+                "event_type": event_type,
+                "sequence": seq,
+                "payload": payload,
+            });
+            if let Ok(data) = serde_json::to_string(&sse_data) {
+                state.sse_bus.publish_raw(&tenant_id, "session.event", data);
+            }
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -517,11 +550,6 @@ pub async fn delete_session_api_key(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "sessions_tests.rs"]
+mod tests;
 
-    #[test]
-    fn initial_message_max_bytes_is_64kib() {
-        assert_eq!(INITIAL_MESSAGE_MAX_BYTES, 65_536);
-    }
-}

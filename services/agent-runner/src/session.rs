@@ -103,6 +103,7 @@ impl SessionManager {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn start_session(
         &self,
         cmd: &AgentSessionStart,
@@ -148,14 +149,37 @@ impl SessionManager {
             Ok(p) => p,
             Err(e) => {
                 let _ = tokio::fs::remove_dir_all(&workspace_path).await;
+                // Mark the session row `failed` before propagating so it does not
+                // accumulate as `pending` forever (per ADR-009 §5 / RUSAA-1179).
+                // control-api's PATCH path applies the failed_at/failure_reason
+                // columns and decrements TenantSessionCount because `failed` is
+                // a terminal status.  Any HTTP error here is logged and dropped;
+                // we still want to surface the original spawn error.
+                let err_msg = format!("{e:#}");
+                self.update_session_status(
+                    session_id,
+                    tenant_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&err_msg),
+                )
+                .await;
                 return Err(e.context(format!("Failed to spawn {runtime:?} adapter")));
             }
         };
 
         let pid = process.pid;
 
-        self.update_session_status(session_id, tenant_id, "running", Some(i64::from(pid)), None)
-            .await;
+        self.update_session_status(
+            session_id,
+            tenant_id,
+            "running",
+            Some(i64::from(pid)),
+            None,
+            None,
+        )
+        .await;
 
         let stdout = process
             .child
@@ -298,6 +322,7 @@ impl SessionManager {
             "terminated",
             None,
             Some(exit_code),
+            None,
         )
         .await;
 
@@ -339,6 +364,7 @@ impl SessionManager {
         status: &str,
         pid: Option<i64>,
         exit_code: Option<i32>,
+        error: Option<&str>,
     ) {
         let Ok(validated_id) = uuid::Uuid::parse_str(session_id) else {
             tracing::warn!(session_id = %session_id, "Rejected non-UUID session_id in status update");
@@ -352,6 +378,7 @@ impl SessionManager {
             "status": status,
             "pid": pid,
             "exit_code": exit_code,
+            "error": error,
             "tenant_id": tenant_id.to_string(),
         });
         if let Err(e) = self.http_client.patch(&url).json(&body).send().await {
@@ -538,33 +565,5 @@ impl SessionManager {
 pub use crate::workspace_gc::spawn_workspace_gc;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn safe_join_rejects_parent_traversal() {
-        let base = PathBuf::from("/data/workspaces");
-        assert!(safe_join(&base, "../etc/passwd").is_err());
-        assert!(safe_join(&base, "tenant/../../etc").is_err());
-        assert!(safe_join(&base, "/absolute/path").is_err());
-    }
-
-    #[test]
-    fn safe_join_accepts_valid_relative_paths() {
-        let base = PathBuf::from("/data/workspaces");
-        let result = safe_join(&base, "tenant-abc/session-xyz");
-        assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            PathBuf::from("/data/workspaces/tenant-abc/session-xyz")
-        );
-    }
-
-    #[test]
-    fn safe_join_accepts_simple_name() {
-        let base = PathBuf::from("/data/workspaces");
-        let result = safe_join(&base, "mysession");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), PathBuf::from("/data/workspaces/mysession"));
-    }
-}
+#[path = "session_tests.rs"]
+mod tests;

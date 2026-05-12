@@ -261,8 +261,6 @@ mod tests {
 
     #[tokio::test]
     async fn sse_error_response_contains_status() {
-        use futures::StreamExt;
-
         let response = sse_error_response("terminated");
         let (parts, body) = response.into_parts();
         assert_eq!(
