@@ -31,8 +31,7 @@ use chrono::Utc;
 use rb_auth::ApiKey;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{
-    AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
-    agent_session_command,
+    AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId, agent_session_command,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -430,6 +429,10 @@ pub struct PatchSessionStatusRequest {
     pub status: String,
     pub pid: Option<i64>,
     pub exit_code: Option<i32>,
+    /// Optional error string — recorded into `failure_reason` when status="failed".
+    /// Ignored for all other statuses.
+    #[serde(default)]
+    pub error: Option<String>,
     /// Required: `tenant_id` must match the session's tenant for authorization.
     pub tenant_id: Uuid,
 }
@@ -458,19 +461,40 @@ pub async fn patch_session_status(
         return Err(AppError::Unauthorized);
     }
 
-    let result = sqlx::query(
-        "UPDATE agents.agent_sessions
-         SET status = $1, pid = $2, exit_code = $3
-         WHERE id = $4 AND tenant_id = $5
-           AND status NOT IN ('terminated', 'cancelled')",
-    )
-    .bind(&req.status)
-    .bind(req.pid)
-    .bind(req.exit_code)
-    .bind(session_id)
-    .bind(req.tenant_id)
-    .execute(&state.pool)
-    .await
+    // The `status NOT IN (...)` guard makes terminal states sticky.  Without it a
+    // late callback could overwrite `failed` with `running` or similar.
+    let result = if req.status == "failed" {
+        sqlx::query(
+            "UPDATE agents.agent_sessions
+             SET status = $1, pid = $2, exit_code = $3,
+                 failed_at = now(),
+                 failure_reason = COALESCE($6, failure_reason)
+             WHERE id = $4 AND tenant_id = $5
+               AND status NOT IN ('terminated', 'cancelled', 'failed', 'completed')",
+        )
+        .bind(&req.status)
+        .bind(req.pid)
+        .bind(req.exit_code)
+        .bind(session_id)
+        .bind(req.tenant_id)
+        .bind(req.error.as_deref())
+        .execute(&state.pool)
+        .await
+    } else {
+        sqlx::query(
+            "UPDATE agents.agent_sessions
+             SET status = $1, pid = $2, exit_code = $3
+             WHERE id = $4 AND tenant_id = $5
+               AND status NOT IN ('terminated', 'cancelled', 'failed')",
+        )
+        .bind(&req.status)
+        .bind(req.pid)
+        .bind(req.exit_code)
+        .bind(session_id)
+        .bind(req.tenant_id)
+        .execute(&state.pool)
+        .await
+    }
     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
     if TERMINAL_STATUSES.contains(&req.status.as_str()) && result.rows_affected() > 0 {
