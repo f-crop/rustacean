@@ -141,6 +141,7 @@ function IngestionTheatreInner(): JSX.Element {
   const apiBase = import.meta.env.VITE_API_BASE_URL ?? "";
   const { events, readyState } = useEventStream(
     `${apiBase}/v1/ingest/events`,
+    ["ingest.status"],
   );
 
   const ingestEvents = events.filter((e) => e.type === "ingest.status");
