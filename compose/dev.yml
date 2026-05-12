@@ -251,6 +251,7 @@ services:
       RB_GH_APP_ID: "${RB_GH_APP_ID:-}"
       RB_GH_APP_PRIVATE_KEY: "${RB_GH_APP_PRIVATE_KEY:-}"
       RB_GH_APP_WEBHOOK_SECRET: "${RB_GH_APP_WEBHOOK_SECRET:-dev-secret-do-not-use-in-prod}"
+      RB_GH_APP_ENC_KEY: "${RB_GH_APP_ENC_KEY:-}"
       RB_INTERNAL_LISTEN_ADDR: "0.0.0.0:8081"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_SERVICE_NAME: control-api

@@ -1,3 +1,4 @@
+mod app_config_store;
 mod app_jwt;
 mod client;
 mod error;
@@ -8,6 +9,10 @@ mod state_token;
 mod token_cache;
 mod webhook;
 
+pub use app_config_store::{
+    AppConfig, AppConfigError, AppConfigStore, CURRENT_ENCRYPTION_KEY_ID, EncryptionKey,
+    NewAppConfig,
+};
 pub use client::{AppIdentity, AppOwner, InstallationInfo, RepoInfo};
 pub use error::GhError;
 pub use repos::{RepoItem, RepoPage};
