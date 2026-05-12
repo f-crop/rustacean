@@ -24,7 +24,8 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             .context("Failed to write MCP config")?;
 
         let mut cmd = build_base_command("claude", &ctx.workspace_path);
-        cmd.arg("--jsonl")
+        cmd.args(["-p", "--output-format", "stream-json"])
+            .arg("--dangerously-skip-permissions")
             .env("RB_AGENT_API_KEY", &ctx.api_key)
             .env("RB_AGENT_TENANT_ID", &ctx.tenant_id);
 
