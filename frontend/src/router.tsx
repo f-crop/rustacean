@@ -10,6 +10,7 @@ import { z } from "zod";
 import { AppShell, GlobalSuspenseFallback } from "@/components/AppShell";
 import { ActivityPage } from "@/pages/ActivityPage";
 import { AgentExecutionPage } from "@/pages/AgentExecutionPage";
+import { AdminGithubPage } from "@/pages/AdminGithubPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { CodeWorkspacePage } from "@/pages/CodeWorkspacePage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
@@ -142,6 +143,17 @@ const agentExecutionRoute = createRoute({
   component: AgentExecutionPage,
 });
 
+const adminGithubSearchSchema = z.object({
+  registered: z.enum(["true"]).optional(),
+});
+
+const adminGithubRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: routes.adminGithub,
+  validateSearch: adminGithubSearchSchema,
+  component: AdminGithubPage,
+});
+
 const catchAllRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -166,6 +178,7 @@ const routeTree = rootRoute.addChildren([
   codeWorkspaceRoute,
   activityRoute,
   agentExecutionRoute,
+  adminGithubRoute,
   catchAllRoute,
 ]);
 

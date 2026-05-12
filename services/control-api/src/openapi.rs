@@ -6,8 +6,8 @@
 use utoipa::OpenApi;
 
 use crate::routes::{
-    agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github, health,
-    ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete,
+    admin, agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github,
+    health, ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete,
     tenants::members as tenant_members,
 };
 
@@ -19,6 +19,9 @@ use crate::routes::{
         contact(name = "rust-brain", url = "https://github.com/jarnura/rustacean"),
     ),
     paths(
+        admin::github::app_manifest::post_app_manifest,
+        admin::github::app_callback::get_app_callback,
+        admin::github::app_status::get_app_status,
         audit::list_audit_events,
         health::health_check,
         health::ready_check,
@@ -67,6 +70,10 @@ use crate::routes::{
     ),
     components(
         schemas(
+            admin::github::app_manifest::AppManifestRequest,
+            admin::github::app_manifest::AppManifestResponse,
+            admin::github::app_status::AppStatusResponse,
+            admin::github::app_status::AppSource,
             audit::AuditEventItem,
             audit::AuditListResponse,
             health::ProbeResponse,
@@ -131,6 +138,7 @@ use crate::routes::{
         )
     ),
     tags(
+        (name = "admin", description = "Platform administration"),
         (name = "health", description = "Liveness/readiness probes"),
         (name = "audit", description = "Audit trail query"),
         (name = "auth", description = "Authentication"),

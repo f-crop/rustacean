@@ -33,6 +33,11 @@ export {
 } from "./useRepos";
 export { useGithubInstallUrl } from "./useGithubInstall";
 export {
+  useGithubAppStatus,
+  githubAppStatusQueryKey,
+} from "./useGithubAppStatus";
+export { useGithubAppManifest } from "./useGithubAppManifest";
+export {
   useModuleTree,
   moduleTreeQueryKey,
   useItem,

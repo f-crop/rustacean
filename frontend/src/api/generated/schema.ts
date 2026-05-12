@@ -59,6 +59,54 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/admin/github/app-callback": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["get_app_callback"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/admin/github/app-manifest": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["post_app_manifest"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/admin/github/app-status": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["get_app_status"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/agents/sessions": {
         readonly parameters: {
             readonly query?: never;
@@ -919,6 +967,60 @@ export interface components {
             readonly name: string;
             readonly scopes: readonly components["schemas"]["Scope"][];
         };
+        /**
+         * @description Body of `POST /v1/admin/github/app-manifest`.
+         *
+         *     `name` is operator-supplied (Q2: CTO 2026-05-12). When absent, defaults to
+         *     `rustacean-{RB_DEPLOYMENT_ID}` (fallback `rustacean-dev`).
+         */
+        readonly AppManifestRequest: {
+            /**
+             * @description GitHub-facing App name — visible on the consent screen.
+             * @default null
+             */
+            readonly name: string | null;
+        };
+        readonly AppManifestResponse: {
+            /**
+             * @description `https://github.com/settings/apps/new?manifest=…&state=…` —
+             *     platform admin should be redirected here.
+             */
+            readonly redirect_url: string;
+            /**
+             * @description Opaque state token returned in the GitHub callback. Persisted as a
+             *     sha256 hash; this hex string is single-use and short-lived.
+             */
+            readonly state_token: string;
+        };
+        /**
+         * @description Source identifying where the active App credentials came from.
+         * @enum {string}
+         */
+        readonly AppSource: "db" | "env" | "none";
+        readonly AppStatusResponse: {
+            /**
+             * Format: int64
+             * @description Numeric GitHub App ID — present only when `configured == true`.
+             */
+            readonly app_id?: number | null;
+            /** @description True when a `GhApp` is currently loaded into `state.gh_loader`. */
+            readonly configured: boolean;
+            /**
+             * Format: date-time
+             * @description Install timestamp — present only for DB-sourced configurations.
+             */
+            readonly installed_at?: string | null;
+            /**
+             * Format: uuid
+             * @description Platform-admin user that installed the App — present only for
+             *     DB-sourced configurations.
+             */
+            readonly installed_by?: string | null;
+            /** @description GitHub App slug — present only for DB-sourced configurations. */
+            readonly slug?: string | null;
+            /** @description Where the active App came from. */
+            readonly source: components["schemas"]["AppSource"];
+        };
         readonly AuditEventItem: {
             readonly action: string;
             readonly actor_kind: string;
@@ -1599,6 +1701,134 @@ export interface operations {
             };
             /** @description Service is not ready */
             readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_app_callback: {
+        readonly parameters: {
+            readonly query?: {
+                readonly code?: string | null;
+                readonly state?: string | null;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Redirect to FE admin success page */
+            readonly 302: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing/expired state or code */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller is not a platform admin */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description GitHub rejected the manifest exchange */
+            readonly 502: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RB_GH_APP_ENC_KEY is not configured */
+            readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly post_app_manifest: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["AppManifestRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Manifest redirect URL generated */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AppManifestResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller is not a platform admin */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_app_status: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Current App configuration */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AppStatusResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller is not a platform admin */
+            readonly 403: {
                 headers: {
                     readonly [name: string]: unknown;
                 };

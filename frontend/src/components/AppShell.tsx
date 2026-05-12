@@ -58,6 +58,12 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
             >
               Activity
             </Link>
+            <Link
+              to={routes.adminGithub}
+              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground aria-[current=page]:bg-accent aria-[current=page]:text-foreground aria-[current=page]:font-medium"
+            >
+              Admin
+            </Link>
           </nav>
           <div className="flex items-center gap-2">
             <ThemeToggle />
