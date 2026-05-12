@@ -15,6 +15,7 @@ pub use error::AppError;
 pub use openapi::ApiDoc;
 #[allow(deprecated)]
 pub use routes::build;
+pub use routes::{build_internal, build_public};
 pub use server::run;
 pub use state::{
     AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore, SessionCreateRateLimiter,
