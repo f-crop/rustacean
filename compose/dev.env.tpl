@@ -27,6 +27,7 @@ RB_BASE_URL=http://localhost:15173
 # RB_GH_APP_ID=         # numeric GitHub App ID, e.g. 123456
 # RB_GH_APP_PRIVATE_KEY=  # base64-encoded RSA PEM: base64 -w0 < app.pem
 # RB_GH_APP_WEBHOOK_SECRET=dev-secret-do-not-use-in-prod
+# RB_GH_APP_ENC_KEY=    # base64 of 32-byte AES-256 key for the Manifest flow; openssl rand 32 | base64 -w0
 
 # For ingest-clone (raw PEM, not base64):
 # GITHUB_APP_ID=

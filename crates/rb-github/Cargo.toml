@@ -25,6 +25,9 @@ hmac.workspace = true
 subtle.workspace = true
 moka.workspace = true
 hex.workspace = true
+aes-gcm.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -2,6 +2,7 @@ use std::env;
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
+use base64::Engine as _;
 
 /// Service configuration loaded from environment variables.
 #[derive(Debug, Clone)]
@@ -29,6 +30,11 @@ pub struct Config {
     /// `RB_GH_APP_WEBHOOK_SECRET` — shared secret for HMAC-SHA256 webhook
     /// signature verification.
     pub gh_app_webhook_secret: Option<String>,
+    /// `RB_GH_APP_ENC_KEY` — base64 of a 32-byte AES-256-GCM key used to
+    /// encrypt App credentials in `control.github_app_config`. Optional in
+    /// Phase 1 (no rows yet); becomes required in Phase 2 once the per-request
+    /// loader queries the table.
+    pub gh_app_enc_key_b64: Option<String>,
 
     // --- Neo4j (REQ-DP-04, REQ-DP-07) ---
     /// `RB_NEO4J_URI` — bolt URI for the Neo4j instance (e.g. `bolt://neo4j:7687`).
@@ -132,6 +138,9 @@ impl Config {
             gh_app_webhook_secret: env::var("RB_GH_APP_WEBHOOK_SECRET")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            gh_app_enc_key_b64: env::var("RB_GH_APP_ENC_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
             neo4j_uri: env::var("RB_NEO4J_URI").ok().filter(|s| !s.is_empty()),
             neo4j_user: env::var("RB_NEO4J_USER").unwrap_or_else(|_| "neo4j".to_owned()),
             neo4j_password: env::var("RB_NEO4J_PASSWORD").ok().filter(|s| !s.is_empty()),
@@ -222,6 +231,25 @@ impl Config {
             }
         }
 
+        // RB_GH_APP_ENC_KEY must decode to exactly 32 bytes when present. We
+        // validate the shape here so a misconfigured deployment fails fast at
+        // boot rather than at first manifest exchange.
+        if let Some(key) = self
+            .gh_app_enc_key_b64
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            match base64::engine::general_purpose::STANDARD.decode(key) {
+                Ok(bytes) if bytes.len() == 32 => {}
+                Ok(bytes) => errors.push(format!(
+                    "RB_GH_APP_ENC_KEY must decode to exactly 32 bytes, got {}",
+                    bytes.len()
+                )),
+                Err(e) => errors.push(format!("RB_GH_APP_ENC_KEY is not valid base64: {e}")),
+            }
+        }
+
         // RB_INTERNAL_SECRET must be non-empty when internal routes are used.
         // The internal routes are always compiled in, so require the secret.
         if self.internal_secret.as_ref().is_none_or(String::is_empty) {
@@ -267,6 +295,7 @@ impl Config {
             gh_app_id: None,
             gh_app_private_key_b64: None,
             gh_app_webhook_secret: None,
+            gh_app_enc_key_b64: None,
             neo4j_uri: None,
             neo4j_user: "neo4j".to_owned(),
             neo4j_password: None,
@@ -329,5 +358,41 @@ mod tests {
         let mut c = base();
         c.base_url = "ftp://localhost:15173".to_owned();
         assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn validate_gh_app_enc_key_absent_passes() {
+        // RB_GH_APP_ENC_KEY is optional in Phase 1 — env-only deployments must
+        // continue to validate.
+        let mut c = base();
+        c.gh_app_enc_key_b64 = None;
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_gh_app_enc_key_correct_length_passes() {
+        let mut c = base();
+        c.gh_app_enc_key_b64 = Some(
+            base64::engine::general_purpose::STANDARD.encode([0u8; 32]),
+        );
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_gh_app_enc_key_wrong_length_fails() {
+        let mut c = base();
+        c.gh_app_enc_key_b64 = Some(
+            base64::engine::general_purpose::STANDARD.encode([0u8; 16]),
+        );
+        let err = c.validate().expect_err("must reject 16-byte key");
+        assert!(err.to_string().contains("32 bytes"));
+    }
+
+    #[test]
+    fn validate_gh_app_enc_key_garbage_fails() {
+        let mut c = base();
+        c.gh_app_enc_key_b64 = Some("not base64 !!!".to_owned());
+        let err = c.validate().expect_err("must reject malformed base64");
+        assert!(err.to_string().contains("base64"));
     }
 }
