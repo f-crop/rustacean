@@ -1,3 +1,4 @@
+use super::natural_exit::spawn_natural_exit_handler;
 use super::*;
 
 #[test]
