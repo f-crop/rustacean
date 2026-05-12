@@ -67,6 +67,16 @@ RUN npm install --omit=dev --no-fund --no-audit -g \
     # spawn claude at runtime.
     claude --version
 
+# Install the opencode CLI. The opencode-ai package ships the `opencode` binary
+# used by the OpenCode adapter (services/agent-runner/src/adapters/opencode.rs).
+# Pin to the version this image is tested against; bumps go through a separate
+# chore PR. See the registry for the latest: https://registry.npmjs.org/opencode-ai
+ARG OPENCODE_VERSION=1.14.48
+RUN npm install --omit=dev --no-fund --no-audit -g \
+        opencode-ai@${OPENCODE_VERSION} && \
+    npm cache clean --force && \
+    opencode --version
+
 # Pre-create the agent workspace mount point with nonroot ownership.
 # Docker named volumes inherit ownership/permissions from the image's directory
 # on first mount, so this ensures the runner (UID 65532) can write to
