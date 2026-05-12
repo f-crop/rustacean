@@ -9,7 +9,6 @@ async function mockSseStream(
   events: string[] = [],
 ): Promise<void> {
   await page.route("**/v1/ingest/events", async (route) => {
-    const body = events.join("") || "";
     await route.fulfill({
       status: 200,
       headers: {
@@ -17,7 +16,7 @@ async function mockSseStream(
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
       },
-      body,
+      body: events.join(""),
     });
   });
 }

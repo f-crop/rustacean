@@ -62,7 +62,7 @@ function ActivityPageInner({ tenantId }: ActivityPageInnerProps): JSX.Element {
   const recentIngestions = useRecentIngestions(tenantId);
   const invalidateIngestions = useInvalidateRecentIngestions();
 
-  const { events, readyState } = useEventStream(`${apiBase}/v1/ingest/events`);
+  const { events, readyState } = useEventStream(`${apiBase}/v1/ingest/events`, ["ingest.status"]);
 
   useEffect(() => {
     const latestIngest = events
