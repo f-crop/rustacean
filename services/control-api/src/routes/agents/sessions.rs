@@ -470,9 +470,6 @@ pub async fn patch_session_status(
         return Err(AppError::Unauthorized);
     }
 
-    // Guard against double-terminal transitions: if the session is already in a
-    // terminal state, the UPDATE will match 0 rows, preventing a spurious
-    // `decrement()` that would underflow `TenantSessionCount`.
     let result = sqlx::query(
         "UPDATE agents.agent_sessions
          SET status = $1, pid = $2, exit_code = $3
@@ -488,9 +485,6 @@ pub async fn patch_session_status(
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
-    // Release the session slot in the registry only when the UPDATE actually
-    // applied (rows_affected > 0).  A zero result means the session was already
-    // terminal, so no slot was held.
     if TERMINAL_STATUSES.contains(&req.status.as_str()) && result.rows_affected() > 0 {
         let _ = state.agent_registry.remove(&session_id);
         state.tenant_session_count.decrement(&req.tenant_id);
