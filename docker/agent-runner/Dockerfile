@@ -23,10 +23,17 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json -p agent-runner
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo chef cook --release --recipe-path recipe.json -p agent-runner
 
 COPY . .
-RUN cargo build --release -p agent-runner
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release -p agent-runner && \
+    cp target/release/rb-agent-runner /usr/local/bin/
 
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -49,6 +56,6 @@ RUN mkdir -p /data/agent-workspaces && \
 
 USER nonroot
 
-COPY --from=builder /app/target/release/rb-agent-runner /usr/local/bin/rb-agent-runner
+COPY --from=builder /usr/local/bin/rb-agent-runner /usr/local/bin/rb-agent-runner
 
 ENTRYPOINT ["/usr/local/bin/rb-agent-runner"]

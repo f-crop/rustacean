@@ -23,10 +23,17 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json -p expand-worker
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo chef cook --release --recipe-path recipe.json -p expand-worker
 
 COPY . .
-RUN cargo build --release -p expand-worker
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release -p expand-worker && \
+    cp target/release/expand-worker /usr/local/bin/
 
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -40,6 +47,6 @@ RUN apt-get update -qq && \
 
 USER nonroot
 
-COPY --from=builder /app/target/release/expand-worker /usr/local/bin/expand-worker
+COPY --from=builder /usr/local/bin/expand-worker /usr/local/bin/expand-worker
 
 ENTRYPOINT ["/usr/local/bin/expand-worker"]

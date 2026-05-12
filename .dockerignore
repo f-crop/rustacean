@@ -1,0 +1,10 @@
+target/
+.git/
+secrets/
+frontend/node_modules/
+frontend/axe-results/
+frontend/playwright-report/
+frontend/test-results/
+test-results/
+compose/*.env
+*.md
