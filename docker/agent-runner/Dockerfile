@@ -35,16 +35,37 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release -p agent-runner && \
     cp target/release/rb-agent-runner /usr/local/bin/
 
-# ── Stage 4: minimal runtime image ────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+# ── Stage 4: runtime image ────────────────────────────────────────────────────
+# Base on node:20-bookworm-slim so we have node/npm/npx for:
+#   • @anthropic-ai/claude-code (CLI binary the ClaudeCode adapter spawns)
+#   • npx @modelcontextprotocol/server-rust-brain (MCP server invoked from
+#     workspace .mcp.json — see services/agent-runner/src/adapters/mod.rs)
+FROM node:20-bookworm-slim AS runtime
 
-# Install git and ssh for cloning during agent execution.
+# Install git, ssh, and the C runtime deps the Rust binary links against.
+# (Node base images already ship libssl3/zlib1g/libcurl4 but we install
+# explicitly so the contract is obvious and survives base bumps.)
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libsasl2-2 zlib1g libcurl4 git openssh-client && \
     rm -rf /var/lib/apt/lists/* && \
     groupadd --gid 65532 nonroot && \
     useradd --uid 65532 --gid 65532 --no-create-home --system nonroot
+
+# Install the claude CLI. The package ships a thin wrapper and pulls the
+# correct native binary via the linux-x64 optionalDependency in postinstall.
+# Pin to the version this image is tested against; bumps go through a separate
+# chore PR. See the registry for the latest: https://registry.npmjs.org/@anthropic-ai/claude-code
+ARG CLAUDE_CODE_VERSION=2.1.139
+RUN npm install --omit=dev --no-fund --no-audit -g \
+        @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} && \
+    npm cache clean --force && \
+    # Sanity-check that the postinstall replaced the placeholder shim with the
+    # native binary. `claude --version` works without an API key, so we use it
+    # as the canonical install probe — if the optionalDependency was skipped,
+    # this fails the build instead of producing an image that silently can't
+    # spawn claude at runtime.
+    claude --version
 
 # Pre-create the agent workspace mount point with nonroot ownership.
 # Docker named volumes inherit ownership/permissions from the image's directory

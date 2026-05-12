@@ -522,6 +522,11 @@ services:
       RB_AGENT_WORKSPACE_BASE: /data/agent-workspaces
       RB_CONTROL_API_BASE_URL: "http://control-api:8081"
       RB_INTERNAL_SECRET: "${RB_INTERNAL_SECRET:-dev-internal-secret-change-me}"
+      # Runtime credentials forwarded to the spawned agent CLI. These are
+      # *not* required for the runner itself to start; they are read by
+      # claude / opencode subprocesses. Set per host (compose env file or
+      # shell export) — never commit a real key.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_SERVICE_NAME: agent-runner
       RUST_LOG: "info,agent_runner=debug"
