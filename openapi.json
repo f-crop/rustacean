@@ -84,6 +84,120 @@
         }
       }
     },
+    "/v1/admin/github/app-callback": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "get_app_callback",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to FE admin success page"
+          },
+          "400": {
+            "description": "Missing/expired state or code"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Caller is not a platform admin"
+          },
+          "502": {
+            "description": "GitHub rejected the manifest exchange"
+          },
+          "503": {
+            "description": "RB_GH_APP_ENC_KEY is not configured"
+          }
+        }
+      }
+    },
+    "/v1/admin/github/app-manifest": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "post_app_manifest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppManifestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Manifest redirect URL generated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppManifestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Caller is not a platform admin"
+          }
+        }
+      }
+    },
+    "/v1/admin/github/app-status": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "operationId": "get_app_status",
+        "responses": {
+          "200": {
+            "description": "Current App configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Caller is not a platform admin"
+          }
+        }
+      }
+    },
     "/v1/agents/sessions": {
       "get": {
         "tags": [
@@ -2008,6 +2122,94 @@
           }
         }
       },
+      "AppManifestRequest": {
+        "type": "object",
+        "description": "Body of `POST /v1/admin/github/app-manifest`.\n\n`name` is operator-supplied (Q2: CTO 2026-05-12). When absent, defaults to\n`rustacean-{RB_DEPLOYMENT_ID}` (fallback `rustacean-dev`).",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "GitHub-facing App name — visible on the consent screen.",
+            "default": null
+          }
+        }
+      },
+      "AppManifestResponse": {
+        "type": "object",
+        "required": [
+          "redirect_url",
+          "state_token"
+        ],
+        "properties": {
+          "redirect_url": {
+            "type": "string",
+            "description": "`https://github.com/settings/apps/new?manifest=…&state=…` —\nplatform admin should be redirected here."
+          },
+          "state_token": {
+            "type": "string",
+            "description": "Opaque state token returned in the GitHub callback. Persisted as a\nsha256 hash; this hex string is single-use and short-lived."
+          }
+        }
+      },
+      "AppSource": {
+        "type": "string",
+        "description": "Source identifying where the active App credentials came from.",
+        "enum": [
+          "db",
+          "env",
+          "none"
+        ]
+      },
+      "AppStatusResponse": {
+        "type": "object",
+        "required": [
+          "configured",
+          "source"
+        ],
+        "properties": {
+          "app_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Numeric GitHub App ID — present only when `configured == true`."
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "True when a `GhApp` is currently loaded into `state.gh_loader`."
+          },
+          "installed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Install timestamp — present only for DB-sourced configurations."
+          },
+          "installed_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Platform-admin user that installed the App — present only for\nDB-sourced configurations."
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "GitHub App slug — present only for DB-sourced configurations."
+          },
+          "source": {
+            "$ref": "#/components/schemas/AppSource",
+            "description": "Where the active App came from."
+          }
+        }
+      },
       "AuditEventItem": {
         "type": "object",
         "required": [
@@ -3737,6 +3939,10 @@
     }
   },
   "tags": [
+    {
+      "name": "admin",
+      "description": "Platform administration"
+    },
     {
       "name": "health",
       "description": "Liveness/readiness probes"
