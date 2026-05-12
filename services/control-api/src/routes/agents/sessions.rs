@@ -22,28 +22,28 @@
 //! every internal request is rejected with 401.
 
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
 use chrono::Utc;
 use rb_auth::ApiKey;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{
-    agent_session_command, AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
+    AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId, agent_session_command,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::auth::{require_session_or_agent_key, AuthContext},
+    middleware::auth::{AuthContext, require_session_or_agent_key},
     state::{AppState, SessionHandle},
 };
 
 use super::session_lifecycle::{
-    parse_runtime, prompt_preview, validate_workspace_path, TERMINAL_STATUSES, VALID_AGENT_STATUSES,
+    TERMINAL_STATUSES, VALID_AGENT_STATUSES, parse_runtime, prompt_preview, validate_workspace_path,
 };
 
 // ---------------------------------------------------------------------------
@@ -318,7 +318,7 @@ pub async fn delete_session(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
         let _ = state.agent_registry.remove(&session_id);
-
+        revoke_session_api_key(&state.pool, session_id).await;
         tracing::info!(session_id = %session_id, "pending agent session cancelled synchronously");
         return Ok(StatusCode::ACCEPTED);
     }
@@ -354,6 +354,24 @@ pub async fn delete_session(
 // ---------------------------------------------------------------------------
 // PATCH /internal/agent/sessions/{id}/status  (agent-runner callback)
 // ---------------------------------------------------------------------------
+
+/// Revoke the session-scoped API key tied to `session_id`.
+///
+/// Idempotent: the `AND revoked_at IS NULL` predicate is a no-op if the key
+/// was already revoked by a previous call or the standalone DELETE endpoint.
+async fn revoke_session_api_key(pool: &sqlx::PgPool, session_id: Uuid) {
+    if let Err(e) = sqlx::query(
+        "UPDATE control.api_keys SET revoked_at = now() \
+         WHERE id = (SELECT api_key_id FROM agents.agent_sessions WHERE id = $1) \
+         AND revoked_at IS NULL",
+    )
+    .bind(session_id)
+    .execute(pool)
+    .await
+    {
+        tracing::warn!(session_id = %session_id, "api_key revoke failed: {e}");
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct PatchSessionStatusRequest {
@@ -471,6 +489,7 @@ pub async fn patch_session_status(
         if TERMINAL_STATUSES.contains(&req.status.as_str()) {
             let _ = state.agent_registry.remove(&session_id);
             state.tenant_session_count.decrement(&req.tenant_id);
+            revoke_session_api_key(&state.pool, session_id).await;
         }
 
         if let Some(event_type) = lifecycle_event_type(&req.status) {
@@ -552,4 +571,3 @@ pub async fn delete_session_api_key(
 #[cfg(test)]
 #[path = "sessions_tests.rs"]
 mod tests;
-
