@@ -141,7 +141,7 @@ fi
 # -- Detect changed paths (skipped in cold-start mode) -----------------------
 
 ALL_RUST_SERVICES=(
-  control-api parse-worker typecheck-worker ingest-graph ingest-clone
+  control-api agent-runner parse-worker typecheck-worker ingest-graph ingest-clone
   expand-worker embed-worker projector-pg projector-neo4j tombstoner
 )
 declare -A REBUILD_SERVICE
@@ -171,6 +171,8 @@ else
         mark_rust_service control-api ;;
       services/control-api/*|docker/control-api/*)
         mark_rust_service control-api ;;
+      services/agent-runner/*|docker/agent-runner/*)
+        mark_rust_service agent-runner ;;
       services/parse-worker/*|docker/parse-worker/*)
         mark_rust_service parse-worker ;;
       services/typecheck-worker/*|docker/typecheck-worker/*)

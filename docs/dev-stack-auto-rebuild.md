@@ -1,6 +1,18 @@
 # Dev-stack Auto-rebuild
 
-When a commit lands on `main` that touches any built service, the dev-stack on mars automatically rebuilds the affected images and restarts the containers. UAT always runs against `main` HEAD.
+When a commit lands on `main` that touches any built service, the dev-stack automatically rebuilds the affected images and restarts the containers. UAT always runs against `main` HEAD.
+
+## Wiring (local dev box)
+
+Locally, the trigger is a git `post-merge` hook checked in under `.githooks/`. Enable it once after cloning:
+
+```bash
+scripts/install-git-hooks.sh
+```
+
+This sets `core.hooksPath = .githooks` so the `post-merge` hook fires on every `git pull` (or `git merge`) that advances `main`. The hook backgrounds `scripts/dev-stack-auto-rebuild.sh` with `ORIG_HEAD → HEAD`; rebuild logs land in `~/.local/state/rustbrain/post-merge-rebuild.log` and the structured NDJSON log. See [`.githooks/README.md`](../.githooks/README.md) for bypass and troubleshooting.
+
+For unattended boxes (mars), the watcher in `scripts/dev-stack-watch.sh` runs as a systemd service — see *Setup on mars* below.
 
 ## How it works
 
@@ -17,14 +29,14 @@ The rebuild script maps changed file paths to services:
 
 | Changed path | Services rebuilt |
 |---|---|
-| `crates/**`, `Cargo.toml`, `Cargo.lock`, `proto/**` | **All 10 Rust services** (shared dependency change) |
+| `crates/**`, `Cargo.toml`, `Cargo.lock`, `proto/**` | **All 11 Rust services** (shared dependency change) |
 | `services/<name>/**`, `docker/<name>/**` | That specific service only |
 | `migrations/**` | `control-api` (+ re-runs `rb-migrations`) |
 | `frontend/**`, `docker/frontend/**` | `frontend` |
 | `compose/dev.yml`, `compose/full.yml`, `compose/tailscale.yml`, `compose/tailscale.env`, `compose/scripts/**` | All services |
 | Anything else (docs, `.github/`, governance, …) | **no rebuild** |
 
-The 10 Rust services are: `control-api`, `parse-worker`, `typecheck-worker`, `ingest-graph`, `ingest-clone`, `expand-worker`, `embed-worker`, `projector-pg`, `projector-neo4j`, `tombstoner`.
+The 11 Rust services are: `control-api`, `agent-runner`, `parse-worker`, `typecheck-worker`, `ingest-graph`, `ingest-clone`, `expand-worker`, `embed-worker`, `projector-pg`, `projector-neo4j`, `tombstoner`.
 
 Rebuilds are idempotent — re-running is safe. Migrations are re-run before control-api restarts; they skip already-applied versions.
 
@@ -166,6 +178,36 @@ Each log record:
 ```
 
 `result` values: `ok`, `skipped`, `build_failed`, `restart_failed`, `health_failed`.
+
+## Done-gate evidence for code touching `control-api` / `agent-runner`
+
+Per CTO directive (2026-05-12), any PR that touches `services/control-api/` or `services/agent-runner/` must include a `stack-rebuild` line in its Done-gate evidence block. This closes the merged-but-not-deployed gap that has stalled four consecutive Wave 7 UAT rounds.
+
+The evidence block looks like:
+
+```
+Done-gate evidence:
+- Type: code
+- Artifact: https://github.com/f-crop/rustacean/pull/<PR#>
+- Verified by: gh pr view <PR#> --json mergedAt,state
+- stack-rebuild: control-api restarted at 2026-05-12T09:12:28Z
+- stack-rebuild: agent-runner restarted at 2026-05-12T09:12:28Z
+```
+
+Rules:
+
+1. **One `stack-rebuild:` line per service touched.** If the PR only touches `control-api`, only `control-api` needs a line. If it touches a shared crate (e.g. `crates/rb-storage-pg`), every Rust service that gets rebuilt counts and must be listed.
+2. **Timestamp must be after the PR's `mergedAt`.** The rebuild must observe code that's actually on `main`. Verify with:
+   ```bash
+   docker inspect <container> --format '{{.State.StartedAt}}'
+   ```
+3. **Acceptable rebuild sources:**
+   - The git `post-merge` hook fired automatically (preferred — see *Wiring* above).
+   - A manual `scripts/dev-stack-auto-rebuild.sh <prev_sha> <new_sha>` run.
+   - A `--cold-start` after a full stack restart.
+4. **`scripts/dev-stack-auto-rebuild.sh --logs 1`** prints the most recent rebuild record; the JSON includes timestamp + service list. Use it to populate the evidence block.
+
+This requirement applies to any code-type issue closed on or after 2026-05-12 whose merged PR touches the named service trees. Issues older than that are grandfathered.
 
 ## Bypassing the auto-rebuild for one merge
 
