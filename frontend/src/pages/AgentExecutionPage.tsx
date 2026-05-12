@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { useMe, useAgentSessions, useCreateSession, useDeleteSession } from "@/api";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMe, useAgentSessions, useCreateSession, useDeleteSession, agentSessionsQueryKey } from "@/api";
+import type { CreateSessionRequest } from "@/api";
 import type { CreateSessionFormValues } from "@/lib/validation/agentSessions";
 import { formatApiError } from "@/lib/errors/api";
 import { PageContainer } from "@/components/repos/PageContainer";
@@ -9,7 +11,7 @@ import { SessionHistory } from "@/components/agent-execution/SessionHistory";
 import { ExecutionStream } from "@/components/agent-execution/ExecutionStream";
 import { CreateSessionDialog } from "@/components/agent-execution/CreateSessionDialog";
 
-const SESSION_EVENT_TYPES = ["session.event"] as const;
+const INGEST_EVENT_TYPES = ["ingest.status"] as const;
 
 export function AgentExecutionPage(): JSX.Element {
   const me = useMe({ retry: false });
@@ -44,20 +46,40 @@ function AgentExecutionInner({ tenantId }: AgentExecutionInnerProps): JSX.Elemen
   const apiBase = import.meta.env.VITE_API_BASE_URL ?? "";
   const [showCreate, setShowCreate] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   const sessions = useAgentSessions(tenantId);
   const createSession = useCreateSession(tenantId);
   const deleteSession = useDeleteSession(tenantId);
 
-  const sseUrl = `${apiBase}/v1/agents/sessions/events`;
-  const { events, lastEventId, readyState } = useEventStream(sseUrl, SESSION_EVENT_TYPES);
+  // Use the ingest SSE endpoint — the global /v1/agents/sessions/events endpoint
+  // does not exist; per-session events live at /v1/agents/sessions/{id}/events.
+  // Keep the ingest stream for live activity and use it to invalidate the session list.
+  const { events, lastEventId, readyState } = useEventStream(
+    `${apiBase}/v1/ingest/events`,
+    INGEST_EVENT_TYPES,
+  );
+
+  // Invalidate sessions when ingest events arrive (belt-and-suspenders with refetchInterval)
+  useEffect(() => {
+    const latest = events.filter((e) => e.type === "ingest.status").at(-1);
+    if (!latest) return;
+    try {
+      const parsed = JSON.parse(latest.data) as { status?: string };
+      if (parsed.status === "succeeded" || parsed.status === "done" || parsed.status === "failed") {
+        void qc.invalidateQueries({ queryKey: agentSessionsQueryKey(tenantId) });
+      }
+    } catch {
+      // malformed event — ignore
+    }
+  }, [events, tenantId, qc]);
 
   const handleCreate = async (values: CreateSessionFormValues) => {
-    const body: { runtime: string; initial_prompt?: string; workspace_path?: string | null } = {
+    const body: CreateSessionRequest = {
       runtime: values.runtime,
+      ...(values.initial_prompt ? { initial_prompt: values.initial_prompt } : {}),
+      ...(values.workspace_path ? { workspace_path: values.workspace_path } : {}),
     };
-    if (values.initial_prompt) body.initial_prompt = values.initial_prompt;
-    if (values.workspace_path) body.workspace_path = values.workspace_path;
     const result = await createSession.mutateAsync(body);
     toast.success(`Session ${result.session_id.slice(0, 8)}… created.`);
     setShowCreate(false);
@@ -111,7 +133,7 @@ function AgentExecutionInner({ tenantId }: AgentExecutionInnerProps): JSX.Elemen
             isError={sessions.isError}
             error={sessions.error}
             onDelete={handleDelete}
-            isDeleting={deletingId !== null}
+            deletingId={deletingId}
           />
         </section>
 

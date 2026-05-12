@@ -38,6 +38,7 @@ export function useAgentSessions(
     },
     enabled: tenantId.length > 0,
     staleTime: 15_000,
+    refetchInterval: 10_000,
     ...options,
   });
 }

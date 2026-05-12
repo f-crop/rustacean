@@ -36,7 +36,7 @@ interface SessionHistoryProps {
   readonly isError: boolean;
   readonly error: { status: number; body: unknown } | null;
   readonly onDelete: (id: string) => void;
-  readonly isDeleting: boolean;
+  readonly deletingId: string | null;
 }
 
 export function SessionHistory({
@@ -45,7 +45,7 @@ export function SessionHistory({
   isError,
   error,
   onDelete,
-  isDeleting,
+  deletingId,
 }: SessionHistoryProps): JSX.Element {
   if (isLoading) {
     return (
@@ -107,7 +107,7 @@ export function SessionHistory({
               key={session.id}
               session={session}
               onDelete={onDelete}
-              isDeleting={isDeleting}
+              deletingId={deletingId}
             />
           ))}
         </tbody>
@@ -119,11 +119,12 @@ export function SessionHistory({
 interface SessionRowProps {
   readonly session: SessionItem;
   readonly onDelete: (id: string) => void;
-  readonly isDeleting: boolean;
+  readonly deletingId: string | null;
 }
 
-function SessionRow({ session, onDelete, isDeleting }: SessionRowProps): JSX.Element {
+function SessionRow({ session, onDelete, deletingId }: SessionRowProps): JSX.Element {
   const canDelete = session.status === "pending" || session.status === "running";
+  const isThisRowDeleting = deletingId === session.id;
 
   return (
     <tr className="border-b border-border last:border-0 hover:bg-muted/20">
@@ -157,11 +158,11 @@ function SessionRow({ session, onDelete, isDeleting }: SessionRowProps): JSX.Ele
           <button
             type="button"
             onClick={() => onDelete(session.id)}
-            disabled={isDeleting}
+            disabled={isThisRowDeleting}
             className="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={`Terminate session ${session.id.slice(0, 8)}`}
           >
-            {isDeleting ? "Stopping…" : "Stop"}
+            {isThisRowDeleting ? "Stopping…" : "Stop"}
           </button>
         ) : (
           <span className="text-xs text-muted-foreground/50">—</span>
