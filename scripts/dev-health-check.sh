@@ -36,7 +36,6 @@ fi
 
 CONTROL_API_PORT="${CONTROL_API_HOST_PORT:-8080}"
 FRONTEND_PORT="${FRONTEND_HOST_PORT:-15173}"
-LOKI_PORT="${LOKI_HOST_PORT:-3100}"
 ALERT_COOLDOWN_SECS="${ALERT_COOLDOWN_SECS:-1800}"
 STATE_DIR="${RB_STATE_DIR:-"$HOME/.local/state/rustbrain"}"
 STATE_FILE="$STATE_DIR/dev-health-alert.last"
@@ -76,12 +75,35 @@ check_http() {
   fi
 }
 
+# -- Check: in-network HTTP endpoint via docker exec -------------------------
+# Used for services that do not publish a host port (e.g. loki). Probes the
+# container internally so we don't depend on host-port mappings.
+
+check_container_http() {
+  local svc="$1" path="$2"
+  local cid
+  cid=$(docker ps \
+      --filter "label=com.docker.compose.project=${COMPOSE_PROJECT}" \
+      --filter "label=com.docker.compose.service=${svc}" \
+      --filter "status=running" \
+      --format "{{.ID}}" 2>/dev/null | head -n1)
+  if [[ -z "$cid" ]]; then
+    # Already reported by check_compose_services if svc was on the critical list.
+    FAILURES+=("${svc} container not running — cannot probe ${path}")
+    return
+  fi
+  # `wget -qO- -S` prints headers to stderr; we only need the exit status.
+  if ! docker exec "$cid" wget -q --spider --timeout=5 "http://localhost${path}" 2>/dev/null; then
+    FAILURES+=("${svc} in-network probe failed at http://localhost${path}")
+  fi
+}
+
 # -- Run all checks ----------------------------------------------------------
 
 check_compose_services
 check_http "control-api /health" "http://localhost:${CONTROL_API_PORT}/health"
 check_http "frontend"             "http://localhost:${FRONTEND_PORT}/"
-check_http "loki /ready"          "http://localhost:${LOKI_PORT}/ready"
+check_container_http "loki"       ":3100/ready"
 
 # -- All healthy -------------------------------------------------------------
 
