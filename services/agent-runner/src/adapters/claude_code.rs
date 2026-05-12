@@ -19,6 +19,17 @@ impl ClaudeCodeAdapter {
 #[async_trait]
 impl RuntimeAdapter for ClaudeCodeAdapter {
     async fn spawn(&self, ctx: &SessionCtx) -> Result<AgentProcess> {
+        // Fail early if the key is absent — claude exits 0 with no output when
+        // ANTHROPIC_API_KEY is empty, which leaves the session stuck in `running`.
+        let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+        if anthropic_key.is_empty() {
+            anyhow::bail!(
+                "ANTHROPIC_API_KEY is not set or empty; \
+                 export it in the shell before starting docker compose \
+                 (compose/tailscale.env does not define it)"
+            );
+        }
+
         write_mcp_config(&ctx.workspace_path, &ctx.api_key, &ctx.tenant_id)
             .await
             .context("Failed to write MCP config")?;

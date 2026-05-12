@@ -17,12 +17,18 @@ use tracing::Instrument;
 
 use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runtime};
 
+mod natural_exit;
+
 const PROCESS_TERMINATE_TIMEOUT_SECS: u64 = 30;
 const MAX_INITIAL_PROMPT_LEN: usize = 100_000;
 const MAX_TRACKED_SESSIONS: usize = 100_000;
 
 const SEQ_COUNTER_GC_INTERVAL_SECS: u64 = 300;
 const SEQ_COUNTER_MAX_AGE_SECS: u64 = 600;
+
+/// Sentinel seq value for Terminated / natural-exit lifecycle events.
+/// Must match `lifecycle_event_seq("terminated")` in control-api/src/routes/agents/sessions.rs.
+const TERMINATED_SEQ: i64 = i64::MIN + 2;
 
 pub struct SessionManager {
     sessions: Arc<Mutex<HashMap<String, SessionHandle>>>,
@@ -38,6 +44,10 @@ struct SessionHandle {
     start_time: Instant,
     stdout_handle: JoinHandle<()>,
     stderr_handle: JoinHandle<()>,
+    /// Watches for natural (unforced) process exit and transitions the session
+    /// to `terminated` or `failed` automatically.  Aborted by
+    /// `terminate_session` when an explicit termination wins the race.
+    wait_handle: JoinHandle<()>,
     tenant_id: TenantId,
 }
 
@@ -202,10 +212,24 @@ impl SessionManager {
         );
 
         let process_arc = Arc::new(Mutex::new(process));
+        let start_time = Instant::now();
+
+        let wait_handle = natural_exit::spawn_natural_exit_handler(
+            session_id.to_string(),
+            tenant_id,
+            Arc::clone(&process_arc),
+            Arc::clone(&self.sessions),
+            self.seq_counters.clone(),
+            self.seq_counter_timestamps.clone(),
+            self.control_api_base.clone(),
+            self.http_client.clone(),
+            event_sender.clone(),
+        );
 
         {
             let mut sessions = self.sessions.lock().await;
             if sessions.len() >= MAX_TRACKED_SESSIONS {
+                wait_handle.abort();
                 anyhow::bail!(
                     "Maximum number of concurrent sessions ({MAX_TRACKED_SESSIONS}) exceeded"
                 );
@@ -214,9 +238,10 @@ impl SessionManager {
                 session_id.to_string(),
                 SessionHandle {
                     process: process_arc,
-                    start_time: Instant::now(),
+                    start_time,
                     stdout_handle,
                     stderr_handle,
+                    wait_handle,
                     tenant_id,
                 },
             );
@@ -290,6 +315,13 @@ impl SessionManager {
             timestamps.remove(session_id);
         }
 
+        // Abort I/O and wait handlers before taking the process lock so the
+        // natural-exit handler cannot win the cleanup race after we removed
+        // the session from the map.
+        handle.stdout_handle.abort();
+        handle.stderr_handle.abort();
+        handle.wait_handle.abort();
+
         let exit_code = {
             let mut proc = handle.process.lock().await;
             let adapter = adapter_for_runtime(proc.runtime)?;
@@ -312,9 +344,6 @@ impl SessionManager {
 
         let duration_ms =
             i64::try_from(handle.start_time.elapsed().as_millis()).unwrap_or(i64::MAX);
-
-        handle.stdout_handle.abort();
-        handle.stderr_handle.abort();
 
         self.update_session_status(
             session_id,
@@ -534,8 +563,6 @@ impl SessionManager {
         reason: &str,
         event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
     ) {
-        const TERMINATED_SEQ: i64 = i64::MIN + 2;
-
         let payload = serde_json::json!({
             "exit_code": exit_code,
             "duration_ms": duration_ms,
@@ -565,5 +592,5 @@ impl SessionManager {
 pub use crate::workspace_gc::spawn_workspace_gc;
 
 #[cfg(test)]
-#[path = "session_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
