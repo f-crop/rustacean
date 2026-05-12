@@ -458,10 +458,11 @@ pub async fn patch_session_status(
         return Err(AppError::Unauthorized);
     }
 
-    sqlx::query(
+    let result = sqlx::query(
         "UPDATE agents.agent_sessions
          SET status = $1, pid = $2, exit_code = $3
-         WHERE id = $4 AND tenant_id = $5",
+         WHERE id = $4 AND tenant_id = $5
+           AND status NOT IN ('terminated', 'cancelled')",
     )
     .bind(&req.status)
     .bind(req.pid)
@@ -472,8 +473,7 @@ pub async fn patch_session_status(
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
-    // Release the session slot in the registry when the process terminates.
-    if TERMINAL_STATUSES.contains(&req.status.as_str()) {
+    if TERMINAL_STATUSES.contains(&req.status.as_str()) && result.rows_affected() > 0 {
         let _ = state.agent_registry.remove(&session_id);
         state.tenant_session_count.decrement(&req.tenant_id);
     }

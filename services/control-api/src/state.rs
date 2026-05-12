@@ -175,15 +175,35 @@ impl TenantSessionCount {
         }
     }
 
-    /// Decrement the session count for a tenant.
+    /// Decrement the session count for a tenant, flooring at 0.
+    ///
+    /// Uses a CAS loop instead of `fetch_sub` so that a spurious extra decrement
+    /// (e.g. double-terminal callback from agent-runner) never wraps to `usize::MAX`.
     pub fn decrement(&self, tenant_id: &Uuid) {
         if let Some(count) = self.counts.get(tenant_id) {
-            let prev = count.fetch_sub(1, Ordering::Relaxed);
-            // Clean up zero-count entries to avoid unbounded map growth.
-            if prev <= 1 {
-                drop(count);
-                self.counts
-                    .remove_if(tenant_id, |_, v| v.load(Ordering::Relaxed) == 0);
+            loop {
+                let current = count.load(Ordering::Relaxed);
+                if current == 0 {
+                    return;
+                }
+                if count
+                    .compare_exchange_weak(
+                        current,
+                        current - 1,
+                        Ordering::SeqCst,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+                {
+                    let should_cleanup = current == 1;
+                    drop(count);
+                    if should_cleanup {
+                        // Clean up zero-count entries to avoid unbounded map growth.
+                        self.counts
+                            .remove_if(tenant_id, |_, v| v.load(Ordering::Relaxed) == 0);
+                    }
+                    return;
+                }
             }
         }
     }
@@ -463,6 +483,18 @@ mod tests {
         counter.decrement(&tenant);
         assert_eq!(counter.count(&tenant), 0);
         assert!(counter.counts.is_empty() || counter.counts.get(&tenant).is_none());
+    }
+
+    #[test]
+    fn tenant_session_count_decrement_floors_at_zero() {
+        let counter = TenantSessionCount::new();
+        let tenant = Uuid::new_v4();
+        assert!(counter.try_increment(&tenant, 5));
+        counter.decrement(&tenant);
+        assert_eq!(counter.count(&tenant), 0);
+        // Second decrement must not underflow to usize::MAX.
+        counter.decrement(&tenant);
+        assert_eq!(counter.count(&tenant), 0);
     }
 
     #[test]
