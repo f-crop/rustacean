@@ -9,8 +9,7 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 use rb_github::{
-    AppConfigStore, DEFAULT_GITHUB_API_BASE, EncryptionKey, NewAppConfig, Secret,
-    exchange_manifest_code, try_build_gh_app,
+    AppConfigStore, EncryptionKey, NewAppConfig, Secret, exchange_manifest_code, try_build_gh_app,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -111,10 +110,7 @@ pub async fn get_app_callback(
     })?;
     let store = AppConfigStore::new(state.pool.clone(), key);
 
-    // Exchange the one-shot code for App credentials. Base URL is overridable
-    // via RB_GH_API_BASE for integration tests against wiremock.
-    let base = std::env::var("RB_GH_API_BASE").unwrap_or_else(|_| DEFAULT_GITHUB_API_BASE.into());
-    let creds = exchange_manifest_code(&state.http_client, &base, code)
+    let creds = exchange_manifest_code(&state.http_client, &state.config.gh_api_base, code)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "app-callback: manifest exchange failed");

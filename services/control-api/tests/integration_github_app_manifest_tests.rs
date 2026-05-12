@@ -77,6 +77,10 @@ fn test_rsa_pem() -> String {
 /// Build a `Config` keyed to a real Postgres URL. Returns `None` when
 /// `RB_DATABASE_URL` is unset so the test silently no-ops in CI without infra.
 fn build_test_config(db_url: String, enc_key_b64: String) -> Config {
+    build_test_config_with_api_base(db_url, enc_key_b64, rb_github::DEFAULT_GITHUB_API_BASE.to_owned())
+}
+
+fn build_test_config_with_api_base(db_url: String, enc_key_b64: String, gh_api_base: String) -> Config {
     Config {
         listen_addr: "127.0.0.1:0".to_owned(),
         database_url: db_url,
@@ -93,6 +97,7 @@ fn build_test_config(db_url: String, enc_key_b64: String) -> Config {
         gh_app_private_key_b64: None,
         gh_app_webhook_secret: None,
         gh_app_enc_key_b64: Some(enc_key_b64),
+        gh_api_base,
         neo4j_uri: None,
         neo4j_user: "neo4j".to_owned(),
         neo4j_password: None,
@@ -268,10 +273,6 @@ async fn manifest_flow_persists_and_hot_swaps_loader() {
 
     // 32-byte base64 key (deterministic for test reproducibility).
     let enc_key = base64::engine::general_purpose::STANDARD.encode([0x42u8; 32]);
-    let config = build_test_config(
-        std::env::var("RB_DATABASE_URL").expect("checked above"),
-        enc_key.clone(),
-    );
     let admin = seed_user(&pool, true).await;
 
     let mock = MockServer::start().await;
@@ -290,11 +291,13 @@ async fn manifest_flow_persists_and_hot_swaps_loader() {
         .mount(&mock)
         .await;
 
-    // The callback handler reads RB_GH_API_BASE on each invocation. Setting
-    // it here keeps the override scoped to this test function.
-    let prev_base = std::env::var("RB_GH_API_BASE").ok();
-    // SAFETY: single-threaded #[tokio::test]; we restore the env at the end.
-    unsafe { std::env::set_var("RB_GH_API_BASE", mock.uri()) };
+    // Pass the wiremock base URL into Config so the callback handler uses it
+    // without process-env mutation.
+    let config = build_test_config_with_api_base(
+        std::env::var("RB_DATABASE_URL").expect("checked above"),
+        enc_key.clone(),
+        mock.uri(),
+    );
 
     let state = build_state(pool.clone(), config);
     let app = build_public(state.clone());
@@ -412,11 +415,6 @@ async fn manifest_flow_persists_and_hot_swaps_loader() {
         "replay must be rejected"
     );
 
-    // Restore env + cleanup DB.
-    match prev_base {
-        Some(v) => unsafe { std::env::set_var("RB_GH_API_BASE", v) },
-        None => unsafe { std::env::remove_var("RB_GH_API_BASE") },
-    }
     cleanup(&pool, admin.user_id).await;
 }
 

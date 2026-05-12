@@ -61,7 +61,8 @@ pub async fn exchange_manifest_code(
     base_url: &str,
     code: &str,
 ) -> Result<ManifestConversion, GhError> {
-    let url = format!("{base_url}/app-manifests/{code}/conversions");
+    let encoded_code = urlencoding::encode(code);
+    let url = format!("{base_url}/app-manifests/{encoded_code}/conversions");
     let resp = http
         .post(&url)
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -86,6 +87,20 @@ pub async fn exchange_manifest_code(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn url_encodes_code_with_special_chars() {
+        // Verifies that exchange_manifest_code builds the URL with percent-encoded code.
+        // GitHub codes are alphanumeric today, but defensive encoding prevents breakage
+        // if GitHub ever widens the character set.
+        let code = "abc xyz/?";
+        let encoded = urlencoding::encode(code);
+        let url = format!("https://api.github.com/app-manifests/{encoded}/conversions");
+        assert_eq!(
+            url,
+            "https://api.github.com/app-manifests/abc%20xyz%2F%3F/conversions"
+        );
+    }
 
     #[test]
     fn deserializes_minimal_payload() {
