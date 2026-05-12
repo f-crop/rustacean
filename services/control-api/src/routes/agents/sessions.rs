@@ -22,28 +22,28 @@
 //! every internal request is rejected with 401.
 
 use axum::{
-    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
+    Json,
 };
 use chrono::Utc;
 use rb_auth::ApiKey;
 use rb_kafka::EventEnvelope;
 use rb_schemas::{
-    AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId, agent_session_command,
+    agent_session_command, AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::auth::{AuthContext, require_session_or_agent_key},
+    middleware::auth::{require_session_or_agent_key, AuthContext},
     state::{AppState, SessionHandle},
 };
 
 use super::session_lifecycle::{
-    TERMINAL_STATUSES, VALID_AGENT_STATUSES, parse_runtime, prompt_preview, validate_workspace_path,
+    parse_runtime, prompt_preview, validate_workspace_path, TERMINAL_STATUSES, VALID_AGENT_STATUSES,
 };
 
 // ---------------------------------------------------------------------------
@@ -437,6 +437,45 @@ pub struct PatchSessionStatusRequest {
     pub tenant_id: Uuid,
 }
 
+/// Map a runner-reported status to the `event_type` stored in `agents.agent_events`.
+///
+/// Returns `None` for statuses that do not generate a lifecycle event row
+/// (e.g. `terminating`, `cancelled`, `pending`).
+fn lifecycle_event_type(status: &str) -> Option<&'static str> {
+    match status {
+        "running" => Some("session.running"),
+        "failed" => Some("session.failed"),
+        "terminated" => Some("session.completed"),
+        _ => None,
+    }
+}
+
+/// Canonical sequence values matching the runner's sentinel constants.
+///
+/// - `failed`     → `i64::MIN + 1`  (`ERROR_SEQ` in agent-runner/src/consumer.rs)
+/// - `terminated` → `i64::MIN + 2`  (`TERMINATED_SEQ` in agent-runner/src/session.rs)
+/// - `running`    → `0`             (Started event seq)
+fn lifecycle_event_seq(status: &str) -> i64 {
+    match status {
+        "failed" => i64::MIN + 1,
+        "terminated" => i64::MIN + 2,
+        _ => 0,
+    }
+}
+
+/// Build the JSONB payload for a lifecycle event row in `agents.agent_events`.
+fn lifecycle_event_payload(req: &PatchSessionStatusRequest) -> serde_json::Value {
+    match req.status.as_str() {
+        "running" => serde_json::json!({ "pid": req.pid }),
+        "failed" => serde_json::json!({
+            "failure_reason": req.error,
+            "exit_code": req.exit_code,
+        }),
+        "terminated" => serde_json::json!({ "exit_code": req.exit_code }),
+        _ => serde_json::json!({}),
+    }
+}
+
 pub async fn patch_session_status(
     State(state): State<AppState>,
     Path(session_id): Path<Uuid>,
@@ -497,9 +536,48 @@ pub async fn patch_session_status(
     }
     .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
-    if TERMINAL_STATUSES.contains(&req.status.as_str()) && result.rows_affected() > 0 {
-        let _ = state.agent_registry.remove(&session_id);
-        state.tenant_session_count.decrement(&req.tenant_id);
+    if result.rows_affected() > 0 {
+        if TERMINAL_STATUSES.contains(&req.status.as_str()) {
+            let _ = state.agent_registry.remove(&session_id);
+            state.tenant_session_count.decrement(&req.tenant_id);
+        }
+
+        if let Some(event_type) = lifecycle_event_type(&req.status) {
+            let seq = lifecycle_event_seq(&req.status);
+            let payload = lifecycle_event_payload(&req);
+            let payload_str = payload.to_string();
+
+            if let Err(e) = sqlx::query(
+                "INSERT INTO agents.agent_events \
+                 (session_id, tenant_id, event_type, sequence, payload) \
+                 VALUES ($1, $2, $3, $4, $5::jsonb)",
+            )
+            .bind(session_id)
+            .bind(req.tenant_id)
+            .bind(event_type)
+            .bind(seq)
+            .bind(&payload_str)
+            .execute(&state.pool)
+            .await
+            {
+                tracing::warn!(
+                    session_id = %session_id,
+                    status = %req.status,
+                    "agent_events insert failed: {e}"
+                );
+            }
+
+            let tenant_id = TenantId::from(req.tenant_id);
+            let sse_data = serde_json::json!({
+                "session_id": session_id,
+                "event_type": event_type,
+                "sequence": seq,
+                "payload": payload,
+            });
+            if let Ok(data) = serde_json::to_string(&sse_data) {
+                state.sse_bus.publish_raw(&tenant_id, "session.event", data);
+            }
+        }
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -547,5 +625,136 @@ mod tests {
     #[test]
     fn initial_message_max_bytes_is_64kib() {
         assert_eq!(INITIAL_MESSAGE_MAX_BYTES, 65_536);
+    }
+
+    // ── lifecycle_event_type ──────────────────────────────────────────────────
+
+    #[test]
+    fn lifecycle_event_type_running() {
+        assert_eq!(lifecycle_event_type("running"), Some("session.running"));
+    }
+
+    #[test]
+    fn lifecycle_event_type_failed() {
+        assert_eq!(lifecycle_event_type("failed"), Some("session.failed"));
+    }
+
+    #[test]
+    fn lifecycle_event_type_terminated_maps_to_completed() {
+        assert_eq!(
+            lifecycle_event_type("terminated"),
+            Some("session.completed")
+        );
+    }
+
+    #[test]
+    fn lifecycle_event_type_other_statuses_return_none() {
+        for s in ["cancelled", "terminating", "pending", "unknown"] {
+            assert_eq!(
+                lifecycle_event_type(s),
+                None,
+                "expected None for status '{s}'"
+            );
+        }
+    }
+
+    // ── lifecycle_event_seq ───────────────────────────────────────────────────
+
+    #[test]
+    fn lifecycle_event_seq_failed_matches_runner_error_sentinel() {
+        assert_eq!(lifecycle_event_seq("failed"), i64::MIN + 1);
+    }
+
+    #[test]
+    fn lifecycle_event_seq_terminated_matches_runner_terminated_sentinel() {
+        assert_eq!(lifecycle_event_seq("terminated"), i64::MIN + 2);
+    }
+
+    #[test]
+    fn lifecycle_event_seq_running_is_zero() {
+        assert_eq!(lifecycle_event_seq("running"), 0);
+    }
+
+    #[test]
+    fn lifecycle_event_seq_sentinels_are_distinct() {
+        assert_ne!(
+            lifecycle_event_seq("failed"),
+            lifecycle_event_seq("terminated")
+        );
+        assert_ne!(
+            lifecycle_event_seq("failed"),
+            lifecycle_event_seq("running")
+        );
+        assert_ne!(
+            lifecycle_event_seq("terminated"),
+            lifecycle_event_seq("running")
+        );
+    }
+
+    // ── lifecycle_event_payload ───────────────────────────────────────────────
+
+    #[test]
+    fn lifecycle_event_payload_running_includes_pid() {
+        let req = PatchSessionStatusRequest {
+            status: "running".to_string(),
+            pid: Some(12345),
+            exit_code: None,
+            error: None,
+            tenant_id: Uuid::new_v4(),
+        };
+        let p = lifecycle_event_payload(&req);
+        assert_eq!(p["pid"], 12345);
+    }
+
+    #[test]
+    fn lifecycle_event_payload_failed_includes_failure_reason() {
+        let req = PatchSessionStatusRequest {
+            status: "failed".to_string(),
+            pid: None,
+            exit_code: None,
+            error: Some("spawn failed: no such file".to_string()),
+            tenant_id: Uuid::new_v4(),
+        };
+        let p = lifecycle_event_payload(&req);
+        assert_eq!(p["failure_reason"], "spawn failed: no such file");
+    }
+
+    #[test]
+    fn lifecycle_event_payload_failed_null_reason_when_no_error() {
+        let req = PatchSessionStatusRequest {
+            status: "failed".to_string(),
+            pid: None,
+            exit_code: None,
+            error: None,
+            tenant_id: Uuid::new_v4(),
+        };
+        let p = lifecycle_event_payload(&req);
+        assert!(p["failure_reason"].is_null());
+    }
+
+    #[test]
+    fn lifecycle_event_payload_terminated_includes_exit_code() {
+        let req = PatchSessionStatusRequest {
+            status: "terminated".to_string(),
+            pid: None,
+            exit_code: Some(0),
+            error: None,
+            tenant_id: Uuid::new_v4(),
+        };
+        let p = lifecycle_event_payload(&req);
+        assert_eq!(p["exit_code"], 0);
+    }
+
+    #[test]
+    fn lifecycle_event_payload_terminated_nonzero_exit_code() {
+        let req = PatchSessionStatusRequest {
+            status: "terminated".to_string(),
+            pid: None,
+            exit_code: Some(1),
+            error: None,
+            tenant_id: Uuid::new_v4(),
+        };
+        let p = lifecycle_event_payload(&req);
+        assert_eq!(p["exit_code"], 1);
     }
 }
