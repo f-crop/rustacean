@@ -23,10 +23,17 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json -p ingest-clone
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo chef cook --release --recipe-path recipe.json -p ingest-clone
 
 COPY . .
-RUN cargo build --release -p ingest-clone
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release -p ingest-clone && \
+    cp target/release/ingest-clone /usr/local/bin/
 
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -41,6 +48,6 @@ RUN apt-get update -qq && \
 
 USER nonroot
 
-COPY --from=builder /app/target/release/ingest-clone /usr/local/bin/ingest-clone
+COPY --from=builder /usr/local/bin/ingest-clone /usr/local/bin/ingest-clone
 
 ENTRYPOINT ["/usr/local/bin/ingest-clone"]

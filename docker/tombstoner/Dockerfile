@@ -22,10 +22,17 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json -p tombstoner
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo chef cook --release --recipe-path recipe.json -p tombstoner
 
 COPY . .
-RUN cargo build --release -p tombstoner
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release -p tombstoner && \
+    cp target/release/tombstoner /usr/local/bin/
 
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
@@ -39,6 +46,6 @@ RUN apt-get update -qq && \
 
 USER nonroot
 
-COPY --from=builder /app/target/release/tombstoner /usr/local/bin/tombstoner
+COPY --from=builder /usr/local/bin/tombstoner /usr/local/bin/tombstoner
 
 ENTRYPOINT ["/usr/local/bin/tombstoner"]

@@ -22,10 +22,17 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json -p control-api
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo chef cook --release --recipe-path recipe.json -p control-api
 
 COPY . .
-RUN cargo build --release -p control-api
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release -p control-api && \
+    cp target/release/control-api target/release/rb-test-producer /usr/local/bin/
 
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
 # debian:bookworm-slim matches the builder's glibc 2.36 and supplies libz + sasl2
@@ -41,8 +48,8 @@ RUN apt-get update -qq && \
 
 USER nonroot
 
-COPY --from=builder /app/target/release/control-api      /usr/local/bin/control-api
-COPY --from=builder /app/target/release/rb-test-producer /usr/local/bin/rb-test-producer
+COPY --from=builder /usr/local/bin/control-api      /usr/local/bin/control-api
+COPY --from=builder /usr/local/bin/rb-test-producer /usr/local/bin/rb-test-producer
 COPY --from=builder /app/migrations                       /app/migrations
 
 ENV RB_MIGRATIONS_ROOT=/app/migrations
