@@ -42,7 +42,10 @@ pub async fn github_install_url(
     auth: AuthContext,
 ) -> Result<impl IntoResponse, AppError> {
     let session = require_verified_session(auth)?;
-    let gh = state.gh.as_ref().ok_or(AppError::GithubAppNotConfigured)?;
+    let gh = state
+        .gh_loader
+        .current()
+        .ok_or(AppError::GithubAppNotConfigured)?;
 
     let identity = gh.check_identity().await.map_err(|e| {
         tracing::error!(error = %e, "install-url: GitHub App identity unavailable");
@@ -110,7 +113,10 @@ pub async fn github_callback(
     State(state): State<AppState>,
     Query(params): Query<CallbackParams>,
 ) -> Result<impl IntoResponse, AppError> {
-    let gh = state.gh.as_ref().ok_or(AppError::GithubAppNotConfigured)?;
+    let gh = state
+        .gh_loader
+        .current()
+        .ok_or(AppError::GithubAppNotConfigured)?;
 
     let state_hex = match params.state {
         Some(s) if !s.is_empty() => s,

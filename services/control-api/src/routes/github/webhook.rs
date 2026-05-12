@@ -62,7 +62,7 @@ pub async fn github_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let Some(gh) = state.gh.clone() else {
+    let Some(gh) = state.gh_loader.current() else {
         return WebhookOutcome::AppNotConfigured.into_response();
     };
 

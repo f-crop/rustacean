@@ -3,6 +3,7 @@ mod app_jwt;
 mod client;
 mod error;
 mod installation_token;
+mod loader;
 mod repos;
 mod secret;
 mod state_token;
@@ -11,10 +12,11 @@ mod webhook;
 
 pub use app_config_store::{
     AppConfig, AppConfigError, AppConfigStore, CURRENT_ENCRYPTION_KEY_ID, EncryptionKey,
-    NewAppConfig,
+    NewAppConfig, try_build_gh_app,
 };
 pub use client::{AppIdentity, AppOwner, InstallationInfo, RepoInfo};
 pub use error::GhError;
+pub use loader::GhAppLoader;
 pub use repos::{RepoItem, RepoPage};
 pub use secret::Secret;
 pub use state_token::hash_token;

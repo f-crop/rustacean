@@ -108,6 +108,7 @@ aes-gcm = "0.10"
 subtle = "2"
 moka = { version = "0.12", features = ["future"] }
 hex = "0.4"
+arc-swap = "1"
 # Neo4j driver (used in rb-storage-neo4j; all other crates MUST NOT import neo4rs directly)
 neo4rs = "0.8"
 # Metrics facade (library crates use this; tests use metrics-util for assertions)

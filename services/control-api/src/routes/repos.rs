@@ -101,7 +101,10 @@ pub async fn connect_repo(
 ) -> Result<impl IntoResponse, AppError> {
     let session = require_verified_session(auth)?;
 
-    let gh = state.gh.as_ref().ok_or(AppError::GithubAppNotConfigured)?;
+    let gh = state
+        .gh_loader
+        .current()
+        .ok_or(AppError::GithubAppNotConfigured)?;
 
     let row: Option<(i64,)> = sqlx::query_as(
         "SELECT github_installation_id FROM control.github_installations \

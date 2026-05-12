@@ -25,10 +25,13 @@ use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
+use jsonwebtoken::EncodingKey;
 use rand::RngCore as _;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::GhApp;
+use crate::error::GhError;
 use crate::secret::Secret;
 
 /// Active key identifier recorded on every newly written row. Future rotation
@@ -192,6 +195,23 @@ pub struct AppConfig {
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub deactivated_at: Option<DateTime<Utc>>,
+}
+
+/// Build a live `GhApp` from a decrypted [`AppConfig`].
+///
+/// Used by Phase 2's startup `GhAppLoader` seeding path and by the Phase 3
+/// register/replace callback to hot-swap a new App into the loader.
+///
+/// # Errors
+///
+/// Returns [`GhError::InvalidKey`] when the stored PEM bytes cannot be parsed
+/// as an RSA private key.
+pub fn try_build_gh_app(cfg: &AppConfig) -> Result<GhApp, GhError> {
+    let pem = cfg.private_key_pem.expose().as_bytes();
+    let encoding_key = EncodingKey::from_rsa_pem(pem)
+        .map_err(|e| GhError::InvalidKey(format!("github_app_config row {}: {e}", cfg.id)))?;
+    let webhook_secret = Secret::new(cfg.webhook_secret.expose().as_bytes().to_vec());
+    Ok(GhApp::new(cfg.app_id, encoding_key, webhook_secret))
 }
 
 /// Postgres-backed store for the App-config table.
@@ -423,5 +443,73 @@ mod tests {
         let dbg = format!("{key:?}");
         assert!(dbg.contains("REDACTED"));
         assert!(!dbg.contains('7'));
+    }
+
+    /// Minimal 2048-bit RSA private key fixture for `try_build_gh_app` tests.
+    /// Generated once with `openssl genrsa 2048` and committed here so the
+    /// test does not shell out at runtime.
+    const TEST_RSA_PEM: &str = /* gitleaks:allow */ "-----BEGIN RSA PRIVATE KEY-----\n\
+MIIEowIBAAKCAQEAtm5VskdYukSx2KsOZ24Sb1m+EtFsi3PtvR58dxhcN4UISKtm\n\
+WjE+wXymvNkN0YHaZJjJzo2Y/N79Zhxn1m6Ywda4ZWAJV3IIYZbk6BByv8mhVgGQ\n\
+1qFTsCdH/CdMzqj+vfk3rvf3YyMaJOZ/+xtmVKMHcmGtFMu8MDmZbeP1aanCkVm8\n\
+OF4FvOe9D2POgFEFfwT89U7uppF+ATSx9fEt1/QcQUTrLNimRJh7HwoXFKlhfFAj\n\
+LH80hCfQRl4Wd5DwqqDDC4VxOXyf3HxxBxxV8jzPNCsCmIIuB6t05DZAuMTOLcKy\n\
+JFP6JpBn3SVtAR7w3MEs99/x3qjC4OlGEbR6IQIDAQABAoIBABf1Olqi1DwzAEHa\n\
+mDXSx5gjFC0HrkjpIRFVnmwlfV1+8sNCmJYf2BBO27qXVxOTNkQqXrLnDA10v8XB\n\
+SkJl3Y3kQTNAqJYUW5G1XSyAJlhbtP+CADxBQH/wYjphE5Ynna8tehDh3WiTYzAt\n\
+3LtSlcEUKR1+EQfdJ8KGzQXEFOWiF/IzTtJsKlcc78ARtO27NhFRG6+lzeUaq2T7\n\
+9TFiAjcEatGEWY9YEPpoZdtYTwHHKwHkj8x5y5+ZBSXlMm5DKZsa+v5K9hL2vy2X\n\
+QcOZjMfemfnPctbpyaZqZyApdkBhFRG9SgGnQiHHcDdAH5+Knsap3vNYz8VLXNXz\n\
+4DLBfdECgYEA56iE60lDDeyHkXjOQyG3hcrTwXKWMOJlIohatuVdKzqWyzWFFcGz\n\
+1WIcsmGOxx39NUiNmTpgQv4i7VL2njBSahPgcyAdQDg6/+ePyytQHwlqqJpu2Pzz\n\
+qrFOQbxFLN2RtSdoZmcRiXKDpaIvDsiLBcLM8E/AUVx7Ux/i8ohRkrUCgYEAyfei\n\
+Ek7+Ovju5OdbDC3SY8KrwLJ4QGZZl+ehfNkUEMKKt3JFkbCDX4PuyJ+UNuiB9PV3\n\
+8ZxoaCAjGgK0wIM4SHa4PUtP+TBjpMlR3HVlEH3yvFsHfTwzx/Cab9IT7nfWZGq+\n\
+Y67O+SQILUiPVa0+sxudARMTRwjzKE7y3M6gcv0CgYByeWzrSLA9k+UlFKi/zCRk\n\
+HfQbDqLY5wkidwQc9o0vNkPGqrn3ZZkBdsBPyqIRZS+/d6PucGV8AKtVZj9DwhgM\n\
+T0udD+EBjN3jKx3IejNMOg4SegzbgRBR9HQt3WkVZqIPLMzkc4xt62urUyMOg/W+\n\
+zR4OXC9c++FoxxIugTCpdQKBgQCQ1Ed+JqDQ+CMmK+IjnAo1IXMqDQ4cFL10sJsR\n\
+n+vGGY9hxlGzbE4HX3Z/5pHFL3oQEgkVgsa05Aa7+sb0OFczQ9oKR9P+IM+x9MMr\n\
+TLAm9ZIpKjrlOM4ja2zNXOcVbnvFwdRgxlNGAU5cKQpZbVDp5YXJaQRkbU1IUlnz\n\
+y96luQKBgGHF9XLI5tFdMxQE3pjyaHe7Tt5VYV6f8K56nC4Iqfdki/IFiBg83p3R\n\
+zVa6Vv1iEhPwwm/PV/zVScVqxX2nJOOoa4Lk7dlPTu62Onki++YdsGGUtV+gC2bM\n\
+EkrxIBjqfn0FWqzC2WhRzeTLE+xq0NHcCS7vJOzvSqLNqUtmvE0t\n\
+-----END RSA PRIVATE KEY-----\n"; // gitleaks:allow — test-only 2048-bit RSA fixture, not a real key
+
+    fn fixture_app_config() -> AppConfig {
+        AppConfig {
+            id: 1,
+            app_id: 9001,
+            slug: "fixture-app".to_owned(),
+            client_id: "Iv1.fixture".to_owned(),
+            client_secret: Secret::new("client-secret".to_owned()),
+            private_key_pem: Secret::new(TEST_RSA_PEM.to_owned()),
+            webhook_secret: Secret::new("hook-secret".to_owned()),
+            encryption_key_id: CURRENT_ENCRYPTION_KEY_ID.to_owned(),
+            installed_by_user_id: Uuid::nil(),
+            is_active: true,
+            created_at: chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).expect("epoch"),
+            deactivated_at: None,
+        }
+    }
+
+    #[test]
+    fn try_build_gh_app_constructs_from_valid_pem() {
+        let cfg = fixture_app_config();
+        let app = try_build_gh_app(&cfg).expect("build");
+        assert_eq!(app.app_id, 9001);
+    }
+
+    #[test]
+    fn try_build_gh_app_rejects_garbage_pem() {
+        let mut cfg = fixture_app_config();
+        cfg.private_key_pem = Secret::new("not a pem".to_owned());
+        let err = try_build_gh_app(&cfg).expect_err("must fail");
+        match err {
+            GhError::InvalidKey(msg) => {
+                assert!(msg.contains("github_app_config row 1"));
+            }
+            other => panic!("expected InvalidKey, got {other:?}"),
+        }
     }
 }
