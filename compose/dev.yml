@@ -549,6 +549,11 @@ services:
       # in the claude-login sidecar. Read-only mount prevents the spawned claude
       # child from rewriting credentials via a tool-call injection path.
       CLAUDE_CONFIG_DIR: /home/loginuser/.claude
+      # LiteLLM proxy passthrough (opencode LiteLLM mode).
+      # Leave unset to use direct-provider or OpenAI-compatible mode instead.
+      LITELLM_BASE_URL: "${LITELLM_BASE_URL:-}"
+      LITELLM_API_KEY: "${LITELLM_API_KEY:-}"
+      CHAT_MODEL: "${CHAT_MODEL:-}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_SERVICE_NAME: agent-runner
       RUST_LOG: "info,agent_runner=debug"

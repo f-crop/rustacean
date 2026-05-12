@@ -10,6 +10,41 @@ use super::{
     write_mcp_config,
 };
 
+#[derive(Debug)]
+enum LlmMode {
+    LiteLlm {
+        base_url: String,
+        api_key: String,
+        model: String,
+    },
+    OpenAiCompatible,
+    DirectProvider,
+}
+
+impl LlmMode {
+    fn from_env() -> Result<Self> {
+        if let Ok(base_url) = std::env::var("LITELLM_BASE_URL") {
+            let api_key = std::env::var("LITELLM_API_KEY").map_err(|_| {
+                anyhow::anyhow!(
+                    "error_kind=litellm_misconfigured: \
+                     LITELLM_API_KEY is required when LITELLM_BASE_URL is set"
+                )
+            })?;
+            let model = std::env::var("CHAT_MODEL").map_err(|_| {
+                anyhow::anyhow!(
+                    "error_kind=litellm_misconfigured: \
+                     CHAT_MODEL is required when LITELLM_BASE_URL is set"
+                )
+            })?;
+            Ok(Self::LiteLlm { base_url, api_key, model })
+        } else if std::env::var("OPENCODE_API_BASE").is_ok() {
+            Ok(Self::OpenAiCompatible)
+        } else {
+            Ok(Self::DirectProvider)
+        }
+    }
+}
+
 pub struct OpencodeAdapter {
     default_provider: String,
     default_model: String,
@@ -25,11 +60,37 @@ impl OpencodeAdapter {
         }
     }
 
-    async fn write_opencode_config(&self, workspace: &std::path::Path) -> Result<()> {
-        let config = serde_json::json!({
-            "provider": self.default_provider,
-            "model": self.default_model,
-        });
+    async fn write_opencode_config(
+        &self,
+        workspace: &std::path::Path,
+        mode: &LlmMode,
+    ) -> Result<()> {
+        let config = match mode {
+            LlmMode::LiteLlm { base_url, api_key, model } => {
+                // Dynamic model key requires manual Map construction — serde_json::json!
+                // does not support variable interpolation in object keys.
+                let mut models = serde_json::Map::new();
+                models.insert(model.clone(), serde_json::json!({ "name": model }));
+                serde_json::json!({
+                    "$schema": "https://opencode.ai/config.json",
+                    "provider": {
+                        "litellm": {
+                            "npm": "@ai-sdk/openai-compatible",
+                            "options": {
+                                "baseURL": format!("{}/v1", base_url),
+                                "apiKey": api_key
+                            },
+                            "models": serde_json::Value::Object(models)
+                        }
+                    },
+                    "model": format!("litellm/{}", model)
+                })
+            }
+            LlmMode::OpenAiCompatible | LlmMode::DirectProvider => serde_json::json!({
+                "provider": self.default_provider,
+                "model": self.default_model,
+            }),
+        };
         let opencode_dir = workspace.join(".opencode");
         tokio::fs::create_dir_all(&opencode_dir).await?;
         let config_path = opencode_dir.join("config.json");
@@ -46,6 +107,13 @@ impl OpencodeAdapter {
 
     fn collect_provider_env() -> HashMap<String, String> {
         let mut env_vars = HashMap::new();
+        // LiteLLM proxy vars (forwarded so the opencode child can also read them).
+        for key in &["LITELLM_BASE_URL", "LITELLM_API_KEY", "CHAT_MODEL"] {
+            if let Ok(val) = std::env::var(key) {
+                env_vars.insert((*key).to_string(), val);
+            }
+        }
+        // Direct provider API keys.
         for key in &[
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
@@ -67,10 +135,15 @@ impl OpencodeAdapter {
 #[async_trait]
 impl RuntimeAdapter for OpencodeAdapter {
     async fn spawn(&self, ctx: &SessionCtx) -> Result<AgentProcess> {
+        // Resolve and validate the LLM routing mode before touching the filesystem
+        // or spawning any subprocess. A misconfigured LiteLLM setup fails here,
+        // not silently mid-session.
+        let mode = LlmMode::from_env()?;
+
         write_mcp_config(&ctx.workspace_path, &ctx.api_key, &ctx.tenant_id)
             .await
             .context("Failed to write MCP config")?;
-        self.write_opencode_config(&ctx.workspace_path)
+        self.write_opencode_config(&ctx.workspace_path, &mode)
             .await
             .context("Failed to write opencode config")?;
 
@@ -145,6 +218,131 @@ impl RuntimeAdapter for OpencodeAdapter {
                 kind: LineKind::Text,
                 payload: line.to_string(),
             })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use tokio::sync::Mutex;
+
+    // Serialize tests that mutate process environment variables.
+    static ENV_LOCK: Mutex<()> = Mutex::const_new(());
+
+    fn adapter() -> OpencodeAdapter {
+        OpencodeAdapter {
+            default_provider: "anthropic".to_string(),
+            default_model: "claude-sonnet-4-20250514".to_string(),
+        }
+    }
+
+    fn read_config(dir: &TempDir) -> serde_json::Value {
+        let raw = std::fs::read_to_string(dir.path().join(".opencode/config.json")).unwrap();
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    // ── Mode 1: LiteLLM ──────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn litellm_mode_writes_correct_config() {
+        let _guard = ENV_LOCK.lock().await;
+        let tmp = TempDir::new().unwrap();
+        // SAFETY: ENV_LOCK serializes all env mutations across these tests.
+        unsafe {
+            std::env::set_var("LITELLM_BASE_URL", "http://litellm:4000");
+            std::env::set_var("LITELLM_API_KEY", "test-virtual-key");
+            std::env::set_var("CHAT_MODEL", "glm-latest");
+            std::env::remove_var("OPENCODE_API_BASE");
+        }
+
+        let mode = LlmMode::from_env().unwrap();
+        adapter().write_opencode_config(tmp.path(), &mode).await.unwrap();
+        let cfg = read_config(&tmp);
+
+        assert_eq!(cfg["$schema"], "https://opencode.ai/config.json");
+        assert_eq!(cfg["model"], "litellm/glm-latest");
+        assert_eq!(
+            cfg["provider"]["litellm"]["npm"],
+            "@ai-sdk/openai-compatible"
+        );
+        assert_eq!(
+            cfg["provider"]["litellm"]["options"]["baseURL"],
+            "http://litellm:4000/v1"
+        );
+        assert_eq!(
+            cfg["provider"]["litellm"]["options"]["apiKey"],
+            "test-virtual-key"
+        );
+        assert_eq!(
+            cfg["provider"]["litellm"]["models"]["glm-latest"]["name"],
+            "glm-latest"
+        );
+
+        // Cleanup
+        unsafe {
+            std::env::remove_var("LITELLM_BASE_URL");
+            std::env::remove_var("LITELLM_API_KEY");
+            std::env::remove_var("CHAT_MODEL");
+        }
+    }
+
+    // ── Mode 2: OpenAI-compatible ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn openai_compatible_mode_writes_simple_config() {
+        let _guard = ENV_LOCK.lock().await;
+        let tmp = TempDir::new().unwrap();
+        // SAFETY: ENV_LOCK serializes all env mutations across these tests.
+        unsafe {
+            std::env::remove_var("LITELLM_BASE_URL");
+            std::env::set_var("OPENCODE_API_BASE", "http://local-ollama:11434/v1");
+            std::env::set_var("OPENCODE_DEFAULT_PROVIDER", "openai");
+            std::env::set_var("OPENCODE_DEFAULT_MODEL", "llama3");
+        }
+
+        let mode = LlmMode::from_env().unwrap();
+        // For OpenAI-compatible, adapter re-reads OPENCODE_DEFAULT_* from env.
+        let a = OpencodeAdapter::new();
+        a.write_opencode_config(tmp.path(), &mode).await.unwrap();
+        let cfg = read_config(&tmp);
+
+        // Config.json keeps the simple {provider, model} shape; no $schema or
+        // nested litellm block. OPENCODE_API_BASE is forwarded via env, not config.
+        assert_eq!(cfg["provider"], "openai");
+        assert_eq!(cfg["model"], "llama3");
+        assert!(cfg.get("$schema").is_none());
+
+        // Cleanup
+        unsafe {
+            std::env::remove_var("OPENCODE_API_BASE");
+            std::env::remove_var("OPENCODE_DEFAULT_PROVIDER");
+            std::env::remove_var("OPENCODE_DEFAULT_MODEL");
+        }
+    }
+
+    // ── Mode 3: LiteLLM misconfigured → fail-fast ─────────────────────────────
+
+    #[tokio::test]
+    async fn litellm_misconfigured_fails_fast_when_api_key_missing() {
+        let _guard = ENV_LOCK.lock().await;
+        // SAFETY: ENV_LOCK serializes all env mutations across these tests.
+        unsafe {
+            std::env::set_var("LITELLM_BASE_URL", "http://litellm:4000");
+            std::env::remove_var("LITELLM_API_KEY");
+            std::env::remove_var("CHAT_MODEL");
+        }
+
+        let err = LlmMode::from_env().unwrap_err();
+        assert!(
+            err.to_string().contains("litellm_misconfigured"),
+            "expected litellm_misconfigured, got: {err}"
+        );
+
+        // Cleanup
+        unsafe {
+            std::env::remove_var("LITELLM_BASE_URL");
         }
     }
 }
