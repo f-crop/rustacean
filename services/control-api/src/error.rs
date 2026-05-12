@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use rb_kafka::KafkaError;
@@ -101,6 +101,10 @@ pub enum AppError {
 impl IntoResponse for AppError {
     #[allow(clippy::too_many_lines)]
     fn into_response(self) -> Response {
+        // `retry_after_secs` is set on 429 variants that know how long the
+        // client should wait — it becomes the `Retry-After` response header
+        // per RFC 6585 §4.
+        let mut retry_after_secs: Option<u64> = None;
         let (status, code, message) = match &self {
             AppError::NotFound => (StatusCode::NOT_FOUND, "not_found", self.to_string()),
             AppError::EmailTaken => (StatusCode::CONFLICT, "email_taken", self.to_string()),
@@ -232,11 +236,16 @@ impl IntoResponse for AppError {
                 "session_cap_exceeded",
                 self.to_string(),
             ),
-            AppError::SessionRateLimitExceeded { retry_after_secs } => (
-                StatusCode::TOO_MANY_REQUESTS,
-                "rate_limit_exceeded",
-                format!("session creation rate limit exceeded; retry after {retry_after_secs}s"),
-            ),
+            AppError::SessionRateLimitExceeded {
+                retry_after_secs: secs,
+            } => {
+                retry_after_secs = Some(*secs);
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "rate_limit_exceeded",
+                    format!("session creation rate limit exceeded; retry after {secs}s"),
+                )
+            }
             AppError::TenantSessionCapExceeded => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "rate_limit_exceeded",
@@ -265,11 +274,16 @@ impl IntoResponse for AppError {
                     "internal server error".to_owned(),
                 )
             }
-            AppError::Auth(rb_auth::AuthError::RateLimited { retry_after_secs }) => (
-                StatusCode::TOO_MANY_REQUESTS,
-                "rate_limited",
-                format!("too many requests, retry after {retry_after_secs}s"),
-            ),
+            AppError::Auth(rb_auth::AuthError::RateLimited {
+                retry_after_secs: secs,
+            }) => {
+                retry_after_secs = Some(*secs);
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "rate_limited",
+                    format!("too many requests, retry after {secs}s"),
+                )
+            }
             AppError::Auth(e) => {
                 tracing::error!(error = %e, "auth error");
                 (
@@ -304,6 +318,66 @@ impl IntoResponse for AppError {
                 )
             }
         };
-        (status, Json(json!({ "error": code, "message": message }))).into_response()
+        let mut response =
+            (status, Json(json!({ "error": code, "message": message }))).into_response();
+        if let Some(secs) = retry_after_secs {
+            // `HeaderValue::from(u64)` cannot fail; an integer-form `Retry-After`
+            // is always a valid header value (RFC 6585 §4, RFC 7231 §7.1.3).
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(secs));
+        }
+        response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_rate_limit_sets_retry_after_header() {
+        let resp = AppError::SessionRateLimitExceeded {
+            retry_after_secs: 42,
+        }
+        .into_response();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            resp.headers()
+                .get(header::RETRY_AFTER)
+                .map(|v| v.to_str().unwrap()),
+            Some("42")
+        );
+    }
+
+    #[test]
+    fn auth_rate_limited_sets_retry_after_header() {
+        let resp = AppError::Auth(rb_auth::AuthError::RateLimited {
+            retry_after_secs: 7,
+        })
+        .into_response();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            resp.headers()
+                .get(header::RETRY_AFTER)
+                .map(|v| v.to_str().unwrap()),
+            Some("7")
+        );
+    }
+
+    #[test]
+    fn non_rate_limit_responses_omit_retry_after() {
+        let resp = AppError::NotFound.into_response();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert!(resp.headers().get(header::RETRY_AFTER).is_none());
+    }
+
+    #[test]
+    fn session_cap_exceeded_omits_retry_after() {
+        // SessionCapExceeded is a 429 but has no known retry window — header
+        // intentionally omitted (clients should fall back to a default backoff).
+        let resp = AppError::SessionCapExceeded.into_response();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(resp.headers().get(header::RETRY_AFTER).is_none());
     }
 }
