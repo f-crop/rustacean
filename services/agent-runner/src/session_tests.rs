@@ -180,3 +180,225 @@ async fn start_session_marks_failed_on_adapter_spawn_error() {
 
     server_handle.abort();
 }
+
+// ---------------------------------------------------------------------
+// RUSAA-1267: natural-exit handler transitions session to terminal status
+// ---------------------------------------------------------------------
+
+/// Build a minimal `SessionHandle` with stub I/O handles and a real process.
+fn make_stub_handle(
+    process: Arc<Mutex<crate::adapters::AgentProcess>>,
+    tenant_id: TenantId,
+) -> SessionHandle {
+    SessionHandle {
+        process,
+        start_time: Instant::now(),
+        stdout_handle: tokio::spawn(async {}),
+        stderr_handle: tokio::spawn(async {}),
+        wait_handle: tokio::spawn(async {}), // replaced after insertion in real code
+        tenant_id,
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn natural_exit_zero_sends_terminated_status() {
+    use std::process::Stdio;
+
+    let (addr, captured, server_handle) = spawn_status_capture_server().await;
+
+    let mut cmd = tokio::process::Command::new("/bin/true");
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let child = cmd.spawn().unwrap();
+    let pid = child.id().unwrap();
+    let process = crate::adapters::AgentProcess {
+        child,
+        pid,
+        runtime: rb_schemas::AgentRuntime::ClaudeCode,
+    };
+
+    let sessions: Arc<Mutex<HashMap<String, SessionHandle>>> = Arc::new(Mutex::new(HashMap::new()));
+    let seq_counters = Arc::new(Mutex::new(HashMap::new()));
+    let seq_timestamps = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
+    let process_arc = Arc::new(Mutex::new(process));
+    let session_uuid = uuid::Uuid::new_v4();
+    let session_id = session_uuid.to_string();
+    let tenant_id = TenantId::from(uuid::Uuid::new_v4());
+
+    // Pre-insert a stub handle so the natural-exit handler can remove it.
+    {
+        let mut map = sessions.lock().await;
+        map.insert(
+            session_id.clone(),
+            make_stub_handle(Arc::clone(&process_arc), tenant_id),
+        );
+    }
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let wait_handle = spawn_natural_exit_handler(
+        session_id.clone(),
+        tenant_id,
+        Arc::clone(&process_arc),
+        Arc::clone(&sessions),
+        seq_counters,
+        seq_timestamps,
+        format!("http://{addr}"),
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap(),
+        tx,
+    );
+
+    wait_handle.await.expect("natural exit handler panicked");
+
+    let expected_path = format!("/internal/agent/sessions/{session_uuid}/status");
+    let g = captured.lock().await;
+    let found = g.iter().any(|(rl, body)| {
+        rl.starts_with("PATCH ")
+            && rl.contains(&expected_path)
+            && body.contains("\"status\":\"terminated\"")
+    });
+    assert!(
+        found,
+        "expected PATCH {expected_path} with status=terminated; captured: {:?}",
+        *g
+    );
+    // Session should have been removed from the map.
+    assert!(
+        sessions.lock().await.is_empty(),
+        "session must be removed after natural exit"
+    );
+
+    server_handle.abort();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn natural_exit_nonzero_sends_failed_status() {
+    use std::process::Stdio;
+
+    let (addr, captured, server_handle) = spawn_status_capture_server().await;
+
+    let mut cmd = tokio::process::Command::new("/bin/sh");
+    cmd.args(["-c", "exit 42"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let child = cmd.spawn().unwrap();
+    let pid = child.id().unwrap();
+    let process = crate::adapters::AgentProcess {
+        child,
+        pid,
+        runtime: rb_schemas::AgentRuntime::ClaudeCode,
+    };
+
+    let sessions: Arc<Mutex<HashMap<String, SessionHandle>>> = Arc::new(Mutex::new(HashMap::new()));
+    let seq_counters = Arc::new(Mutex::new(HashMap::new()));
+    let seq_timestamps = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
+    let process_arc = Arc::new(Mutex::new(process));
+    let session_uuid = uuid::Uuid::new_v4();
+    let session_id = session_uuid.to_string();
+    let tenant_id = TenantId::from(uuid::Uuid::new_v4());
+
+    {
+        let mut map = sessions.lock().await;
+        map.insert(
+            session_id.clone(),
+            make_stub_handle(Arc::clone(&process_arc), tenant_id),
+        );
+    }
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let wait_handle = spawn_natural_exit_handler(
+        session_id.clone(),
+        tenant_id,
+        Arc::clone(&process_arc),
+        Arc::clone(&sessions),
+        seq_counters,
+        seq_timestamps,
+        format!("http://{addr}"),
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap(),
+        tx,
+    );
+
+    wait_handle.await.expect("natural exit handler panicked");
+
+    let expected_path = format!("/internal/agent/sessions/{session_uuid}/status");
+    let g = captured.lock().await;
+    let found = g.iter().any(|(rl, body)| {
+        rl.starts_with("PATCH ")
+            && rl.contains(&expected_path)
+            && body.contains("\"status\":\"failed\"")
+    });
+    assert!(
+        found,
+        "expected PATCH {expected_path} with status=failed; captured: {:?}",
+        *g
+    );
+
+    server_handle.abort();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn natural_exit_noop_when_session_already_removed() {
+    use std::process::Stdio;
+
+    let (addr, captured, server_handle) = spawn_status_capture_server().await;
+
+    let mut cmd = tokio::process::Command::new("/bin/true");
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let child = cmd.spawn().unwrap();
+    let pid = child.id().unwrap();
+    let process = crate::adapters::AgentProcess {
+        child,
+        pid,
+        runtime: rb_schemas::AgentRuntime::ClaudeCode,
+    };
+
+    // Intentionally leave the sessions map EMPTY — simulates terminate_session
+    // having already removed the entry before the natural-exit handler runs.
+    let sessions: Arc<Mutex<HashMap<String, SessionHandle>>> = Arc::new(Mutex::new(HashMap::new()));
+    let seq_counters = Arc::new(Mutex::new(HashMap::new()));
+    let seq_timestamps = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
+    let process_arc = Arc::new(Mutex::new(process));
+    let session_uuid = uuid::Uuid::new_v4();
+    let session_id = session_uuid.to_string();
+    let tenant_id = TenantId::from(uuid::Uuid::new_v4());
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let wait_handle = spawn_natural_exit_handler(
+        session_id.clone(),
+        tenant_id,
+        Arc::clone(&process_arc),
+        Arc::clone(&sessions),
+        seq_counters,
+        seq_timestamps,
+        format!("http://{addr}"),
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap(),
+        tx,
+    );
+
+    wait_handle.await.expect("natural exit handler panicked");
+
+    // No PATCH should have been sent because the session was "already gone".
+    let g = captured.lock().await;
+    assert!(
+        g.is_empty(),
+        "no HTTP calls expected when session is already removed; captured: {:?}",
+        *g
+    );
+
+    server_handle.abort();
+}
