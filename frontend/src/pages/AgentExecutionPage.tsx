@@ -1,9 +1,15 @@
-import { useMe, useRecentIngestions, useInvalidateRecentIngestions } from "@/api";
-import { useEffect } from "react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { useMe, useAgentSessions, useCreateSession, useDeleteSession } from "@/api";
+import type { CreateSessionFormValues } from "@/lib/validation/agentSessions";
+import { formatApiError } from "@/lib/errors/api";
 import { PageContainer } from "@/components/repos/PageContainer";
 import { useEventStream } from "@/hooks/useEventStream";
 import { SessionHistory } from "@/components/agent-execution/SessionHistory";
 import { ExecutionStream } from "@/components/agent-execution/ExecutionStream";
+import { CreateSessionDialog } from "@/components/agent-execution/CreateSessionDialog";
+
+const SESSION_EVENT_TYPES = ["session.event"] as const;
 
 export function AgentExecutionPage(): JSX.Element {
   const me = useMe({ retry: false });
@@ -36,41 +42,59 @@ interface AgentExecutionInnerProps {
 
 function AgentExecutionInner({ tenantId }: AgentExecutionInnerProps): JSX.Element {
   const apiBase = import.meta.env.VITE_API_BASE_URL ?? "";
+  const [showCreate, setShowCreate] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // useRecentIngestions fetches from the backend's ingestion-runs table,
-  // which backs the "Agent Execution" view — each ingestion run corresponds
-  // to an agent execution session.
-  const recentSessions = useRecentIngestions(tenantId);
-  const invalidateSessions = useInvalidateRecentIngestions();
+  const sessions = useAgentSessions(tenantId);
+  const createSession = useCreateSession(tenantId);
+  const deleteSession = useDeleteSession(tenantId);
 
-  const { events, lastEventId, readyState } = useEventStream(`${apiBase}/v1/ingest/events`);
+  const sseUrl = `${apiBase}/v1/agents/sessions/events`;
+  const { events, lastEventId, readyState } = useEventStream(sseUrl, SESSION_EVENT_TYPES);
 
-  useEffect(() => {
-    const latestIngest = events
-      .filter((e) => e.type === "ingest.status")
-      .at(-1);
-    if (!latestIngest) return;
+  const handleCreate = async (values: CreateSessionFormValues) => {
+    const body: { runtime: string; initial_prompt?: string; workspace_path?: string | null } = {
+      runtime: values.runtime,
+    };
+    if (values.initial_prompt) body.initial_prompt = values.initial_prompt;
+    if (values.workspace_path) body.workspace_path = values.workspace_path;
+    const result = await createSession.mutateAsync(body);
+    toast.success(`Session ${result.session_id.slice(0, 8)}… created.`);
+    setShowCreate(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
     try {
-      const parsed = JSON.parse(latestIngest.data) as { status?: string };
-      if (parsed.status === "succeeded" || parsed.status === "done") {
-        void invalidateSessions(tenantId);
-      }
-    } catch {
-      // malformed event — ignore
+      await deleteSession.mutateAsync(id);
+      toast.success("Session terminated.");
+    } catch (err) {
+      toast.error(formatApiError(err, "Could not terminate session."));
+    } finally {
+      setDeletingId(null);
     }
-  }, [events, tenantId, invalidateSessions]);
+  };
 
-  const sessions = recentSessions.data?.runs ?? [];
+  const sessionList = sessions.data?.sessions ?? [];
 
   return (
     <PageContainer>
-      <header className="mb-6 flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Agent Execution
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          View execution sessions, live event streams, and trace details.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Agent Execution
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            View execution sessions, live event streams, and manage agents.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowCreate(true)}
+          className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          New session
+        </button>
       </header>
 
       <div className="space-y-8">
@@ -82,10 +106,12 @@ function AgentExecutionInner({ tenantId }: AgentExecutionInnerProps): JSX.Elemen
             Session History
           </h2>
           <SessionHistory
-            sessions={sessions}
-            isLoading={recentSessions.isLoading}
-            isError={recentSessions.isError}
-            error={recentSessions.error}
+            sessions={sessionList}
+            isLoading={sessions.isLoading}
+            isError={sessions.isError}
+            error={sessions.error}
+            onDelete={handleDelete}
+            isDeleting={deletingId !== null}
           />
         </section>
 
@@ -99,6 +125,14 @@ function AgentExecutionInner({ tenantId }: AgentExecutionInnerProps): JSX.Elemen
           <ExecutionStream events={events} lastEventId={lastEventId} readyState={readyState} />
         </section>
       </div>
+
+      {showCreate ? (
+        <CreateSessionDialog
+          isPending={createSession.isPending}
+          onSubmit={handleCreate}
+          onClose={() => setShowCreate(false)}
+        />
+      ) : null}
     </PageContainer>
   );
 }

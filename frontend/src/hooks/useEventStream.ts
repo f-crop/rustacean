@@ -15,13 +15,19 @@ export interface UseEventStreamResult {
 }
 
 const RECONNECT_DELAY_MS = 5_000;
+const DEFAULT_EVENT_TYPES = ["message"] as const;
 
-export function useEventStream(url: string): UseEventStreamResult {
+export function useEventStream(
+  url: string,
+  eventTypes?: readonly string[],
+): UseEventStreamResult {
   const [events, setEvents] = useState<StreamedEvent[]>([]);
   const [lastEventId, setLastEventId] = useState<string | null>(null);
   const [readyState, setReadyState] = useState<EventStreamReadyState>("connecting");
 
   const cancelledRef = useRef(false);
+  const eventTypesRef = useRef(eventTypes);
+  eventTypesRef.current = eventTypes;
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -52,7 +58,10 @@ export function useEventStream(url: string): UseEventStreamResult {
         setEvents((prev) => [...prev, streamed]);
       };
 
-      es.addEventListener("ingest.status", handleEvent);
+      const typesToListen = eventTypesRef.current ?? DEFAULT_EVENT_TYPES;
+      for (const type of typesToListen) {
+        es.addEventListener(type, handleEvent);
+      }
 
       es.addEventListener("stream-reset", () => {
         if (!cancelledRef.current) setEvents([]);
