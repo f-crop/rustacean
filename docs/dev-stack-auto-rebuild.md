@@ -250,7 +250,7 @@ scripts/dev-stack-auto-rebuild.sh --cold-start                        # builds b
 scripts/dev-stack-auto-rebuild.sh --cold-start <prev_sha> <new_sha>  # with explicit SHA range
 ```
 
-`--cold-start` forces all 10 Rust services and `frontend` to rebuild, runs migrations, then calls `docker compose up -d` (without `--no-deps`) so databases, queues, and all other infrastructure services start alongside the application containers.
+`--cold-start` forces all 11 Rust services and `frontend` to rebuild, runs migrations, then calls `docker compose up -d` (without `--no-deps`) so databases, queues, and all other infrastructure services start alongside the application containers.
 
 The watcher (`dev-stack-watch.sh`) automatically detects a stopped stack at startup and on each new-commit cycle, and passes `--cold-start` to the rebuild script when needed. The `COMPOSE_CMD` environment variable must be set (or accept the default) for cold-start detection to work correctly.
 
