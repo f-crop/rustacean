@@ -127,7 +127,8 @@ pub async fn session_events(
             "SELECT event_type, sequence, payload \
              FROM agents.agent_events \
              WHERE session_id = $1 AND sequence >= $2 \
-             ORDER BY sequence ASC",
+             ORDER BY sequence ASC \
+             LIMIT 10000",
         )
         .bind(session_id)
         .bind(from_seq)

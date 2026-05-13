@@ -5,7 +5,7 @@
 
 use utoipa::OpenApi;
 
-use crate::routes::agents::events_history;
+use crate::routes::agents::{events_history, events_ndjson};
 use crate::routes::{
     admin, agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github,
     health, ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete,
@@ -68,6 +68,7 @@ use crate::routes::{
         agents::session_queries::list_sessions,
         agents::events::session_events,
         events_history::session_events_history,
+        events_ndjson::session_log_ndjson,
         mcp::mcp_handler,
     ),
     components(

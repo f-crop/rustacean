@@ -69,6 +69,21 @@ struct EventRow {
 ///
 /// Streams every row in `agents.agent_events` for the given session as
 /// newline-delimited JSON ordered by `sequence ASC`.
+#[utoipa::path(
+    get,
+    path = "/v1/agents/sessions/{id}/log.ndjson",
+    params(
+        ("id" = uuid::Uuid, Path, description = "Session ID"),
+        ("raw" = Option<String>, Query, description = "Set to '1' to bypass redaction (requires admin scope)"),
+    ),
+    responses(
+        (status = 200, description = "NDJSON stream of session events", content_type = "application/x-ndjson"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Insufficient permissions to access this session"),
+        (status = 404, description = "Session not found"),
+    ),
+    tag = "agents"
+)]
 pub async fn session_log_ndjson(
     State(state): State<AppState>,
     Path(session_id): Path<Uuid>,
@@ -141,7 +156,14 @@ pub async fn session_log_ndjson(
         loop {
             match row_stream.try_next().await {
                 Ok(Some(row)) => {
-                    let mut line = serde_json::to_string(&row).unwrap_or_else(|_| "{}".to_owned());
+                    let Ok(mut line) = serde_json::to_string(&row) else {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            sequence = row.sequence,
+                            "failed to serialize event row; skipping"
+                        );
+                        continue;
+                    };
                     line.push('\n');
                     if sender
                         .send(Ok(axum::body::Bytes::from(line)))
