@@ -1,6 +1,8 @@
+import { Link } from "@tanstack/react-router";
 import type { SessionItem } from "@/api";
 import { formatApiError } from "@/lib/errors/api";
 import { formatTimestamp } from "@/components/activity/utils";
+import { routes } from "@/lib/routes";
 
 const STATUS_CELL_CLASS: Record<string, string> = {
   succeeded: "text-green-600 dark:text-green-400",
@@ -129,9 +131,14 @@ function SessionRow({ session, onDelete, deletingId }: SessionRowProps): JSX.Ele
   return (
     <tr className="border-b border-border last:border-0 hover:bg-muted/20">
       <td className="px-4 py-2">
-        <span className="font-mono text-xs text-muted-foreground" title={session.id}>
+        <Link
+          to={routes.agentSessionDetail}
+          params={{ sessionId: session.id }}
+          className="font-mono text-xs text-primary hover:underline"
+          title={session.id}
+        >
           {session.id.slice(0, 8)}…
-        </span>
+        </Link>
         {session.input_prompt_preview && (
           <p className="mt-0.5 max-w-[200px] truncate text-xs text-muted-foreground/70" title={session.input_prompt_preview}>
             {session.input_prompt_preview}

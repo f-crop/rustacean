@@ -13,6 +13,7 @@ export const routes = {
   codeWorkspace: "/repos/$repoId/code",
   activity: "/activity",
   agentExecution: "/agents/executions",
+  agentSessionDetail: "/agents/executions/$sessionId",
   adminGithub: "/admin/github",
   trace: "/trace/$traceId",
 } as const;
