@@ -16,6 +16,11 @@ printf '%s\n' "${RB_SSH_AUTHORIZED_KEYS}" > /home/loginuser/.ssh/authorized_keys
 chmod 600 /home/loginuser/.ssh/authorized_keys
 chown -R loginuser:loginuser /home/loginuser/.ssh
 
+# Ensure the shared credentials volume directory is writable by loginuser.
+# Docker creates named volumes as root; loginuser needs write access for
+# `claude /login` to persist .credentials.json.
+chown loginuser:loginuser "${CLAUDE_CONFIG_DIR:-/home/loginuser/.claude}" 2>/dev/null || true
+
 # Generate SSH host keys on first start (persist via named volume if desired).
 ssh-keygen -A
 
