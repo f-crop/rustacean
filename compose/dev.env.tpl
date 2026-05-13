@@ -65,3 +65,14 @@ RB_BASE_URL=http://localhost:15173
 # FRONTEND_HOST_PORT=15173
 # PGWEB_HOST_PORT=8081
 # KAFKA_UI_HOST_PORT=8082
+
+# ─────────────────────────────────────────────────────────────────────────────
+# claude-login SSH sidecar (required for OAuth / Max-plan auth)
+# ─────────────────────────────────────────────────────────────────────────────
+# One or more newline-separated SSH public keys written to authorized_keys in the
+# claude-login container. The entrypoint refuses to start sshd if this is empty
+# (security guard — prevents a passwordless-but-keyless SSH server).
+# In production: mount from a secret manager instead of hardcoding here.
+# Generate a key pair if you don't have one: ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_claude_login
+# Then paste the contents of ~/.ssh/id_ed25519_claude_login.pub below.
+# RB_SSH_AUTHORIZED_KEYS=ssh-ed25519 AAAA... user@host
