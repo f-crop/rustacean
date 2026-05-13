@@ -99,6 +99,21 @@ impl EventBus {
     ) -> EventStream {
         EventStream::new(Arc::clone(&self.0), tenant, last_event_id, cfg)
     }
+
+    /// Return a raw broadcast receiver for the tenant's event channel without
+    /// wrapping it in an [`EventStream`].
+    ///
+    /// Use this when you need to subscribe **before** performing a DB history
+    /// query so no live events are lost in the window between the DB read and
+    /// channel subscription (history-join race prevention).  The caller is
+    /// responsible for filtering by `session_id` and sequence number.
+    #[must_use]
+    pub fn subscribe_raw_for_tenant(
+        &self,
+        tenant: &TenantId,
+    ) -> tokio::sync::broadcast::Receiver<Arc<SseEnvelope>> {
+        self.0.subscribe_raw(tenant, None).0
+    }
 }
 
 // ---------------------------------------------------------------------------
