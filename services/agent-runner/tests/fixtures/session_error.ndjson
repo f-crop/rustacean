@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","cwd":"/workspace/tenant-abc/session-err","session_id":"sess-002","tools":[],"mcp_servers":[],"model":"claude-3-7-sonnet-20250219","permissionMode":"bypassPermissions","apiKeySource":"ANTHROPIC_API_KEY"}
+{"type":"user","message":{"id":"msg_user_01","type":"message","role":"user","content":[{"type":"text","text":"Analyze a 500,000 token document."}]},"session_id":"sess-002"}
+{"type":"assistant","message":{"id":"msg_asst_01","type":"message","role":"assistant","model":"claude-3-7-sonnet-20250219","content":[{"type":"thinking","thinking":"The user wants me to analyze a very large document. I'll try to process it."},{"type":"text","text":"I'll analyze the document now."}],"stop_reason":"max_tokens","usage":{"input_tokens":195000,"output_tokens":2048}},"session_id":"sess-002"}
+{"type":"result","subtype":"error_during_execution","is_error":true,"error":"Maximum output tokens reached before task completion.","session_id":"sess-002"}
