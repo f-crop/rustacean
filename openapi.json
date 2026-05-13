@@ -353,6 +353,16 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "from_sequence",
+            "in": "query",
+            "description": "Sequence number to replay history from",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -364,6 +374,65 @@
           },
           "403": {
             "description": "Insufficient permissions to access this session"
+          },
+          "404": {
+            "description": "Session not found"
+          }
+        }
+      }
+    },
+    "/v1/agents/sessions/{id}/events/history": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "`GET /v1/agents/sessions/{id}/events/history`",
+        "description": "Returns a paged slice of `agents.agent_events` for the given session.\nUses a `limit + 1` probe to determine whether a next page exists without\na separate COUNT query.",
+        "operationId": "session_events_history",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Exclusive lower bound on sequence (omit for beginning)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (default 100, max 500)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of events"
+          },
+          "400": {
+            "description": "Invalid limit parameter"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions"
           },
           "404": {
             "description": "Session not found"
@@ -2536,6 +2605,44 @@
           "dyn_candidate"
         ]
       },
+      "EventItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "tenant_id",
+          "event_type",
+          "sequence",
+          "payload",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payload": {},
+          "sequence": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "ForgotPasswordRequest": {
         "type": "object",
         "required": [
@@ -2626,6 +2733,27 @@
           },
           "stores": {
             "$ref": "#/components/schemas/StoreStatuses"
+          }
+        }
+      },
+      "HistoryResponse": {
+        "type": "object",
+        "required": [
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventItem"
+            }
+          },
+          "next_seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           }
         }
       },

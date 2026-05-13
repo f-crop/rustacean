@@ -10,6 +10,7 @@ use crate::routes::{
     health, ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete,
     tenants::members as tenant_members,
 };
+use crate::routes::agents::events_history;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -66,6 +67,7 @@ use crate::routes::{
         agents::session_queries::get_session,
         agents::session_queries::list_sessions,
         agents::events::session_events,
+        events_history::session_events_history,
         mcp::mcp_handler,
     ),
     components(
@@ -135,6 +137,8 @@ use crate::routes::{
             agents::session_queries::SessionItem,
             agents::session_queries::ListSessionsResponse,
             agents::session_queries::SessionDetail,
+            events_history::EventItem,
+            events_history::HistoryResponse,
         )
     ),
     tags(

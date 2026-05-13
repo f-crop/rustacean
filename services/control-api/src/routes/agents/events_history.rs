@@ -51,7 +51,7 @@ pub struct HistoryParams {
 // Response types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct EventItem {
     pub id: Uuid,
     pub session_id: Uuid,
@@ -62,7 +62,7 @@ pub struct EventItem {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct HistoryResponse {
     pub events: Vec<EventItem>,
     pub next_seq: Option<i64>,
