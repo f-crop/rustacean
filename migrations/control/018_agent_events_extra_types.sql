@@ -1,4 +1,4 @@
--- Control schema: Wave 12 — Live agent event stream (RUSAA-1315 / RUSAA-1308 Phase 1)
+-- Control schema: Wave 12 — Live agent event stream (RUSAA-1315)
 -- Adds session.user_input and session.error to the event_type CHECK constraint so that
 -- stream-json runtime events persisted by the new bulk-ingest endpoint are accepted.
 -- This migration is additive and backwards-compatible: existing event_type values are
