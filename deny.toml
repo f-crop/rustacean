@@ -19,7 +19,16 @@ confidence-threshold = 0.8
 
 [advisories]
 version = 2
-ignore = []
+ignore = [
+    # rustls-pemfile: unmaintained, no safe upgrade available — transitive via neo4rs
+    { id = "RUSTSEC-2025-0134" },
+    # backoff: unmaintained, no safe upgrade available
+    { id = "RUSTSEC-2025-0012" },
+    # instant: unmaintained, no safe upgrade available — transitive via various crates
+    { id = "RUSTSEC-2024-0384" },
+    # paste: unmaintained, no safe upgrade available
+    { id = "RUSTSEC-2024-0436" },
+]
 
 [bans]
 multiple-versions = "warn"
