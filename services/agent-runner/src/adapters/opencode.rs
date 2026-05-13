@@ -23,7 +23,10 @@ enum LlmMode {
 
 impl LlmMode {
     fn from_env() -> Result<Self> {
-        if let Some(base_url) = std::env::var("LITELLM_BASE_URL").ok().filter(|v| !v.is_empty()) {
+        if let Some(base_url) = std::env::var("LITELLM_BASE_URL")
+            .ok()
+            .filter(|v| !v.is_empty())
+        {
             let api_key = std::env::var("LITELLM_API_KEY")
                 .ok()
                 .filter(|v| !v.is_empty())
@@ -42,7 +45,11 @@ impl LlmMode {
                          CHAT_MODEL is required when LITELLM_BASE_URL is set"
                     )
                 })?;
-            Ok(Self::LiteLlm { base_url, api_key, model })
+            Ok(Self::LiteLlm {
+                base_url,
+                api_key,
+                model,
+            })
         } else if std::env::var("OPENCODE_API_BASE")
             .ok()
             .as_ref()
@@ -76,7 +83,11 @@ impl OpencodeAdapter {
         mode: &LlmMode,
     ) -> Result<()> {
         let config = match mode {
-            LlmMode::LiteLlm { base_url, api_key, model } => {
+            LlmMode::LiteLlm {
+                base_url,
+                api_key,
+                model,
+            } => {
                 // Dynamic model key requires manual Map construction — serde_json::json!
                 // does not support variable interpolation in object keys.
                 let mut models = serde_json::Map::new();
@@ -268,7 +279,10 @@ mod tests {
         }
 
         let mode = LlmMode::from_env().unwrap();
-        adapter().write_opencode_config(tmp.path(), &mode).await.unwrap();
+        adapter()
+            .write_opencode_config(tmp.path(), &mode)
+            .await
+            .unwrap();
         let cfg = read_config(&tmp);
 
         assert_eq!(cfg["$schema"], "https://opencode.ai/config.json");
