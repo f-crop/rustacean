@@ -23,21 +23,31 @@ enum LlmMode {
 
 impl LlmMode {
     fn from_env() -> Result<Self> {
-        if let Ok(base_url) = std::env::var("LITELLM_BASE_URL") {
-            let api_key = std::env::var("LITELLM_API_KEY").map_err(|_| {
-                anyhow::anyhow!(
-                    "error_kind=litellm_misconfigured: \
-                     LITELLM_API_KEY is required when LITELLM_BASE_URL is set"
-                )
-            })?;
-            let model = std::env::var("CHAT_MODEL").map_err(|_| {
-                anyhow::anyhow!(
-                    "error_kind=litellm_misconfigured: \
-                     CHAT_MODEL is required when LITELLM_BASE_URL is set"
-                )
-            })?;
+        if let Some(base_url) = std::env::var("LITELLM_BASE_URL").ok().filter(|v| !v.is_empty()) {
+            let api_key = std::env::var("LITELLM_API_KEY")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "error_kind=litellm_misconfigured: \
+                         LITELLM_API_KEY is required when LITELLM_BASE_URL is set"
+                    )
+                })?;
+            let model = std::env::var("CHAT_MODEL")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "error_kind=litellm_misconfigured: \
+                         CHAT_MODEL is required when LITELLM_BASE_URL is set"
+                    )
+                })?;
             Ok(Self::LiteLlm { base_url, api_key, model })
-        } else if std::env::var("OPENCODE_API_BASE").is_ok() {
+        } else if std::env::var("OPENCODE_API_BASE")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .is_some()
+        {
             Ok(Self::OpenAiCompatible)
         } else {
             Ok(Self::DirectProvider)
@@ -338,6 +348,32 @@ mod tests {
         assert!(
             err.to_string().contains("litellm_misconfigured"),
             "expected litellm_misconfigured, got: {err}"
+        );
+
+        // Cleanup
+        unsafe {
+            std::env::remove_var("LITELLM_BASE_URL");
+        }
+    }
+
+    // ── Empty-string regression ───────────────────────────────────────────────
+    // compose/dev.yml uses `${LITELLM_BASE_URL:-}` (empty default). An empty
+    // string must be treated as "not set" and resolve to DirectProvider, not
+    // LiteLlm mode.
+
+    #[tokio::test]
+    async fn empty_litellm_base_url_resolves_to_direct_provider() {
+        let _guard = ENV_LOCK.lock().await;
+        // SAFETY: ENV_LOCK serializes all env mutations across these tests.
+        unsafe {
+            std::env::set_var("LITELLM_BASE_URL", "");
+            std::env::remove_var("OPENCODE_API_BASE");
+        }
+
+        let mode = LlmMode::from_env().unwrap();
+        assert!(
+            matches!(mode, LlmMode::DirectProvider),
+            "empty LITELLM_BASE_URL should resolve to DirectProvider, got: {mode:?}"
         );
 
         // Cleanup
