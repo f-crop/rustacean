@@ -510,6 +510,25 @@ services:
       otel-collector:
         condition: service_started
 
+  claude-login:
+    build:
+      context: ..
+      dockerfile: docker/claude-login/Dockerfile
+    image: rustbrain/claude-login:dev
+    pull_policy: never
+    environment:
+      # Newline-separated SSH public keys written into authorized_keys at startup.
+      # In production, mount from a secret instead.
+      RB_SSH_AUTHORIZED_KEYS: "${RB_SSH_AUTHORIZED_KEYS:-}"
+      CLAUDE_CONFIG_DIR: /home/loginuser/.claude
+    ports:
+      - "${CLAUDE_SSH_HOST_PORT:-12222}:22"
+    volumes:
+      - claude-credentials:/home/loginuser/.claude
+    networks:
+      - rb-net
+    restart: unless-stopped
+
   agent-runner:
     build:
       context: ..
@@ -526,11 +545,16 @@ services:
       # claude / opencode subprocesses. Set per host (compose env file or
       # shell export) — never commit a real key.
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Path where claude CLI looks for credentials.json written by claude /login
+      # in the claude-login sidecar. Read-only mount prevents the spawned claude
+      # child from rewriting credentials via a tool-call injection path.
+      CLAUDE_CONFIG_DIR: /home/loginuser/.claude
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
       OTEL_SERVICE_NAME: agent-runner
       RUST_LOG: "info,agent_runner=debug"
     volumes:
       - agent-workspace-data:/data/agent-workspaces
+      - claude-credentials:/home/loginuser/.claude:ro
     networks:
       - rb-net
     depends_on:
@@ -611,3 +635,4 @@ volumes:
   caddy_data:
   blob-data:
   agent-workspace-data:
+  claude-credentials:
