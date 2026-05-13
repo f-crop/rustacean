@@ -1,1 +1,3 @@
-pub mod normalizer;
+mod normalizer;
+
+pub use normalizer::StreamJsonNormalizer;

@@ -1,7 +1,7 @@
 //! Integration tests for [`StreamJsonNormalizer`] driven by real NDJSON
 //! fixture files captured from `claude --output-format stream-json` sessions.
 
-use agent_runner::normalizer::StreamJsonNormalizer;
+use agent_runner::StreamJsonNormalizer;
 use rb_schemas::RuntimeEvent;
 
 fn normalize_fixture(filename: &str) -> Vec<RuntimeEvent> {
