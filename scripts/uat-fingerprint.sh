@@ -193,7 +193,7 @@ for topic in "${KAFKA_TOPICS[@]}"; do
 done
 
 if (( all_zero )); then
-  fail_field "sse_offsets — all Kafka topic offsets are 0; no messages produced (mocked run has no live broker)"
+  fail_field "sse_offsets — all Kafka topic offsets are 0; run a full pipeline ingest before collecting a fingerprint (offsets reset after 'docker compose down -v' or first start)"
 fi
 
 SSE_OFFSETS_JSON=$(python3 -c "
@@ -254,11 +254,15 @@ PYEOF
 
 if [ "${VERDICT_FAILED}" -ne 0 ]; then
   log "FINGERPRINT INVALID (verdict=fail) — required fields missing."
-  log "A mocked or stubbed stack cannot produce a valid fingerprint:"
-  log "  - Containers must be running (docker inspect requires real containers)"
-  log "  - DB counts must be non-zero (requires a completed real ingest)"
-  log "  - Kafka offsets must be non-zero (requires real message production)"
-  log "  - trace_ids must be present (requires live OTEL propagation)"
+  log "All four conditions must hold for a valid fingerprint:"
+  log "  - Containers running    : docker inspect finds real containers (stack must be up)"
+  log "  - DB counts non-zero    : code_symbols > 0 (a real ingest must have completed)"
+  log "  - Kafka offsets non-zero: at least one sse_offset > 0"
+  log "                            -> If all offsets are 0 after 'docker compose down -v' or"
+  log "                               first start, run a full pipeline ingest then re-collect."
+  log "                               The kafka_data volume preserves offsets across normal"
+  log "                               restarts; only 'down -v' resets them."
+  log "  - trace_ids present     : requires live OTEL propagation (real ingestion_runs rows)"
   exit 1
 fi
 
