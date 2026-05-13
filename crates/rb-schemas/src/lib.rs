@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-pub mod stream_json;
+mod stream_json;
 pub use stream_json::RuntimeEvent;
 
 mod ingest {
