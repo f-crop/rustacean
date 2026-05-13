@@ -107,7 +107,8 @@ mod tests {
             text: "Hello, world!".into(),
         };
         assert_eq!(roundtrip(&ev), ev);
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(v["type"], "text");
         assert_eq!(v["text"], "Hello, world!");
     }
@@ -118,7 +119,8 @@ mod tests {
             thinking: "Let me reason about this...".into(),
         };
         assert_eq!(roundtrip(&ev), ev);
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(v["type"], "thinking");
         assert_eq!(v["thinking"], "Let me reason about this...");
     }
@@ -131,7 +133,8 @@ mod tests {
             input: json!({"path": "src/main.rs"}),
         };
         assert_eq!(roundtrip(&ev), ev);
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(v["type"], "tool_use");
         assert_eq!(v["id"], "toolu_01AbCd");
         assert_eq!(v["name"], "read_file");
@@ -146,7 +149,8 @@ mod tests {
             is_error: false,
         };
         assert_eq!(roundtrip(&ev), ev);
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(v["type"], "tool_result");
         assert_eq!(v["tool_use_id"], "toolu_01AbCd");
         assert!(!v["is_error"].as_bool().unwrap());
@@ -160,7 +164,8 @@ mod tests {
             is_error: true,
         };
         assert_eq!(roundtrip(&ev), ev);
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert!(v["is_error"].as_bool().unwrap());
     }
 
@@ -171,7 +176,8 @@ mod tests {
             code: Some("context_limit".into()),
         };
         assert_eq!(roundtrip(&ev), ev);
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(v["type"], "error");
         assert_eq!(v["message"], "Context window exceeded");
         assert_eq!(v["code"], "context_limit");
@@ -184,7 +190,8 @@ mod tests {
             code: None,
         };
         assert_eq!(roundtrip(&ev), ev);
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(v["type"], "error");
         // `code` must be absent when None (skip_serializing_if)
         assert!(v.get("code").is_none() || v["code"].is_null());
@@ -196,7 +203,8 @@ mod tests {
             text: "What is 2 + 2?".into(),
         };
         assert_eq!(roundtrip(&ev), ev);
-        let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(v["type"], "user_input");
         assert_eq!(v["text"], "What is 2 + 2?");
     }
@@ -209,7 +217,9 @@ mod tests {
 
     #[test]
     fn kind_mapping_thinking() {
-        let ev = RuntimeEvent::Thinking { thinking: "...".into() };
+        let ev = RuntimeEvent::Thinking {
+            thinking: "...".into(),
+        };
         assert_eq!(ev.kind(), AgentEventKind::Thinking);
     }
 
@@ -244,7 +254,9 @@ mod tests {
 
     #[test]
     fn kind_mapping_user_input() {
-        let ev = RuntimeEvent::UserInput { text: "hello".into() };
+        let ev = RuntimeEvent::UserInput {
+            text: "hello".into(),
+        };
         assert_eq!(ev.kind(), AgentEventKind::UserInput);
     }
 
