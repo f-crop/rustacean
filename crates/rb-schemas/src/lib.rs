@@ -1,5 +1,8 @@
 use uuid::Uuid;
 
+pub mod stream_json;
+pub use stream_json::RuntimeEvent;
+
 mod ingest {
     #![allow(clippy::all, clippy::pedantic, dead_code)]
     include!(concat!(env!("OUT_DIR"), "/rust_brain.v1.rs"));

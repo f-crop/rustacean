@@ -18,8 +18,16 @@ enum AgentEventKind {
   AGENT_EVENT_KIND_STARTED     = 1;
   AGENT_EVENT_KIND_STDOUT      = 2;
   AGENT_EVENT_KIND_STDERR      = 3;
+  // Process-level error (spawn failure, I/O error, timeout).
   AGENT_EVENT_KIND_ERROR       = 4;
   AGENT_EVENT_KIND_TERMINATED  = 5;
+
+  // stream-json derived event kinds — emitted by `claude --output-format stream-json`:
+  AGENT_EVENT_KIND_TEXT        = 6;  // assistant text content block
+  AGENT_EVENT_KIND_THINKING    = 7;  // extended thinking block
+  AGENT_EVENT_KIND_TOOL_USE    = 8;  // tool invocation by the assistant
+  AGENT_EVENT_KIND_TOOL_RESULT = 9;  // tool result returned to the assistant
+  AGENT_EVENT_KIND_USER_INPUT  = 10; // user input relayed into the session
 }
 
 enum AgentErrorCategory {
