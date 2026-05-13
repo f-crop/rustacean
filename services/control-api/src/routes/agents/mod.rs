@@ -1,6 +1,7 @@
 //! Agent execution routes (ADR-009 Option B — process-spawning via rb-agent-runner).
 
 pub mod events;
+pub mod events_history;
 pub mod events_ingest;
 pub mod events_ndjson;
 pub mod session_lifecycle;
@@ -8,6 +9,7 @@ pub mod session_queries;
 pub mod sessions;
 
 pub use events::session_events;
+pub use events_history::session_events_history;
 pub use events_ingest::ingest_session_events;
 pub use events_ndjson::session_log_ndjson;
 pub use session_queries::{get_session, list_sessions};

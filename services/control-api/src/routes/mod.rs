@@ -26,7 +26,8 @@ use crate::routes::{
     admin::github::{get_app_callback, get_app_status, post_app_manifest},
     agents::{
         create_session, delete_session, delete_session_api_key, get_session, ingest_session_events,
-        list_sessions, patch_session_status, session_events, session_log_ndjson,
+        list_sessions, patch_session_status, session_events, session_events_history,
+        session_log_ndjson,
     },
     api_keys::{create_api_key, list_api_keys, revoke_api_key},
     audit::list_audit_events,
@@ -146,6 +147,10 @@ pub fn build_public(state: AppState) -> Router {
             get(get_session).delete(delete_session),
         )
         .route("/v1/agents/sessions/{id}/events", get(session_events))
+        .route(
+            "/v1/agents/sessions/{id}/events/history",
+            get(session_events_history),
+        )
         .route(
             "/v1/agents/sessions/{id}/log.ndjson",
             get(session_log_ndjson),
