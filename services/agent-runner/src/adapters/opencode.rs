@@ -45,8 +45,8 @@ impl LlmMode {
             Ok(Self::LiteLlm { base_url, api_key, model })
         } else if std::env::var("OPENCODE_API_BASE")
             .ok()
-            .filter(|v| !v.is_empty())
-            .is_some()
+            .as_ref()
+            .is_some_and(|v| !v.is_empty())
         {
             Ok(Self::OpenAiCompatible)
         } else {
