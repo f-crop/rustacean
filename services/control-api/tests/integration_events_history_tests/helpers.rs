@@ -210,11 +210,7 @@ pub fn history_uri(session_id: Uuid) -> String {
     format!("/v1/agents/sessions/{session_id}/events/history")
 }
 
-pub fn history_uri_with_params(
-    session_id: Uuid,
-    after: Option<i64>,
-    limit: Option<i64>,
-) -> String {
+pub fn history_uri_with_params(session_id: Uuid, after: Option<i64>, limit: Option<i64>) -> String {
     let mut uri = history_uri(session_id);
     let mut parts: Vec<String> = vec![];
     if let Some(a) = after {

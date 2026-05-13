@@ -5,12 +5,12 @@
 
 use utoipa::OpenApi;
 
+use crate::routes::agents::events_history;
 use crate::routes::{
     admin, agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github,
     health, ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete,
     tenants::members as tenant_members,
 };
-use crate::routes::agents::events_history;
 
 #[derive(OpenApi)]
 #[openapi(

@@ -18,7 +18,9 @@ use serde_json::Value;
 use tower::ServiceExt as _;
 
 use control_api::build_public;
-use helpers::{history_uri, history_uri_with_params, insert_fixtures, insert_n_events, real_db_state};
+use helpers::{
+    history_uri, history_uri_with_params, insert_fixtures, insert_n_events, real_db_state,
+};
 
 // ---------------------------------------------------------------------------
 // AC1 — 401 when no auth header / cookie
