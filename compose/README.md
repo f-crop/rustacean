@@ -116,9 +116,20 @@ Full documentation: [docs/dev-stack-auto-rebuild.md](../docs/dev-stack-auto-rebu
 ## Tear down
 
 ```bash
-# Stop (preserves volumes — migrations stay applied)
+# Stop (preserves volumes — migrations stay applied, Kafka offsets retained)
 docker compose -f compose/dev.yml down
 
 # Full reset (drops volumes — migrations will re-run on next up)
 docker compose -f compose/dev.yml down -v
 ```
+
+> **WARNING — mars / deployment-fingerprint gate**: `down -v` deletes the
+> `kafka_data` Docker volume, which resets all Kafka topic log-end offsets to
+> zero.  The deployment-fingerprint gate (`scripts/uat-fingerprint.sh`) requires
+> at least one `sse_offset > 0`; after a volume-clearing reset you **must** run
+> a full pipeline ingest before collecting a fingerprint, otherwise the gate will
+> fail with "all Kafka topic offsets are 0".
+>
+> On mars, prefer the plain `down` (no `-v`) for routine restarts.  Only use
+> `down -v` when you intentionally want to wipe all state and are prepared to
+> re-ingest before the next deployment-fingerprint collection.
