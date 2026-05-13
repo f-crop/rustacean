@@ -58,7 +58,11 @@ pub struct JsonRpcResponse {
 impl JsonRpcResponse {
     #[must_use]
     pub fn ok(id: Option<serde_json::Value>, result: serde_json::Value) -> Self {
-        Self { jsonrpc: JSONRPC_VERSION, id, result }
+        Self {
+            jsonrpc: JSONRPC_VERSION,
+            id,
+            result,
+        }
     }
 }
 
@@ -75,7 +79,11 @@ impl JsonRpcErrorResponse {
         Self {
             jsonrpc: JSONRPC_VERSION,
             id,
-            error: JsonRpcError { code, message: message.into(), data: None },
+            error: JsonRpcError {
+                code,
+                message: message.into(),
+                data: None,
+            },
         }
     }
 }

@@ -448,7 +448,8 @@ mod tests {
     /// Minimal 2048-bit RSA private key fixture for `try_build_gh_app` tests.
     /// Generated once with `openssl genrsa 2048` and committed here so the
     /// test does not shell out at runtime.
-    const TEST_RSA_PEM: &str = /* gitleaks:allow */ "-----BEGIN RSA PRIVATE KEY-----\n\
+    const TEST_RSA_PEM: &str = /* gitleaks:allow */
+        "-----BEGIN RSA PRIVATE KEY-----\n\
 MIIEowIBAAKCAQEAtm5VskdYukSx2KsOZ24Sb1m+EtFsi3PtvR58dxhcN4UISKtm\n\
 WjE+wXymvNkN0YHaZJjJzo2Y/N79Zhxn1m6Ywda4ZWAJV3IIYZbk6BByv8mhVgGQ\n\
 1qFTsCdH/CdMzqj+vfk3rvf3YyMaJOZ/+xtmVKMHcmGtFMu8MDmZbeP1aanCkVm8\n\

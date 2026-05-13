@@ -142,9 +142,7 @@ impl Config {
             gh_app_webhook_secret: env::var("RB_GH_APP_WEBHOOK_SECRET")
                 .ok()
                 .filter(|s| !s.is_empty()),
-            gh_app_enc_key_b64: env::var("RB_GH_APP_ENC_KEY")
-                .ok()
-                .filter(|s| !s.is_empty()),
+            gh_app_enc_key_b64: env::var("RB_GH_APP_ENC_KEY").ok().filter(|s| !s.is_empty()),
             gh_api_base: env::var("RB_GH_API_BASE")
                 .unwrap_or_else(|_| rb_github::DEFAULT_GITHUB_API_BASE.to_owned()),
             neo4j_uri: env::var("RB_NEO4J_URI").ok().filter(|s| !s.is_empty()),
@@ -379,18 +377,14 @@ mod tests {
     #[test]
     fn validate_gh_app_enc_key_correct_length_passes() {
         let mut c = base();
-        c.gh_app_enc_key_b64 = Some(
-            base64::engine::general_purpose::STANDARD.encode([0u8; 32]),
-        );
+        c.gh_app_enc_key_b64 = Some(base64::engine::general_purpose::STANDARD.encode([0u8; 32]));
         assert!(c.validate().is_ok());
     }
 
     #[test]
     fn validate_gh_app_enc_key_wrong_length_fails() {
         let mut c = base();
-        c.gh_app_enc_key_b64 = Some(
-            base64::engine::general_purpose::STANDARD.encode([0u8; 16]),
-        );
+        c.gh_app_enc_key_b64 = Some(base64::engine::general_purpose::STANDARD.encode([0u8; 16]));
         let err = c.validate().expect_err("must reject 16-byte key");
         assert!(err.to_string().contains("32 bytes"));
     }

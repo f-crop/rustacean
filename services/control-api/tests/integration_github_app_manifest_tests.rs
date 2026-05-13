@@ -69,18 +69,24 @@ const TEST_RSA_KEY_BODY: &str = concat!(
 );
 
 fn test_rsa_pem() -> String {
-    format!(
-        "-----BEGIN RSA PRIVATE KEY-----\n{TEST_RSA_KEY_BODY}\n-----END RSA PRIVATE KEY-----\n"
-    )
+    format!("-----BEGIN RSA PRIVATE KEY-----\n{TEST_RSA_KEY_BODY}\n-----END RSA PRIVATE KEY-----\n")
 }
 
 /// Build a `Config` keyed to a real Postgres URL. Returns `None` when
 /// `RB_DATABASE_URL` is unset so the test silently no-ops in CI without infra.
 fn build_test_config(db_url: String, enc_key_b64: String) -> Config {
-    build_test_config_with_api_base(db_url, enc_key_b64, rb_github::DEFAULT_GITHUB_API_BASE.to_owned())
+    build_test_config_with_api_base(
+        db_url,
+        enc_key_b64,
+        rb_github::DEFAULT_GITHUB_API_BASE.to_owned(),
+    )
 }
 
-fn build_test_config_with_api_base(db_url: String, enc_key_b64: String, gh_api_base: String) -> Config {
+fn build_test_config_with_api_base(
+    db_url: String,
+    enc_key_b64: String,
+    gh_api_base: String,
+) -> Config {
     Config {
         listen_addr: "127.0.0.1:0".to_owned(),
         database_url: db_url,
@@ -228,12 +234,11 @@ async fn cleanup(pool: &PgPool, user_id: Uuid) {
         .bind(user_id)
         .execute(pool)
         .await;
-    let _ = sqlx::query(
-        "DELETE FROM control.github_manifest_states WHERE initiated_by_user_id = $1",
-    )
-    .bind(user_id)
-    .execute(pool)
-    .await;
+    let _ =
+        sqlx::query("DELETE FROM control.github_manifest_states WHERE initiated_by_user_id = $1")
+            .bind(user_id)
+            .execute(pool)
+            .await;
     let _ = sqlx::query("DELETE FROM control.sessions WHERE user_id = $1")
         .bind(user_id)
         .execute(pool)

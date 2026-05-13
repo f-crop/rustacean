@@ -25,8 +25,8 @@ use crate::middleware::internal_auth::require_internal_secret;
 use crate::routes::{
     admin::github::{get_app_callback, get_app_status, post_app_manifest},
     agents::{
-        create_session, delete_session, delete_session_api_key, get_session, list_sessions,
-        patch_session_status, session_events,
+        create_session, delete_session, delete_session_api_key, get_session, ingest_session_events,
+        list_sessions, patch_session_status, session_events,
     },
     api_keys::{create_api_key, list_api_keys, revoke_api_key},
     audit::list_audit_events,
@@ -159,6 +159,10 @@ pub fn build_internal(state: AppState) -> Router {
         .route(
             "/internal/agent/sessions/{id}/api-key",
             delete(delete_session_api_key),
+        )
+        .route(
+            "/internal/agent/sessions/{id}/events",
+            post(ingest_session_events),
         )
         .route_layer(from_fn_with_state(state.clone(), require_internal_secret))
         .with_state(state)

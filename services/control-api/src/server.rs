@@ -268,8 +268,9 @@ async fn resolve_gh_app(config: &Config, pool: &sqlx::PgPool) -> Result<Option<G
                 // Surface as boot failure: if the store is reachable but a
                 // row is corrupted, we do not want to silently fall through
                 // to env vars and confuse the operator.
-                return Err(anyhow::anyhow!(e)
-                    .context("failed to load active github_app_config row"));
+                return Err(
+                    anyhow::anyhow!(e).context("failed to load active github_app_config row")
+                );
             }
         }
     }

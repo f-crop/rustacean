@@ -49,7 +49,9 @@ impl InitializeResult {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
             },
             capabilities: ServerCapabilities {
-                tools: ToolsCapability { list_changed: false },
+                tools: ToolsCapability {
+                    list_changed: false,
+                },
             },
         }
     }
@@ -176,11 +178,17 @@ pub struct ToolCallResult {
 
 impl ToolCallResult {
     pub fn success(text: impl Into<String>) -> Self {
-        Self { content: vec![ToolContent::text(text)], is_error: None }
+        Self {
+            content: vec![ToolContent::text(text)],
+            is_error: None,
+        }
     }
 
     pub fn error(text: impl Into<String>) -> Self {
-        Self { content: vec![ToolContent::text(text)], is_error: Some(true) }
+        Self {
+            content: vec![ToolContent::text(text)],
+            is_error: Some(true),
+        }
     }
 }
 
@@ -193,7 +201,10 @@ pub struct ToolContent {
 
 impl ToolContent {
     pub fn text(s: impl Into<String>) -> Self {
-        Self { content_type: "text".to_owned(), text: s.into() }
+        Self {
+            content_type: "text".to_owned(),
+            text: s.into(),
+        }
     }
 }
 

@@ -69,7 +69,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         gh_app_private_key_b64: None,
         gh_app_webhook_secret: None,
         gh_app_enc_key_b64: None,
-            gh_api_base: rb_github::DEFAULT_GITHUB_API_BASE.to_owned(),
+        gh_api_base: rb_github::DEFAULT_GITHUB_API_BASE.to_owned(),
         neo4j_uri: None,
         neo4j_user: "neo4j".to_owned(),
         neo4j_password: None,
