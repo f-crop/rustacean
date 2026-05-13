@@ -188,6 +188,27 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/agents/sessions/{id}/log.ndjson": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * `GET /v1/agents/sessions/{id}/log.ndjson`
+         * @description Streams every row in `agents.agent_events` for the given session as
+         *     newline-delimited JSON ordered by `sequence ASC`.
+         */
+        readonly get: operations["session_log_ndjson"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/api-keys": {
         readonly parameters: {
             readonly query?: never;
@@ -2138,6 +2159,53 @@ export interface operations {
                 content?: never;
             };
             /** @description Insufficient permissions */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly session_log_ndjson: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Set to '1' to bypass redaction (requires admin scope) */
+                readonly raw?: string;
+            };
+            readonly header?: never;
+            readonly path: {
+                /** @description Session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description NDJSON stream of session events */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/x-ndjson": unknown;
+                };
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient permissions to access this session */
             readonly 403: {
                 headers: {
                     readonly [name: string]: unknown;

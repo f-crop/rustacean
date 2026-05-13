@@ -440,6 +440,54 @@
         }
       }
     },
+    "/v1/agents/sessions/{id}/log.ndjson": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "`GET /v1/agents/sessions/{id}/log.ndjson`",
+        "description": "Streams every row in `agents.agent_events` for the given session as\nnewline-delimited JSON ordered by `sequence ASC`.",
+        "operationId": "session_log_ndjson",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "raw",
+            "in": "query",
+            "description": "Set to '1' to bypass redaction (requires admin scope)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "NDJSON stream of session events",
+            "content": {
+              "application/x-ndjson": {}
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Insufficient permissions to access this session"
+          },
+          "404": {
+            "description": "Session not found"
+          }
+        }
+      }
+    },
     "/v1/api-keys": {
       "get": {
         "tags": [
