@@ -80,7 +80,22 @@ function AdminGithubPageInner(): JSX.Element {
   const onInitiate = async () => {
     try {
       const result = await manifest.mutateAsync({ name: null });
-      window.location.href = result.redirect_url;
+      const url = new URL(result.redirect_url);
+      const manifestJson = url.searchParams.get('manifest') ?? '';
+      url.searchParams.delete('manifest');
+
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = url.toString();
+
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'manifest';
+      input.value = manifestJson;
+      form.appendChild(input);
+
+      document.body.appendChild(form);
+      form.submit();
     } catch (error) {
       toast.error(formatApiError(error, "Could not initiate manifest registration."));
     }
