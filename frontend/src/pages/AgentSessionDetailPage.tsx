@@ -8,7 +8,7 @@ import { routes } from "@/lib/routes";
 import { formatTimestamp } from "@/components/activity/utils";
 import { formatApiError } from "@/lib/errors/api";
 
-const AGENT_SESSION_EVENT_TYPES = ["message"] as const;
+const AGENT_SESSION_EVENT_TYPES = ["session.event", "session.error"] as const;
 
 export function AgentSessionDetailPage(): JSX.Element {
   const me = useMe({ retry: false });
