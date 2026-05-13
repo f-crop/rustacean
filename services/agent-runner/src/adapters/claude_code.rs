@@ -24,10 +24,10 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
         // Auth mode: prefer ANTHROPIC_API_KEY (direct API key); if absent, require
         // credentials.json written by `claude /login` in the SSH sidecar (OAuth/Max mode).
         let anthropic_key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
+        let ro_config_dir = std::env::var("CLAUDE_CONFIG_DIR")
+            .unwrap_or_else(|_| DEFAULT_CLAUDE_CONFIG_DIR.to_string());
         if anthropic_key.is_empty() {
-            let config_dir = std::env::var("CLAUDE_CONFIG_DIR")
-                .unwrap_or_else(|_| DEFAULT_CLAUDE_CONFIG_DIR.to_string());
-            let creds = std::path::PathBuf::from(&config_dir).join("credentials.json");
+            let creds = std::path::PathBuf::from(&ro_config_dir).join("credentials.json");
             if !creds.exists() {
                 anyhow::bail!(
                     "claude_not_logged_in: {} not found. \
@@ -41,9 +41,28 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             .await
             .context("Failed to write MCP config")?;
 
+        // The shared credentials volume is mounted read-only to prevent the
+        // spawned claude child from rewriting credentials.  Create a per-session
+        // writable config directory and copy credential files into it so the CLI
+        // can write session state (.claude.json) without hitting EROFS.
+        let session_config = ctx.workspace_path.join(".claude-config");
+        tokio::fs::create_dir_all(&session_config)
+            .await
+            .context("Failed to create session config dir")?;
+        let ro_dir = std::path::PathBuf::from(&ro_config_dir);
+        for name in [".credentials.json", "credentials.json", ".claude.json"] {
+            let src = ro_dir.join(name);
+            if tokio::fs::metadata(&src).await.is_ok() {
+                tokio::fs::copy(&src, session_config.join(name))
+                    .await
+                    .with_context(|| format!("Failed to copy {name} to session config"))?;
+            }
+        }
+
         let mut cmd = build_base_command("claude", &ctx.workspace_path);
-        cmd.args(["-p", "--output-format", "stream-json"])
+        cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
             .arg("--dangerously-skip-permissions")
+            .env("CLAUDE_CONFIG_DIR", &session_config)
             .env("RB_AGENT_API_KEY", &ctx.api_key)
             .env("RB_AGENT_TENANT_ID", &ctx.tenant_id);
 
