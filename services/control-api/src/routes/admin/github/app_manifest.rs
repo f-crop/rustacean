@@ -116,10 +116,7 @@ pub fn build_manifest_payload(base_url: &str, name: &str) -> serde_json::Value {
             "contents": "read",
             "metadata": "read",
         },
-        "default_events": [
-            "installation",
-            "installation_repositories",
-        ],
+        "default_events": [],
     })
 }
 
@@ -164,7 +161,6 @@ mod tests {
         let events = m["default_events"]
             .as_array()
             .expect("default_events array");
-        assert!(events.iter().any(|e| e == "installation"));
-        assert!(events.iter().any(|e| e == "installation_repositories"));
+        assert!(events.is_empty(), "installation/installation_repositories must not appear in default_events");
     }
 }
