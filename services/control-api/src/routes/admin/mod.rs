@@ -4,3 +4,4 @@
 //! intentionally separate from per-tenant administration (`tenants/role.rs`).
 
 pub mod github;
+pub mod partition_maintenance;

@@ -24,6 +24,7 @@ use axum::{
 use crate::middleware::internal_auth::require_internal_secret;
 use crate::routes::{
     admin::github::{get_app_callback, get_app_status, post_app_manifest},
+    admin::partition_maintenance::partition_maintenance,
     agents::{
         create_session, delete_session, delete_session_api_key, get_session, ingest_session_events,
         list_sessions, patch_session_status, session_events, session_events_history,
@@ -172,6 +173,11 @@ pub fn build_internal(state: AppState) -> Router {
         .route(
             "/internal/agent/sessions/{id}/events",
             post(ingest_session_events),
+        )
+        // Nightly partition maintenance: seed upcoming partitions + prune expired ones.
+        .route(
+            "/internal/admin/partition-maintenance",
+            post(partition_maintenance),
         )
         .route_layer(from_fn_with_state(state.clone(), require_internal_secret))
         .with_state(state)
