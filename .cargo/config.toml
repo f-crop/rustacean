@@ -1,0 +1,29 @@
+# ── Cargo workspace configuration ─────────────────────────────────────────────
+# Memory-cap strategy: prevents rust-lld fanout that OOM-kills the Paperclip
+# Node server when multiple agent heartbeats compile in parallel.
+#
+# Levers applied in this file (workspace-level, applies to CI too):
+#   1. debug = "line-tables-only" — smallest debug info; cuts lld RSS ~40%
+#
+# Levers applied user-level only (written by scripts/setup-mold.sh on mars):
+#   2. jobs = 1        — one codegen unit / linker invocation per cargo call
+#   3. mold linker     — peaks at ~200MB vs rust-lld's ~1.4GB per invocation
+#
+# jobs = 1 lives in ~/.cargo/config.toml so CI runners keep parallel builds.
+# ──────────────────────────────────────────────────────────────────────────────
+
+[profile.dev]
+# Emit only line-number tables instead of full DWARF; sufficient for backtraces
+# and most debugger workflows.  Reduces lld input size ≈40% → proportional RSS drop.
+debug = "line-tables-only"
+
+[profile.test]
+# Inherit from dev; explicitly stated so the reduction applies to `cargo test` as well.
+debug = "line-tables-only"
+
+# ── Linker (mars dev environment only) ────────────────────────────────────────
+# The [target.x86_64-unknown-linux-gnu] linker override for mold lives in
+# ~/.cargo/config.toml on the mars machine, written by scripts/setup-mold.sh.
+# It is NOT in this workspace file so that GitHub Actions runners (ubuntu-latest,
+# no mold at the hardcoded ~/.local/bin path) are not affected.
+# Run:  bash scripts/setup-mold.sh   to install mold and configure it per-user.
