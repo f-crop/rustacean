@@ -1,16 +1,29 @@
 //! `GET /v1/agents/sessions/{id}/events` — SSE live event stream (ADR-009 §5).
+//!
+//! When `?from_sequence=<n>` is supplied the endpoint delivers a gap-free
+//! history-join stream:
+//!
+//!  1. Subscribe to the live broadcast bus **before** querying the DB so events
+//!     published in the query window are buffered in the channel (race prevention).
+//!  2. Fetch all `agents.agent_events` rows with `sequence >= from_sequence`.
+//!  3. Emit the historical rows as SSE events (same JSON envelope as live frames).
+//!  4. Switch to the live broadcast receiver, skipping any frames whose sequence
+//!     number is already covered by the history batch (deduplication).
+//!
+//! For sessions that are already in a terminal state (`completed`/`failed`):
+//! emit history, then send a synthetic `session.completed` event and close.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     response::{
         IntoResponse,
         sse::{KeepAlive, Sse},
     },
 };
-use futures::stream;
 use rb_schemas::TenantId;
-use rb_sse::{EventId, SseEnvelope};
+use rb_sse::EventId;
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
@@ -21,10 +34,31 @@ use crate::{
 
 use super::session_lifecycle::{LIVE_STATUSES, TERMINAL_STATUSES};
 
+mod stream;
+use stream::{HistoryEventRow, history_join_stream, sse_error_response, terminal_history_stream};
+
+// ---------------------------------------------------------------------------
+// Query parameters
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Default)]
+pub struct EventsParams {
+    /// When present, replay all DB events with `sequence >= from_sequence` before
+    /// switching to the live fan-out.  Absent → pure live stream (existing behaviour).
+    pub from_sequence: Option<i64>,
+}
+
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
+
 #[utoipa::path(
     get,
     path = "/v1/agents/sessions/{id}/events",
-    params(("id" = Uuid, Path, description = "Session ID")),
+    params(
+        ("id" = Uuid, Path, description = "Session ID"),
+        ("from_sequence" = Option<i64>, Query, description = "Sequence number to replay history from"),
+    ),
     responses(
         (status = 200, description = "SSE stream"),
         (status = 401, description = "Authentication required"),
@@ -36,6 +70,7 @@ use super::session_lifecycle::{LIVE_STATUSES, TERMINAL_STATUSES};
 pub async fn session_events(
     State(state): State<AppState>,
     Path(session_id): Path<Uuid>,
+    Query(params): Query<EventsParams>,
     auth: AuthContext,
     headers: HeaderMap,
 ) -> Result<axum::response::Response, AppError> {
@@ -76,9 +111,55 @@ pub async fn session_events(
         return Err(AppError::InsufficientRole);
     }
 
-    if LIVE_STATUSES.contains(&status.as_str()) {
-        let tenant_id = TenantId::from(caller_tenant_id);
+    let tenant_id = TenantId::from(caller_tenant_id);
 
+    // -----------------------------------------------------------------------
+    // History-join path: `?from_sequence=<n>` was supplied
+    // -----------------------------------------------------------------------
+    if let Some(from_seq) = params.from_sequence {
+        // 1. Subscribe to live bus BEFORE querying the DB so we don't miss
+        //    events published in the window between the DB read and channel
+        //    subscription (closing the race).
+        let live_rx = state.sse_bus.subscribe_raw_for_tenant(&tenant_id);
+
+        // 2. Fetch DB history.
+        let history: Vec<HistoryEventRow> = sqlx::query_as(
+            "SELECT event_type, sequence, payload \
+             FROM agents.agent_events \
+             WHERE session_id = $1 AND sequence >= $2 \
+             ORDER BY sequence ASC \
+             LIMIT 10000",
+        )
+        .bind(session_id)
+        .bind(from_seq)
+        .fetch_all(&state.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("DB error fetching history in session_events: {e}");
+            AppError::Internal(anyhow::anyhow!("DB query failed"))
+        })?;
+
+        let max_seq = history
+            .last()
+            .map_or(from_seq.saturating_sub(1), |r| r.sequence);
+
+        if TERMINAL_STATUSES.contains(&status.as_str()) {
+            return Ok(terminal_history_stream(session_id, &history, &status));
+        }
+
+        if LIVE_STATUSES.contains(&status.as_str()) {
+            let inner = history_join_stream(session_id, history, max_seq, live_rx);
+            let keepalive = KeepAlive::new().interval(std::time::Duration::from_secs(30));
+            return Ok(Sse::new(inner).keep_alive(keepalive).into_response());
+        }
+
+        return Err(AppError::SessionNotRunning);
+    }
+
+    // -----------------------------------------------------------------------
+    // Original path: no `from_sequence`
+    // -----------------------------------------------------------------------
+    if LIVE_STATUSES.contains(&status.as_str()) {
         let last_event_id = headers
             .get("last-event-id")
             .and_then(|v| v.to_str().ok())
@@ -98,23 +179,18 @@ pub async fn session_events(
     Err(AppError::SessionNotRunning)
 }
 
-fn sse_error_response(status: &str) -> axum::response::Response {
-    let error_data = serde_json::json!({
-        "error": "session_not_running",
-        "status": status,
-        "message": format!("session is in terminal state: {status}")
-    });
-    let envelope = SseEnvelope::new("session.error", error_data.to_string());
-    let event = envelope.to_axum_event();
-    let one_shot = stream::once(async move { Ok::<_, std::convert::Infallible>(event) });
-    let keepalive = KeepAlive::new().interval(std::time::Duration::from_secs(30));
-    Sse::new(one_shot).keep_alive(keepalive).into_response()
-}
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::*;
     use crate::middleware::auth::{ApiKeyInfo, SessionInfo};
+
+    // ── Auth guard unit tests ─────────────────────────────────────────────
 
     fn make_session(user_id: Uuid, tenant_id: Uuid, verified: bool) -> SessionInfo {
         SessionInfo {
@@ -259,27 +335,17 @@ mod tests {
         assert!(!is_owner);
     }
 
-    #[tokio::test]
-    async fn sse_error_response_contains_status() {
-        let response = sse_error_response("terminated");
-        let (parts, body) = response.into_parts();
-        assert_eq!(
-            parts
-                .headers
-                .get("content-type")
-                .map(|v| v.to_str().unwrap()),
-            Some("text/event-stream")
-        );
+    #[test]
+    fn events_params_defaults_to_none() {
+        let p: EventsParams = serde_json::from_str("{}").unwrap();
+        assert!(p.from_sequence.is_none());
+    }
 
-        let body_bytes = axum::body::to_bytes(body, 1024).await.unwrap();
-        let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-        assert!(
-            body_str.contains("session.error"),
-            "SSE event type must be session.error, got: {body_str}"
-        );
-        assert!(
-            body_str.contains("terminated"),
-            "SSE data must contain status, got: {body_str}"
-        );
+    #[test]
+    fn events_params_with_from_sequence_some_value() {
+        let p = EventsParams {
+            from_sequence: Some(42),
+        };
+        assert_eq!(p.from_sequence, Some(42));
     }
 }

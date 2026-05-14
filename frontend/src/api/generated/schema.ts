@@ -166,6 +166,49 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/agents/sessions/{id}/events/history": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * `GET /v1/agents/sessions/{id}/events/history`
+         * @description Returns a paged slice of `agents.agent_events` for the given session.
+         *     Uses a `limit + 1` probe to determine whether a next page exists without
+         *     a separate COUNT query.
+         */
+        readonly get: operations["session_events_history"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/agents/sessions/{id}/log.ndjson": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * `GET /v1/agents/sessions/{id}/log.ndjson`
+         * @description Streams every row in `agents.agent_events` for the given session as
+         *     newline-delimited JSON ordered by `sequence ASC`.
+         */
+        readonly get: operations["session_log_ndjson"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/api-keys": {
         readonly parameters: {
             readonly query?: never;
@@ -1130,6 +1173,20 @@ export interface components {
          * @enum {string}
          */
         readonly EdgeProvenanceSchema: "direct" | "monomorph" | "dyn_candidate";
+        readonly EventItem: {
+            /** Format: date-time */
+            readonly created_at: string;
+            readonly event_type: string;
+            /** Format: uuid */
+            readonly id: string;
+            readonly payload: unknown;
+            /** Format: int64 */
+            readonly sequence: number;
+            /** Format: uuid */
+            readonly session_id: string;
+            /** Format: uuid */
+            readonly tenant_id: string;
+        };
         readonly ForgotPasswordRequest: {
             /** @description Email address for the account to recover. */
             readonly email: string;
@@ -1168,6 +1225,11 @@ export interface components {
             /** @description Overall status: `"ok"` when all stores are reachable, `"degraded"` otherwise. */
             readonly status: string;
             readonly stores: components["schemas"]["StoreStatuses"];
+        };
+        readonly HistoryResponse: {
+            readonly events: readonly components["schemas"]["EventItem"][];
+            /** Format: int64 */
+            readonly next_seq?: number | null;
         };
         /** @description One impl block that implements the queried trait. */
         readonly ImplEntry: {
@@ -2015,7 +2077,10 @@ export interface operations {
     };
     readonly session_events: {
         readonly parameters: {
-            readonly query?: never;
+            readonly query?: {
+                /** @description Sequence number to replay history from */
+                readonly from_sequence?: number;
+            };
             readonly header?: never;
             readonly path: {
                 /** @description Session ID */
@@ -2031,6 +2096,107 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient permissions to access this session */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly session_events_history: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Exclusive lower bound on sequence (omit for beginning) */
+                readonly after?: number;
+                /** @description Page size (default 100, max 500) */
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path: {
+                /** @description Session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Page of events */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid limit parameter */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient permissions */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly session_log_ndjson: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Set to '1' to bypass redaction (requires admin scope) */
+                readonly raw?: string;
+            };
+            readonly header?: never;
+            readonly path: {
+                /** @description Session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description NDJSON stream of session events */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/x-ndjson": unknown;
+                };
             };
             /** @description Authentication required */
             readonly 401: {
