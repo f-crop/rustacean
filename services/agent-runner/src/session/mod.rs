@@ -481,21 +481,7 @@ impl SessionManager {
                                 tracing::error!(session_id = %sid_stdout, error = %e, "Failed to send stdout event (channel full or closed)");
                             }
                         }
-
-                        // Normalize the raw stdout line into typed RuntimeEvents and relay
-                        // them to control-api via HTTP so they appear in the DB / NDJSON.
-                        let now_ms = chrono::Utc::now().timestamp_millis();
-                        for runtime_event in
-                            agent_runner::StreamJsonNormalizer::normalize_line(&line)
-                        {
-                            relay_sender.send(agent_runner::RelayItem {
-                                session_id: sid_stdout.clone(),
-                                tenant_id: tenant_id.to_string(),
-                                seq,
-                                event: runtime_event,
-                                emitted_at_ms: now_ms,
-                            });
-                        }
+                        agent_runner::relay_stdout_events(&relay_sender, &sid_stdout, &tenant_id.to_string(), seq, &line);
                     }
                 }
             }
@@ -607,7 +593,6 @@ impl SessionManager {
         }
     }
 }
-
 pub use crate::workspace_gc::spawn_workspace_gc;
 
 #[cfg(test)]

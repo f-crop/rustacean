@@ -20,6 +20,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use chrono::Utc;
 use metrics::counter;
 use rb_schemas::RuntimeEvent;
 use tokio::sync::Notify;
@@ -82,6 +83,26 @@ impl EventSender {
         buf.push_back(item);
         drop(buf);
         self.notify.notify_one();
+    }
+}
+
+/// Normalize `line` from agent stdout and relay all resulting [`RuntimeEvent`]s.
+pub fn relay_stdout_events(
+    relay_sender: &EventSender,
+    session_id: &str,
+    tenant_id: &str,
+    seq: i64,
+    line: &str,
+) {
+    let now_ms = Utc::now().timestamp_millis();
+    for runtime_event in crate::StreamJsonNormalizer::normalize_line(line) {
+        relay_sender.send(RelayItem {
+            session_id: session_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            seq,
+            event: runtime_event,
+            emitted_at_ms: now_ms,
+        });
     }
 }
 
