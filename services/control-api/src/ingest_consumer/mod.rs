@@ -55,6 +55,22 @@ pub fn spawn(
                     let ev = &envelope.payload;
                     let tenant_id = envelope.tenant_id;
 
+                    // Reject malformed messages before hitting the DB. Legacy
+                    // Kafka producers can emit an empty ingest_run_id; parsing
+                    // that as a UUID would produce a misleading DB error and
+                    // leave the offset uncommitted (causing replays on restart).
+                    if ev.ingest_run_id.parse::<uuid::Uuid>().is_err() {
+                        tracing::warn!(
+                            raw_ingest_run_id = %ev.ingest_run_id,
+                            tenant_id = %tenant_id,
+                            "ingest_consumer: skipping malformed message (invalid ingest_run_id)"
+                        );
+                        if let Err(e) = consumer.commit(&envelope).await {
+                            tracing::warn!("ingest_consumer: commit failed after skip: {e}");
+                        }
+                        continue;
+                    }
+
                     if let Err(e) = db::handle_db_updates(&pool, ev).await {
                         tracing::error!(
                             ingest_run_id = %ev.ingest_run_id,
@@ -321,6 +337,12 @@ mod tests {
     #[test]
     fn invalid_uuid_errors() {
         assert!("not-a-uuid".parse::<Uuid>().is_err());
+    }
+
+    #[test]
+    fn empty_ingest_run_id_fails_uuid_parse() {
+        // The consumer guard relies on this to reject legacy malformed messages.
+        assert!("".parse::<Uuid>().is_err());
     }
 
     // ── stage_db_params: all terminal states produce consistent output ────────
