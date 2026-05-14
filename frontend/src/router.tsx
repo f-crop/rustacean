@@ -11,6 +11,7 @@ import { AppShell, GlobalSuspenseFallback } from "@/components/AppShell";
 import { ActivityPage } from "@/pages/ActivityPage";
 import { AgentExecutionPage } from "@/pages/AgentExecutionPage";
 import { AgentSessionDetailPage } from "@/pages/AgentSessionDetailPage";
+import { SessionReplayPage } from "@/pages/SessionReplayPage";
 import { AdminGithubPage } from "@/pages/AdminGithubPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { CodeWorkspacePage } from "@/pages/CodeWorkspacePage";
@@ -150,6 +151,12 @@ const agentSessionDetailRoute = createRoute({
   component: AgentSessionDetailPage,
 });
 
+const agentSessionReplayRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: routes.agentSessionReplay,
+  component: SessionReplayPage,
+});
+
 const adminGithubSearchSchema = z.object({
   registered: z.enum(["true"]).optional(),
 });
@@ -186,6 +193,7 @@ const routeTree = rootRoute.addChildren([
   activityRoute,
   agentExecutionRoute,
   agentSessionDetailRoute,
+  agentSessionReplayRoute,
   adminGithubRoute,
   catchAllRoute,
 ]);

@@ -75,10 +75,13 @@ export {
   useCreateSession,
   useDeleteSession,
   useSessionDetail,
+  useSessionHistory,
   agentSessionsQueryKey,
   type ListSessionsResponse,
   type SessionItem,
   type SessionDetail,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type EventItem,
+  type HistoryResponse,
 } from "./useAgentSessions";

@@ -20,6 +20,7 @@ const DEFAULT_EVENT_TYPES = ["message"] as const;
 export function useEventStream(
   url: string,
   eventTypes?: readonly string[],
+  enabled = true,
 ): UseEventStreamResult {
   const [events, setEvents] = useState<StreamedEvent[]>([]);
   const [lastEventId, setLastEventId] = useState<string | null>(null);
@@ -30,6 +31,11 @@ export function useEventStream(
   eventTypesRef.current = eventTypes;
 
   useEffect(() => {
+    if (!enabled) {
+      setReadyState("closed");
+      return;
+    }
+
     cancelledRef.current = false;
 
     let es: EventSource | null = null;
@@ -83,7 +89,7 @@ export function useEventStream(
       es?.close();
       setReadyState("closed");
     };
-  }, [url]);
+  }, [url, enabled]);
 
   return { events, lastEventId, readyState };
 }

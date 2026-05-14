@@ -1,4 +1,5 @@
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -6,6 +7,12 @@ import {
 } from "@tanstack/react-query";
 import { apiClient, toApiError, type ApiError } from "../client";
 import type { components } from "../generated/schema";
+
+type HistoryResponse = {
+  events: components["schemas"]["EventItem"][];
+  next_seq?: number | null;
+};
+type EventItem = components["schemas"]["EventItem"];
 
 type ListSessionsResponse = components["schemas"]["ListSessionsResponse"];
 type SessionItem = components["schemas"]["SessionItem"];
@@ -105,10 +112,41 @@ export function useSessionDetail(
   });
 }
 
+const SESSION_HISTORY_PAGE_SIZE = 200;
+
+export function useSessionHistory(sessionId: string, enabled: boolean) {
+  return useInfiniteQuery<HistoryResponse, ApiError>({
+    queryKey: ["session-history", sessionId],
+    queryFn: async ({ pageParam }) => {
+      const { response } = await apiClient.GET(
+        "/v1/agents/sessions/{id}/events/history",
+        {
+          params: {
+            path: { id: sessionId },
+            query: {
+              limit: SESSION_HISTORY_PAGE_SIZE,
+              ...(pageParam != null ? { after: pageParam as number } : {}),
+            },
+          },
+        },
+      );
+      if (!response.ok) {
+        throw toApiError(response.status, null);
+      }
+      return response.json() as Promise<HistoryResponse>;
+    },
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_seq ?? undefined,
+    enabled: enabled && sessionId.length > 0,
+  });
+}
+
 export type {
   ListSessionsResponse,
   SessionItem,
   SessionDetail,
   CreateSessionRequest,
   CreateSessionResponse,
+  EventItem,
+  HistoryResponse,
 };

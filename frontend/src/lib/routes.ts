@@ -14,6 +14,7 @@ export const routes = {
   activity: "/activity",
   agentExecution: "/agents/executions",
   agentSessionDetail: "/agents/executions/$sessionId",
+  agentSessionReplay: "/agents/$sessionId",
   adminGithub: "/admin/github",
   trace: "/trace/$traceId",
 } as const;
