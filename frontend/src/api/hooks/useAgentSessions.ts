@@ -118,9 +118,15 @@ export function useSessionHistory(sessionId: string, enabled: boolean) {
   return useInfiniteQuery<HistoryResponse, ApiError>({
     queryKey: ["session-history", sessionId],
     queryFn: async ({ pageParam }) => {
-      const { response } = await apiClient.GET(
+      // Use parseAs:"text" so openapi-fetch returns the raw body string without
+      // consuming the Response stream internally.  Calling response.json() after
+      // apiClient.GET (without parseAs) would throw because openapi-fetch 0.13.x
+      // reads the body during its own parsing step, making the body unavailable
+      // for a second read.  With parseAs:"text" we own the string and parse once.
+      const { data: rawText, response } = await apiClient.GET(
         "/v1/agents/sessions/{id}/events/history",
         {
+          parseAs: "text",
           params: {
             path: { id: sessionId },
             query: {
@@ -133,7 +139,7 @@ export function useSessionHistory(sessionId: string, enabled: boolean) {
       if (!response.ok) {
         throw toApiError(response.status, null);
       }
-      return response.json() as Promise<HistoryResponse>;
+      return JSON.parse(rawText as string) as HistoryResponse;
     },
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (lastPage) => lastPage.next_seq ?? undefined,

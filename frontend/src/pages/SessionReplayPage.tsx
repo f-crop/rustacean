@@ -1,5 +1,6 @@
 import { useMemo, useEffect, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { useMe, useSessionDetail, useSessionHistory, apiClient, type EventItem } from "@/api";
 import { useEventStream } from "@/hooks/useEventStream";
 import {
@@ -205,21 +206,34 @@ function SessionReplayInner({ tenantId, sessionId }: SessionReplayInnerProps): J
     });
   };
 
-  // NDJSON download
+  // NDJSON download — use parseAs:"blob" so openapi-fetch hands us the blob
+  // directly.  Without parseAs, apiClient.GET returns a raw Response whose body
+  // is already consumed by openapi-fetch's internal parsing step, making a
+  // subsequent response.blob() call throw a TypeError (silent no-op).
   const handleDownload = async () => {
-    const { response } = await apiClient.GET("/v1/agents/sessions/{id}/log.ndjson", {
-      params: { path: { id: sessionId } },
-    });
-    if (!response.ok) return;
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = objectUrl;
-    a.download = `session-${sessionId}.ndjson`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(objectUrl);
+    try {
+      const { data: blob, response } = await apiClient.GET(
+        "/v1/agents/sessions/{id}/log.ndjson",
+        {
+          parseAs: "blob",
+          params: { path: { id: sessionId } },
+        },
+      );
+      if (!response.ok) {
+        toast.error("Could not download session log.");
+        return;
+      }
+      const objectUrl = URL.createObjectURL(blob as Blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `session-${sessionId}.ndjson`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      toast.error("Could not download session log.");
+    }
   };
 
   return (
@@ -251,8 +265,18 @@ function SessionReplayInner({ tenantId, sessionId }: SessionReplayInnerProps): J
           )}
           <button
             type="button"
-            onClick={handleDownload}
-            className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => { void handleDownload(); }}
+            disabled={session.data?.status === "pending"}
+            title={
+              session.data?.status === "pending"
+                ? "No events yet — session is pending"
+                : undefined
+            }
+            className={
+              session.data?.status === "pending"
+                ? "rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
+                : "rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            }
             aria-label="Download NDJSON log"
           >
             Download NDJSON
@@ -312,9 +336,13 @@ function SessionReplayInner({ tenantId, sessionId }: SessionReplayInnerProps): J
 
         <div className="p-2">
           {history.isError ? (
-            <p className="p-4 text-sm text-destructive">
-              {formatApiError(history.error, "Could not load event history.")}
-            </p>
+            session.data != null && RUNNING_STATUSES.has(session.data.status) ? (
+              <p className="p-4 text-sm text-muted-foreground">No events yet.</p>
+            ) : (
+              <p className="p-4 text-sm text-destructive">
+                {formatApiError(history.error, "Could not load event history.")}
+              </p>
+            )
           ) : (
             <EventVirtualList events={filteredEvents} />
           )}
