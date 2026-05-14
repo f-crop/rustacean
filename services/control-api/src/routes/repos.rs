@@ -3,9 +3,13 @@
 //! - `GET  /v1/repos`          — List connected repos for the tenant (REQ-GH-07).
 //! - `POST /v1/repos/{id}/ingest` — Trigger an ingestion run (REQ-GH-08).
 
+use std::time::Duration;
+
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{DateTime, Utc};
 use rb_github::GhError;
+use rb_kafka::EventEnvelope;
+use rb_schemas::{IngestRequest, TenantId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -241,11 +245,26 @@ pub async fn list_repos(
 // POST /v1/repos/{id}/ingest — REQ-GH-08
 // ---------------------------------------------------------------------------
 
+const CLONE_COMMANDS_TOPIC: &str = "rb.ingest.clone.commands";
+
+const PIPELINE_STAGES: &[&str] = &[
+    "clone",
+    "expand",
+    "parse",
+    "typecheck",
+    "extract",
+    "embed",
+    "project_pg",
+    "project_neo4j",
+    "project_qdrant",
+];
+
 /// Trigger an asynchronous ingestion run for a connected repository.
 ///
 /// Returns 202 immediately; ingestion is processed asynchronously by the worker.
 /// 404 if the repository does not exist or belongs to another tenant.
 /// 409 if an ingestion run is already queued or running for this repo.
+/// 503 if the Kafka producer is unavailable.
 #[utoipa::path(
     post,
     path = "/v1/repos/{id}/ingest",
@@ -258,6 +277,7 @@ pub async fn list_repos(
         (status = 403, description = "Email not verified"),
         (status = 404, description = "Repository not found or belongs to another tenant"),
         (status = 409, description = "Ingestion run already in-flight (ingest_run_already_in_flight)"),
+        (status = 503, description = "Kafka producer not available (kafka_not_configured, kafka_unavailable)"),
     ),
     tag = "repos"
 )]
@@ -267,6 +287,16 @@ pub async fn trigger_ingest(
     axum::extract::Path(repo_id): axum::extract::Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let session = require_verified_session(auth)?;
+
+    let producer = state
+        .ingest_producer
+        .as_ref()
+        .ok_or(AppError::KafkaNotConfigured)?;
+
+    // Probe broker reachability before touching the DB to avoid orphan rows.
+    if !producer.check_ready(Duration::from_millis(500)).await {
+        return Err(AppError::KafkaUnavailable);
+    }
 
     let exists: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM control.repos \
@@ -291,23 +321,72 @@ pub async fn trigger_ingest(
     }
 
     let run_id = Uuid::new_v4();
+    let event_id = Uuid::new_v4();
+    let trace_id = rb_tracing::current_trace_id();
+
+    // Build the Kafka envelope before opening the transaction (pure in-memory).
+    let ingest_req = IngestRequest {
+        tenant_id: session.tenant_id.to_string(),
+        event_id: event_id.to_string(),
+        source: "api".to_string(),
+        payload: vec![],
+        created_at_ms: chrono::Utc::now().timestamp_millis(),
+        repo_id: repo_id.to_string(),
+        ingest_run_id: run_id.to_string(),
+        commit_sha: String::new(),
+        branch: String::new(),
+    };
+    let envelope =
+        EventEnvelope::new(TenantId::from(session.tenant_id), ingest_req).with_event_id(event_id);
+    let partition_key = format!("{}.{}", session.tenant_id, repo_id);
+
+    // Insert ingestion_run + pipeline_stage_runs in a transaction.
+    // Do NOT commit until Kafka publish succeeds — rollback on publish failure
+    // guarantees no orphan ingestion_runs rows.
+    let mut txn = state.pool.begin().await?;
+
     sqlx::query(
         "INSERT INTO control.ingestion_runs \
-         (id, tenant_id, repo_id, status, requested_by) \
-         VALUES ($1, $2, $3, 'queued', $4)",
+         (id, tenant_id, repo_id, status, requested_by, trace_id) \
+         VALUES ($1, $2, $3, 'queued', $4, $5)",
     )
     .bind(run_id)
     .bind(session.tenant_id)
     .bind(repo_id)
     .bind(session.user_id)
-    .execute(&state.pool)
+    .bind(&trace_id)
+    .execute(&mut *txn)
     .await?;
+
+    for stage in PIPELINE_STAGES {
+        sqlx::query(
+            "INSERT INTO control.pipeline_stage_runs \
+             (id, ingestion_run_id, stage) \
+             VALUES ($1, $2, $3)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(run_id)
+        .bind(*stage)
+        .execute(&mut *txn)
+        .await?;
+    }
+
+    // Publish before committing; rollback on broker failure.
+    if let Err(e) = producer
+        .publish(CLONE_COMMANDS_TOPIC, partition_key.as_bytes(), envelope)
+        .await
+    {
+        txn.rollback().await.ok();
+        return Err(AppError::KafkaPublish(e));
+    }
+
+    txn.commit().await?;
 
     tracing::info!(
         %run_id,
         %repo_id,
         tenant_id = %session.tenant_id,
-        "ingestion run queued"
+        "ingestion run queued and dispatched to clone stage"
     );
 
     Ok((
@@ -525,5 +604,45 @@ mod tests {
         let resp = ConnectedReposResponse { repos: vec![] };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"repos\":[]"));
+    }
+
+    // ----- trigger_ingest Kafka error paths (REQ-GH-08) -----
+
+    #[test]
+    fn kafka_not_configured_returns_503() {
+        let err = AppError::KafkaNotConfigured;
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn kafka_unavailable_returns_503() {
+        let err = AppError::KafkaUnavailable;
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn kafka_broker_down_publish_returns_503() {
+        use rb_kafka::KafkaError;
+        let rdkafka_err = rdkafka::error::KafkaError::MessageProduction(
+            rdkafka::error::RDKafkaErrorCode::AllBrokersDown,
+        );
+        let err = AppError::KafkaPublish(KafkaError::Rdkafka(rdkafka_err));
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn pipeline_stages_count() {
+        assert_eq!(PIPELINE_STAGES.len(), 9, "nine stages per IngestStage enum");
+    }
+
+    #[test]
+    fn pipeline_stages_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for s in PIPELINE_STAGES {
+            assert!(seen.insert(*s), "duplicate stage: {s}");
+        }
     }
 }
