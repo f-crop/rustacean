@@ -161,6 +161,9 @@ mod tests {
         let events = m["default_events"]
             .as_array()
             .expect("default_events array");
-        assert!(events.is_empty(), "installation/installation_repositories must not appear in default_events");
+        assert!(
+            events.is_empty(),
+            "installation/installation_repositories must not appear in default_events"
+        );
     }
 }
