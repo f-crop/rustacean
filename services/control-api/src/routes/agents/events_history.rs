@@ -5,7 +5,6 @@
 //! Query parameters:
 //!   - `after`: exclusive lower bound on `sequence` (omit to start from the beginning)
 //!   - `limit`: number of events per page (default 100, max 500)
-//!   - `raw`: set to `"1"` to bypass payload redaction (requires `admin` API-key scope)
 //!
 //! Response envelope: `{"events": [...], "next_seq": <n | null>}`
 //!   `next_seq` is the `sequence` of the last event in this page when more pages exist,
@@ -13,10 +12,6 @@
 //!
 //! Auth: normal user JWT or API key scoped to the owning tenant.
 //! The caller must be the session owner or hold the `admin` API-key scope.
-//!
-//! By default all event payloads are redacted via `rb_observability::redact_value`
-//! before returning.  Admin-scoped callers can use `?raw=1` to receive unredacted
-//! payloads.
 
 use axum::{
     Json,
@@ -50,14 +45,6 @@ pub struct HistoryParams {
     pub after: Option<i64>,
     /// Page size.  Default 100, max 500.
     pub limit: Option<i64>,
-    /// `?raw=1` — bypass payload redaction.  Requires `admin` API-key scope.
-    pub raw: Option<String>,
-}
-
-impl HistoryParams {
-    fn is_raw(&self) -> bool {
-        matches!(self.raw.as_deref(), Some("1"))
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +84,6 @@ pub struct HistoryResponse {
         ("id" = Uuid, Path, description = "Session ID"),
         ("after" = Option<i64>, Query, description = "Exclusive lower bound on sequence (omit for beginning)"),
         ("limit" = Option<i64>, Query, description = "Page size (default 100, max 500)"),
-        ("raw" = Option<String>, Query, description = "Set to '1' to bypass redaction (requires admin scope; default: redacted)"),
     ),
     responses(
         (status = 200, description = "Page of events"),
@@ -148,27 +134,17 @@ pub async fn session_events_history(
         return Err(AppError::InsufficientRole);
     }
 
-    let is_admin = match &auth {
-        AuthContext::ApiKey(info) => info.scopes.contains(&Scope::Admin),
-        _ => false,
-    };
-
-    let is_owner = match &auth {
+    let is_owner_or_admin = match &auth {
         AuthContext::Session(info) => info.user_id == session_owner_id,
-        AuthContext::ApiKey(info) => info.user_id == session_owner_id,
+        AuthContext::ApiKey(info) => {
+            info.user_id == session_owner_id || info.scopes.contains(&Scope::Admin)
+        }
         _ => false,
     };
 
-    if !is_owner && !is_admin {
+    if !is_owner_or_admin {
         return Err(AppError::InsufficientRole);
     }
-
-    // `?raw=1` requires Admin scope.
-    if params.is_raw() && !is_admin {
-        return Err(AppError::InsufficientScope);
-    }
-
-    let should_redact = !params.is_raw();
 
     // `after` is an exclusive lower bound; default -1 so `sequence > -1` covers all rows.
     let after_seq = params.after.unwrap_or(-1);
@@ -198,13 +174,6 @@ pub async fn session_events_history(
     } else {
         None
     };
-
-    // Redact payloads unless the caller holds admin scope and requested raw output.
-    if should_redact {
-        for ev in &mut rows {
-            ev.payload = rb_observability::redact_value(&ev.payload);
-        }
-    }
 
     Ok(Json(HistoryResponse {
         events: rows,
