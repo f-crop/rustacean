@@ -28,6 +28,7 @@ RUN sed -i \
     echo 'AllowUsers loginuser' >> /etc/ssh/sshd_config
 
 COPY docker/claude-login/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY docker/claude-login/token-refresh.js /usr/local/bin/token-refresh.js
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 22

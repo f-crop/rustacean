@@ -24,4 +24,9 @@ chown loginuser:loginuser "${CLAUDE_CONFIG_DIR:-/home/loginuser/.claude}" 2>/dev
 # Generate SSH host keys on first start (persist via named volume if desired).
 ssh-keygen -A
 
+# Launch background OAuth token-refresh loop (runs as root, writes via realpath).
+# Keeps credentials.json fresh so agent-runner sessions always start with a valid
+# access token without relaxing the read-only mount on the agent side.
+node /usr/local/bin/token-refresh.js &
+
 exec /usr/sbin/sshd -D -e
