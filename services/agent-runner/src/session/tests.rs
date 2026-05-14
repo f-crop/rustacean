@@ -101,6 +101,16 @@ async fn start_session_marks_failed_on_adapter_spawn_error() {
     let (addr, captured, server_handle) = spawn_status_capture_server().await;
     let tmp = tempfile::tempdir().unwrap();
 
+    let relay_sender = agent_runner::spawn(agent_runner::RelayConfig {
+        capacity: agent_runner::DEFAULT_CAPACITY,
+        batch_size: agent_runner::DEFAULT_BATCH_SIZE,
+        flush_interval: Duration::from_millis(agent_runner::DEFAULT_FLUSH_INTERVAL_MS),
+        control_api_base: format!("http://{addr}"),
+        http_client: reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap(),
+    });
     let manager = SessionManager::new(
         tmp.path().to_path_buf(),
         format!("http://{addr}"),
@@ -108,6 +118,7 @@ async fn start_session_marks_failed_on_adapter_spawn_error() {
             .timeout(Duration::from_secs(2))
             .build()
             .unwrap(),
+        relay_sender,
     );
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);

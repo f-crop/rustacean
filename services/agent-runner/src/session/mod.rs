@@ -37,6 +37,7 @@ pub struct SessionManager {
     seq_counter_timestamps: Arc<Mutex<HashMap<String, Instant>>>,
     control_api_base: String,
     http_client: reqwest::Client,
+    relay_sender: agent_runner::EventSender,
 }
 
 struct SessionHandle {
@@ -72,6 +73,7 @@ impl SessionManager {
         workspace_base: PathBuf,
         control_api_base: String,
         http_client: reqwest::Client,
+        relay_sender: agent_runner::EventSender,
     ) -> Self {
         let seq_counters = Arc::new(Mutex::new(HashMap::new()));
         let seq_counter_timestamps: Arc<Mutex<HashMap<String, Instant>>> =
@@ -110,6 +112,7 @@ impl SessionManager {
             seq_counter_timestamps,
             control_api_base,
             http_client,
+            relay_sender,
         }
     }
 
@@ -440,6 +443,7 @@ impl SessionManager {
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         let seq_counters = self.seq_counters.clone();
         let seq_timestamps = self.seq_counter_timestamps.clone();
+        let relay_sender = self.relay_sender.clone();
         let sid_stdout = session_id.clone();
         let span_out = tracing::info_span!("stdout_handler", session_id = %sid_stdout);
 
@@ -477,6 +481,7 @@ impl SessionManager {
                                 tracing::error!(session_id = %sid_stdout, error = %e, "Failed to send stdout event (channel full or closed)");
                             }
                         }
+                        agent_runner::relay_stdout_events(&relay_sender, &sid_stdout, &tenant_id.to_string(), seq, &line);
                     }
                 }
             }
@@ -588,7 +593,6 @@ impl SessionManager {
         }
     }
 }
-
 pub use crate::workspace_gc::spawn_workspace_gc;
 
 #[cfg(test)]

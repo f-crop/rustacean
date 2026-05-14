@@ -20,6 +20,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use chrono::Utc;
 use metrics::counter;
 use rb_schemas::RuntimeEvent;
 use tokio::sync::Notify;
@@ -39,21 +40,6 @@ const MAX_RETRY_ATTEMPTS: u32 = 5;
 const BASE_RETRY_DELAY_MS: u64 = 100;
 #[cfg(test)]
 const BASE_RETRY_DELAY_MS: u64 = 1; // fast retries in unit tests
-
-// ---------------------------------------------------------------------------
-// Event-type mapping
-// ---------------------------------------------------------------------------
-
-fn event_type_str(event: &RuntimeEvent) -> &'static str {
-    match event {
-        RuntimeEvent::Text { .. } => "session.message",
-        RuntimeEvent::Thinking { .. } => "session.thinking",
-        RuntimeEvent::ToolUse { .. } => "session.tool_call",
-        RuntimeEvent::ToolResult { .. } => "session.tool_result",
-        RuntimeEvent::UserInput { .. } => "session.user_input",
-        RuntimeEvent::Error { .. } => "session.error",
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -97,6 +83,26 @@ impl EventSender {
         buf.push_back(item);
         drop(buf);
         self.notify.notify_one();
+    }
+}
+
+/// Normalize `line` from agent stdout and relay all resulting [`RuntimeEvent`]s.
+pub fn relay_stdout_events(
+    relay_sender: &EventSender,
+    session_id: &str,
+    tenant_id: &str,
+    seq: i64,
+    line: &str,
+) {
+    let now_ms = Utc::now().timestamp_millis();
+    for runtime_event in crate::StreamJsonNormalizer::normalize_line(line) {
+        relay_sender.send(RelayItem {
+            session_id: session_id.to_string(),
+            tenant_id: tenant_id.to_string(),
+            seq,
+            event: runtime_event,
+            emitted_at_ms: now_ms,
+        });
     }
 }
 
@@ -212,15 +218,12 @@ async fn flush_session(
     let tenant_id = &items[0].tenant_id;
     let url = format!("{control_api_base}/internal/agent/sessions/{session_id}/events");
 
+    // Serialize each RuntimeEvent directly so the body matches IngestEventsRequest.events:
+    // Vec<RuntimeEvent> with serde tag {"type": "text", "text": "..."}
     let events_body: Vec<serde_json::Value> = items
         .iter()
         .filter_map(|i| match serde_json::to_value(&i.event) {
-            Ok(payload) => Some(serde_json::json!({
-                "seq": i.seq,
-                "event_type": event_type_str(&i.event),
-                "payload": payload,
-                "emitted_at_ms": i.emitted_at_ms,
-            })),
+            Ok(v) => Some(v),
             Err(e) => {
                 tracing::warn!(
                     session_id = %session_id,
