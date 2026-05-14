@@ -132,7 +132,7 @@ function SessionRow({ session, onDelete, deletingId }: SessionRowProps): JSX.Ele
     <tr className="border-b border-border last:border-0 hover:bg-muted/20">
       <td className="px-4 py-2">
         <Link
-          to={routes.agentSessionDetail}
+          to={routes.agentSessionReplay}
           params={{ sessionId: session.id }}
           className="font-mono text-xs text-primary hover:underline"
           title={session.id}
