@@ -28,6 +28,8 @@ ignore = [
     { id = "RUSTSEC-2024-0384" },
     # paste: unmaintained, no safe upgrade available
     { id = "RUSTSEC-2024-0436" },
+    # lettre: RUSTSEC-2026-0141 affects boring-tls backend only; project uses rustls
+    { id = "RUSTSEC-2026-0141" },
 ]
 
 [bans]
