@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use metrics::counter;
@@ -31,10 +32,19 @@ pub fn spawn(
     control_api_base: String,
     http_client: reqwest::Client,
 ) -> Result<ConsumerHandle> {
+    let relay_sender = agent_runner::spawn(agent_runner::RelayConfig {
+        capacity: agent_runner::DEFAULT_CAPACITY,
+        batch_size: agent_runner::DEFAULT_BATCH_SIZE,
+        flush_interval: Duration::from_millis(agent_runner::DEFAULT_FLUSH_INTERVAL_MS),
+        control_api_base: control_api_base.clone(),
+        http_client: http_client.clone(),
+    });
+
     let session_manager = Arc::new(SessionManager::new(
         workspace_base.clone(),
         control_api_base,
         http_client,
+        relay_sender,
     ));
     let producer = Arc::new(Producer::<AgentEvent>::new(&ProducerCfg::default())?);
 

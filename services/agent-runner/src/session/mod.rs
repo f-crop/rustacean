@@ -37,6 +37,7 @@ pub struct SessionManager {
     seq_counter_timestamps: Arc<Mutex<HashMap<String, Instant>>>,
     control_api_base: String,
     http_client: reqwest::Client,
+    relay_sender: agent_runner::EventSender,
 }
 
 struct SessionHandle {
@@ -72,6 +73,7 @@ impl SessionManager {
         workspace_base: PathBuf,
         control_api_base: String,
         http_client: reqwest::Client,
+        relay_sender: agent_runner::EventSender,
     ) -> Self {
         let seq_counters = Arc::new(Mutex::new(HashMap::new()));
         let seq_counter_timestamps: Arc<Mutex<HashMap<String, Instant>>> =
@@ -110,6 +112,7 @@ impl SessionManager {
             seq_counter_timestamps,
             control_api_base,
             http_client,
+            relay_sender,
         }
     }
 
@@ -440,6 +443,7 @@ impl SessionManager {
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         let seq_counters = self.seq_counters.clone();
         let seq_timestamps = self.seq_counter_timestamps.clone();
+        let relay_sender = self.relay_sender.clone();
         let sid_stdout = session_id.clone();
         let span_out = tracing::info_span!("stdout_handler", session_id = %sid_stdout);
 
@@ -476,6 +480,21 @@ impl SessionManager {
                             if let Err(e) = es.try_send((tenant_id, event)) {
                                 tracing::error!(session_id = %sid_stdout, error = %e, "Failed to send stdout event (channel full or closed)");
                             }
+                        }
+
+                        // Normalize the raw stdout line into typed RuntimeEvents and relay
+                        // them to control-api via HTTP so they appear in the DB / NDJSON.
+                        let now_ms = chrono::Utc::now().timestamp_millis();
+                        for runtime_event in
+                            agent_runner::StreamJsonNormalizer::normalize_line(&line)
+                        {
+                            relay_sender.send(agent_runner::RelayItem {
+                                session_id: sid_stdout.clone(),
+                                tenant_id: tenant_id.to_string(),
+                                seq,
+                                event: runtime_event,
+                                emitted_at_ms: now_ms,
+                            });
                         }
                     }
                 }

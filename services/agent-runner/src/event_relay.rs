@@ -41,21 +41,6 @@ const BASE_RETRY_DELAY_MS: u64 = 100;
 const BASE_RETRY_DELAY_MS: u64 = 1; // fast retries in unit tests
 
 // ---------------------------------------------------------------------------
-// Event-type mapping
-// ---------------------------------------------------------------------------
-
-fn event_type_str(event: &RuntimeEvent) -> &'static str {
-    match event {
-        RuntimeEvent::Text { .. } => "session.message",
-        RuntimeEvent::Thinking { .. } => "session.thinking",
-        RuntimeEvent::ToolUse { .. } => "session.tool_call",
-        RuntimeEvent::ToolResult { .. } => "session.tool_result",
-        RuntimeEvent::UserInput { .. } => "session.user_input",
-        RuntimeEvent::Error { .. } => "session.error",
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -212,15 +197,12 @@ async fn flush_session(
     let tenant_id = &items[0].tenant_id;
     let url = format!("{control_api_base}/internal/agent/sessions/{session_id}/events");
 
+    // Serialize each RuntimeEvent directly so the body matches IngestEventsRequest.events:
+    // Vec<RuntimeEvent> with serde tag {"type": "text", "text": "..."}
     let events_body: Vec<serde_json::Value> = items
         .iter()
         .filter_map(|i| match serde_json::to_value(&i.event) {
-            Ok(payload) => Some(serde_json::json!({
-                "seq": i.seq,
-                "event_type": event_type_str(&i.event),
-                "payload": payload,
-                "emitted_at_ms": i.emitted_at_ms,
-            })),
+            Ok(v) => Some(v),
             Err(e) => {
                 tracing::warn!(
                     session_id = %session_id,
