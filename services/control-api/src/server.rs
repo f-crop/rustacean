@@ -22,7 +22,7 @@ use rb_schemas::AgentSessionCommand;
 
 use crate::{
     config::Config,
-    ingest_consumer, middleware, routes,
+    ingest_consumer, jobs, middleware, routes,
     state::{
         AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore, SessionCreateRateLimiter,
         TenantSessionCount,
@@ -159,6 +159,10 @@ pub async fn run(config: Config) -> Result<()> {
         )),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
     };
+
+    // Reconcile any ingestion runs that were left in `queued` state by a prior
+    // crash or restart before their Kafka message was produced.
+    jobs::reconcile_orphaned_ingest_runs(&state).await;
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do
     // not prevent the HTTP server from starting — the SSE endpoint degrades
