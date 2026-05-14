@@ -52,3 +52,39 @@ services:
 
   kafka-ui:
     restart: unless-stopped
+
+  agent-runner:
+    restart: unless-stopped
+
+  ingest-clone:
+    restart: unless-stopped
+
+  ingest-graph:
+    restart: unless-stopped
+
+  parse-worker:
+    restart: unless-stopped
+
+  expand-worker:
+    restart: unless-stopped
+
+  typecheck-worker:
+    restart: unless-stopped
+
+  embed-worker:
+    restart: unless-stopped
+
+  projector-pg:
+    restart: unless-stopped
+
+  projector-neo4j:
+    restart: unless-stopped
+
+  tombstoner:
+    restart: unless-stopped
+
+  frontend:
+    restart: unless-stopped
+
+  claude-login:
+    restart: unless-stopped
