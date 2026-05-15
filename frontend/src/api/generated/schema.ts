@@ -668,6 +668,7 @@ export interface paths {
          * @description Returns 202 immediately; ingestion is processed asynchronously by the worker.
          *     404 if the repository does not exist or belongs to another tenant.
          *     409 if an ingestion run is already queued or running for this repo.
+         *     503 if the Kafka producer is unavailable.
          */
         readonly post: operations["trigger_ingest"];
         readonly delete?: never;
@@ -3112,6 +3113,13 @@ export interface operations {
             };
             /** @description Ingestion run already in-flight (ingest_run_already_in_flight) */
             readonly 409: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Kafka producer not available (kafka_not_configured, kafka_unavailable) */
+            readonly 503: {
                 headers: {
                     readonly [name: string]: unknown;
                 };

@@ -1339,7 +1339,7 @@
           "repos"
         ],
         "summary": "Trigger an asynchronous ingestion run for a connected repository.",
-        "description": "Returns 202 immediately; ingestion is processed asynchronously by the worker.\n404 if the repository does not exist or belongs to another tenant.\n409 if an ingestion run is already queued or running for this repo.",
+        "description": "Returns 202 immediately; ingestion is processed asynchronously by the worker.\n404 if the repository does not exist or belongs to another tenant.\n409 if an ingestion run is already queued or running for this repo.\n503 if the Kafka producer is unavailable.",
         "operationId": "trigger_ingest",
         "parameters": [
           {
@@ -1375,6 +1375,9 @@
           },
           "409": {
             "description": "Ingestion run already in-flight (ingest_run_already_in_flight)"
+          },
+          "503": {
+            "description": "Kafka producer not available (kafka_not_configured, kafka_unavailable)"
           }
         }
       }

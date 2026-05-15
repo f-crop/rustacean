@@ -3,9 +3,13 @@
 //! - `GET  /v1/repos`          — List connected repos for the tenant (REQ-GH-07).
 //! - `POST /v1/repos/{id}/ingest` — Trigger an ingestion run (REQ-GH-08).
 
+use std::time::Duration;
+
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{DateTime, Utc};
 use rb_github::GhError;
+use rb_kafka::EventEnvelope;
+use rb_schemas::{IngestRequest, TenantId};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -241,11 +245,26 @@ pub async fn list_repos(
 // POST /v1/repos/{id}/ingest — REQ-GH-08
 // ---------------------------------------------------------------------------
 
+const CLONE_COMMANDS_TOPIC: &str = "rb.ingest.clone.commands";
+
+const PIPELINE_STAGES: &[&str] = &[
+    "clone",
+    "expand",
+    "parse",
+    "typecheck",
+    "extract",
+    "embed",
+    "project_pg",
+    "project_neo4j",
+    "project_qdrant",
+];
+
 /// Trigger an asynchronous ingestion run for a connected repository.
 ///
 /// Returns 202 immediately; ingestion is processed asynchronously by the worker.
 /// 404 if the repository does not exist or belongs to another tenant.
 /// 409 if an ingestion run is already queued or running for this repo.
+/// 503 if the Kafka producer is unavailable.
 #[utoipa::path(
     post,
     path = "/v1/repos/{id}/ingest",
@@ -258,6 +277,7 @@ pub async fn list_repos(
         (status = 403, description = "Email not verified"),
         (status = 404, description = "Repository not found or belongs to another tenant"),
         (status = 409, description = "Ingestion run already in-flight (ingest_run_already_in_flight)"),
+        (status = 503, description = "Kafka producer not available (kafka_not_configured, kafka_unavailable)"),
     ),
     tag = "repos"
 )]
@@ -267,6 +287,16 @@ pub async fn trigger_ingest(
     axum::extract::Path(repo_id): axum::extract::Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let session = require_verified_session(auth)?;
+
+    let producer = state
+        .ingest_producer
+        .as_ref()
+        .ok_or(AppError::KafkaNotConfigured)?;
+
+    // Probe broker reachability before touching the DB to avoid orphan rows.
+    if !producer.check_ready(Duration::from_millis(500)).await {
+        return Err(AppError::KafkaUnavailable);
+    }
 
     let exists: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM control.repos \
@@ -291,23 +321,72 @@ pub async fn trigger_ingest(
     }
 
     let run_id = Uuid::new_v4();
+    let event_id = Uuid::new_v4();
+    let trace_id = rb_tracing::current_trace_id();
+
+    // Build the Kafka envelope before opening the transaction (pure in-memory).
+    let ingest_req = IngestRequest {
+        tenant_id: session.tenant_id.to_string(),
+        event_id: event_id.to_string(),
+        source: "api".to_string(),
+        payload: vec![],
+        created_at_ms: chrono::Utc::now().timestamp_millis(),
+        repo_id: repo_id.to_string(),
+        ingest_run_id: run_id.to_string(),
+        commit_sha: String::new(),
+        branch: String::new(),
+    };
+    let envelope =
+        EventEnvelope::new(TenantId::from(session.tenant_id), ingest_req).with_event_id(event_id);
+    let partition_key = format!("{}.{}", session.tenant_id, repo_id);
+
+    // Insert ingestion_run + pipeline_stage_runs in a transaction.
+    // Do NOT commit until Kafka publish succeeds — rollback on publish failure
+    // guarantees no orphan ingestion_runs rows.
+    let mut txn = state.pool.begin().await?;
+
     sqlx::query(
         "INSERT INTO control.ingestion_runs \
-         (id, tenant_id, repo_id, status, requested_by) \
-         VALUES ($1, $2, $3, 'queued', $4)",
+         (id, tenant_id, repo_id, status, requested_by, trace_id) \
+         VALUES ($1, $2, $3, 'queued', $4, $5)",
     )
     .bind(run_id)
     .bind(session.tenant_id)
     .bind(repo_id)
     .bind(session.user_id)
-    .execute(&state.pool)
+    .bind(&trace_id)
+    .execute(&mut *txn)
     .await?;
+
+    for stage in PIPELINE_STAGES {
+        sqlx::query(
+            "INSERT INTO control.pipeline_stage_runs \
+             (id, ingestion_run_id, stage) \
+             VALUES ($1, $2, $3)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(run_id)
+        .bind(*stage)
+        .execute(&mut *txn)
+        .await?;
+    }
+
+    // Publish before committing; rollback on broker failure.
+    if let Err(e) = producer
+        .publish(CLONE_COMMANDS_TOPIC, partition_key.as_bytes(), envelope)
+        .await
+    {
+        txn.rollback().await.ok();
+        return Err(AppError::KafkaPublish(e));
+    }
+
+    txn.commit().await?;
 
     tracing::info!(
         %run_id,
         %repo_id,
         tenant_id = %session.tenant_id,
-        "ingestion run queued"
+        "ingestion run queued and dispatched to clone stage"
     );
 
     Ok((
@@ -321,209 +400,9 @@ pub async fn trigger_ingest(
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests (extracted to repos_tests.rs to stay under the 600-line file cap)
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::middleware::auth::{ApiKeyInfo, Scope, SessionInfo};
-
-    fn verified_session() -> SessionInfo {
-        SessionInfo {
-            session_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            tenant_id: Uuid::new_v4(),
-            email_verified: true,
-        }
-    }
-
-    // ----- connect_repo auth tests (REQ-GH-04) -----
-
-    #[test]
-    fn anonymous_auth_rejected() {
-        let result = require_verified_session(AuthContext::Anonymous);
-        assert!(matches!(result, Err(AppError::Unauthorized)));
-    }
-
-    #[test]
-    fn api_key_auth_rejected() {
-        let key = ApiKeyInfo {
-            key_id: Uuid::new_v4(),
-            tenant_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            scopes: vec![Scope::Write],
-        };
-        let result = require_verified_session(AuthContext::ApiKey(key));
-        assert!(matches!(result, Err(AppError::Unauthorized)));
-    }
-
-    #[test]
-    fn expired_session_rejected() {
-        let result = require_verified_session(AuthContext::ExpiredSession);
-        assert!(matches!(result, Err(AppError::SessionExpired)));
-    }
-
-    #[test]
-    fn unverified_email_rejected() {
-        let mut info = verified_session();
-        info.email_verified = false;
-        let result = require_verified_session(AuthContext::Session(info));
-        assert!(matches!(result, Err(AppError::EmailNotVerified)));
-    }
-
-    #[test]
-    fn verified_session_accepted() {
-        let info = verified_session();
-        let user_id = info.user_id;
-        let result = require_verified_session(AuthContext::Session(info));
-        let session = result.unwrap();
-        assert_eq!(session.user_id, user_id);
-    }
-
-    #[test]
-    fn github_404_maps_to_repo_not_accessible() {
-        let err = GhError::ApiError {
-            status: 404,
-            body: "Not Found".to_owned(),
-        };
-        let app_err = match err {
-            GhError::ApiError { status: 404, .. } | GhError::ApiError { status: 403, .. } => {
-                AppError::RepoNotAccessible
-            }
-            other => AppError::Internal(anyhow::anyhow!("{other}")),
-        };
-        assert!(matches!(app_err, AppError::RepoNotAccessible));
-    }
-
-    #[test]
-    fn github_403_maps_to_repo_not_accessible() {
-        let err = GhError::ApiError {
-            status: 403,
-            body: "Forbidden".to_owned(),
-        };
-        let app_err = match err {
-            GhError::ApiError { status: 404, .. } | GhError::ApiError { status: 403, .. } => {
-                AppError::RepoNotAccessible
-            }
-            other => AppError::Internal(anyhow::anyhow!("{other}")),
-        };
-        assert!(matches!(app_err, AppError::RepoNotAccessible));
-    }
-
-    #[test]
-    fn github_500_maps_to_internal() {
-        let err = GhError::ApiError {
-            status: 500,
-            body: "Server Error".to_owned(),
-        };
-        let app_err = match err {
-            GhError::ApiError { status: 404, .. } | GhError::ApiError { status: 403, .. } => {
-                AppError::RepoNotAccessible
-            }
-            other => AppError::Internal(anyhow::anyhow!("{other}")),
-        };
-        assert!(matches!(app_err, AppError::Internal(_)));
-    }
-
-    #[test]
-    fn default_branch_override_takes_priority() {
-        let override_branch = "develop".to_owned();
-        assert_eq!(override_branch, "develop");
-    }
-
-    #[test]
-    fn github_default_branch_used_when_no_override() {
-        let github_branch = "main".to_owned();
-        assert_eq!(github_branch, "main");
-    }
-
-    // ----- trigger_ingest response types (REQ-GH-08) -----
-
-    #[test]
-    fn trigger_ingest_response_serializes_correctly() {
-        let run_id = Uuid::new_v4();
-        let repo_id = Uuid::new_v4();
-        let resp = TriggerIngestResponse {
-            run_id,
-            repo_id,
-            status: "queued".to_owned(),
-        };
-        let val = serde_json::to_value(&resp).unwrap();
-        assert_eq!(val["status"], "queued");
-        assert!(val.get("run_id").is_some());
-        assert!(val.get("repo_id").is_some());
-    }
-
-    #[test]
-    fn ingest_run_already_in_flight_is_conflict() {
-        let err = AppError::IngestRunAlreadyInFlight;
-        let resp = err.into_response();
-        assert_eq!(resp.status(), StatusCode::CONFLICT);
-    }
-
-    #[test]
-    fn ingest_error_message() {
-        assert_eq!(
-            AppError::IngestRunAlreadyInFlight.to_string(),
-            "an ingestion run is already in progress for this repository"
-        );
-    }
-
-    #[test]
-    fn new_error_messages() {
-        assert_eq!(
-            AppError::GithubAppNotConfigured.to_string(),
-            "GitHub App is not configured on this instance"
-        );
-        assert_eq!(
-            AppError::RepoNotAccessible.to_string(),
-            "repository is not accessible via the given installation"
-        );
-        assert_eq!(
-            AppError::RepoAlreadyConnected.to_string(),
-            "repository is already connected to this tenant"
-        );
-        assert_eq!(
-            AppError::IngestRunAlreadyInFlight.to_string(),
-            "an ingestion run is already in progress for this repository"
-        );
-    }
-
-    // ----- list_repos response types (REQ-GH-07) -----
-
-    #[test]
-    fn repo_item_serializes_all_fields() {
-        let item = RepoItem {
-            repo_id: Uuid::new_v4(),
-            full_name: "acme/backend".to_owned(),
-            default_branch: "main".to_owned(),
-            status: "connected".to_owned(),
-            connected_by: Uuid::new_v4(),
-            connected_at: Utc::now(),
-            installation_id: Uuid::new_v4(),
-        };
-        let val = serde_json::to_value(&item).unwrap();
-        assert!(val.get("repo_id").is_some());
-        assert_eq!(val["full_name"], "acme/backend");
-        assert_eq!(val["default_branch"], "main");
-        assert_eq!(val["status"], "connected");
-        assert!(val.get("connected_by").is_some());
-        assert!(val.get("connected_at").is_some());
-        assert!(val.get("installation_id").is_some());
-    }
-
-    #[test]
-    fn list_response_wraps_repos_array() {
-        let resp = ConnectedReposResponse { repos: vec![] };
-        let val = serde_json::to_value(&resp).unwrap();
-        assert!(val["repos"].is_array());
-    }
-
-    #[test]
-    fn list_response_empty_is_valid() {
-        let resp = ConnectedReposResponse { repos: vec![] };
-        let json = serde_json::to_string(&resp).unwrap();
-        assert!(json.contains("\"repos\":[]"));
-    }
-}
+#[path = "repos_tests.rs"]
+mod tests;
