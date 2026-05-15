@@ -116,10 +116,7 @@ pub fn build_manifest_payload(base_url: &str, name: &str) -> serde_json::Value {
             "contents": "read",
             "metadata": "read",
         },
-        "default_events": [
-            "installation",
-            "installation_repositories",
-        ],
+        "default_events": [],
     })
 }
 
@@ -161,10 +158,12 @@ mod tests {
             "http://localhost:15173/v1/github/webhook"
         );
         assert_eq!(m["default_permissions"]["contents"], "read");
-        let events = m["default_events"]
-            .as_array()
-            .expect("default_events array");
-        assert!(events.iter().any(|e| e == "installation"));
-        assert!(events.iter().any(|e| e == "installation_repositories"));
+        assert!(
+            m["default_events"]
+                .as_array()
+                .expect("default_events array")
+                .is_empty(),
+            "installation/installation_repositories must not appear in default_events"
+        );
     }
 }
