@@ -31,7 +31,8 @@ pub struct Consumer<E: ProstMessage + Default> {
 #[allow(clippy::used_underscore_binding, clippy::unused_async)]
 impl<E: ProstMessage + Default> Consumer<E> {
     pub fn new(cfg: &ConsumerCfg) -> Result<Self, KafkaError> {
-        let consumer: StreamConsumer = ClientConfig::new()
+        let mut client_cfg = ClientConfig::new();
+        client_cfg
             .set("bootstrap.servers", &cfg.bootstrap_servers)
             .set("group.id", &cfg.group_id)
             .set("enable.auto.commit", cfg.enable_auto_commit.to_string())
@@ -45,6 +46,14 @@ impl<E: ProstMessage + Default> Consumer<E> {
                 "session.timeout.ms",
                 cfg.session_timeout.as_millis().to_string(),
             )
+            .set(
+                "heartbeat.interval.ms",
+                cfg.heartbeat_interval.as_millis().to_string(),
+            );
+        if let Some(ref iid) = cfg.instance_id {
+            client_cfg.set("group.instance.id", iid);
+        }
+        let consumer: StreamConsumer = client_cfg
             // Dev brokers can take >100ms for first-fetch offset requests;
             // 30 s matches librdkafka's protocol default and silences REQTMOUT noise.
             .set("socket.timeout.ms", "30000")
@@ -428,11 +437,13 @@ mod tests {
         let cfg = ConsumerCfg {
             bootstrap_servers: "127.0.0.1:1".to_owned(), // no kafka here
             group_id: "rb-kafka-wait-for-topics-test".to_owned(),
+            instance_id: None,
             enable_auto_commit: false,
             isolation_level: "read_committed".to_owned(),
             auto_offset_reset: "earliest".to_owned(),
-            max_poll_interval: Duration::from_secs(300),
-            session_timeout: Duration::from_secs(30),
+            max_poll_interval: Duration::from_secs(600),
+            session_timeout: Duration::from_secs(60),
+            heartbeat_interval: Duration::from_secs(10),
         };
         let consumer: Consumer<AgentSessionCommand> =
             Consumer::new(&cfg).expect("consumer construction");
