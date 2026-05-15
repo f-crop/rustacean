@@ -10,6 +10,9 @@ use crate::state::AppState;
 
 const CLONE_COMMANDS_TOPIC: &str = "rb.ingest.clone.commands";
 
+/// Interval between reconciler passes.
+const RECONCILER_INTERVAL: Duration = Duration::from_secs(120);
+
 struct OrphanedRun {
     id: Uuid,
     tenant_id: Uuid,
@@ -17,13 +20,34 @@ struct OrphanedRun {
     commit_sha: Option<String>,
 }
 
-/// On startup, re-dispatch any ingestion runs that are stuck in `queued`
-/// for more than 5 minutes without a Kafka message being produced.
+/// Spawns a background tokio task that calls [`reconcile_orphaned_ingest_runs`]
+/// every 2 minutes.
 ///
-/// This recovers from the failure mode where control-api crashed or was
-/// restarted after the DB row was committed but before (or during) the
-/// Kafka publish.  The trigger handler normally rolls back the transaction
-/// on Kafka failure, but a mid-flight process death can leave an orphan.
+/// The first tick fires immediately so recently-stuck runs are healed without
+/// waiting a full interval.  Missed ticks are skipped (no burst catch-up) to
+/// prevent thundering-herd on a recovering Kafka broker.
+///
+/// The returned [`tokio::task::JoinHandle`] can be kept for graceful shutdown
+/// or dropped — dropping does not cancel the task.
+pub fn spawn_reconciler_loop(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(RECONCILER_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            reconcile_orphaned_ingest_runs(&state).await;
+        }
+    })
+}
+
+/// Re-dispatch any ingestion runs that are stuck in `queued` for more than
+/// 2 minutes without a Kafka message being produced.
+///
+/// Called periodically by [`spawn_reconciler_loop`].  Recovers from the
+/// failure mode where control-api crashed or was restarted after the DB row
+/// was committed but before (or during) the Kafka publish.  The trigger
+/// handler normally rolls back the transaction on Kafka failure, but a
+/// mid-flight process death can leave an orphan.
 ///
 /// Recovery strategy:
 /// - Kafka producer available → re-publish `IngestRequest` with a new
@@ -31,25 +55,25 @@ struct OrphanedRun {
 /// - Kafka producer unavailable → mark the run `failed` with a clear
 ///   error so the user can re-trigger without manual DB surgery.
 ///
-/// Bounded: processes at most 100 runs per restart (oldest first) to cap
-/// startup time after a prolonged outage.
+/// Bounded: processes at most 100 runs per pass (oldest first) to cap
+/// work per interval after a prolonged outage.
 pub async fn reconcile_orphaned_ingest_runs(state: &AppState) {
     let runs = match fetch_orphaned_runs(&state.pool).await {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!(error = %e, "startup reconciler: failed to query orphaned runs");
+            tracing::error!(error = %e, "reconciler: failed to query orphaned runs");
             return;
         }
     };
 
     if runs.is_empty() {
-        tracing::debug!("startup reconciler: no orphaned queued ingestion runs");
+        tracing::debug!("reconciler: no orphaned queued ingestion runs");
         return;
     }
 
     tracing::warn!(
         count = runs.len(),
-        "startup reconciler: found orphaned queued ingestion runs — recovering"
+        "reconciler: found orphaned queued ingestion runs — recovering"
     );
 
     for run in runs {
@@ -63,7 +87,7 @@ async fn fetch_orphaned_runs(pool: &sqlx::PgPool) -> Result<Vec<OrphanedRun>, sq
          FROM control.ingestion_runs \
          WHERE status = 'queued' \
            AND started_at IS NULL \
-           AND created_at < now() - interval '5 minutes' \
+           AND created_at < now() - interval '2 minutes' \
          ORDER BY created_at ASC \
          LIMIT 100",
     )
@@ -112,7 +136,7 @@ async fn handle_orphaned_run(state: &AppState, run: OrphanedRun) {
         Ok(false) => {
             tracing::debug!(
                 run_id = %run.id,
-                "startup reconciler: run already claimed by another instance; skipping"
+                "reconciler: run already claimed by another instance; skipping"
             );
             return;
         }
@@ -120,7 +144,7 @@ async fn handle_orphaned_run(state: &AppState, run: OrphanedRun) {
             tracing::error!(
                 run_id = %run.id,
                 error = %e,
-                "startup reconciler: failed to claim run; skipping"
+                "reconciler: failed to claim run; skipping"
             );
             return;
         }
@@ -134,12 +158,12 @@ async fn handle_orphaned_run(state: &AppState, run: OrphanedRun) {
             tracing::warn!(
                 run_id = %run.id,
                 tenant_id = %run.tenant_id,
-                "startup reconciler: Kafka broker unreachable; marking run failed"
+                "reconciler: Kafka broker unreachable; marking run failed"
             );
             mark_failed(
                 &state.pool,
                 run.id,
-                "startup reconciler: Kafka broker unreachable on recovery; re-trigger to start ingestion",
+                "reconciler: Kafka broker unreachable on recovery; re-trigger to start ingestion",
             )
             .await;
             return;
@@ -172,19 +196,19 @@ async fn handle_orphaned_run(state: &AppState, run: OrphanedRun) {
                     run_id = %run.id,
                     tenant_id = %run.tenant_id,
                     repo_id = %run.repo_id,
-                    "startup reconciler: re-published orphaned ingestion run"
+                    "reconciler: re-published orphaned ingestion run"
                 );
             }
             Err(e) => {
                 tracing::warn!(
                     run_id = %run.id,
                     error = %e,
-                    "startup reconciler: re-publish failed; marking run failed"
+                    "reconciler: re-publish failed; marking run failed"
                 );
                 mark_failed(
                     &state.pool,
                     run.id,
-                    "startup reconciler: Kafka publish failed during recovery; re-trigger to start ingestion",
+                    "reconciler: Kafka publish failed during recovery; re-trigger to start ingestion",
                 )
                 .await;
             }
@@ -194,12 +218,12 @@ async fn handle_orphaned_run(state: &AppState, run: OrphanedRun) {
             run_id = %run.id,
             tenant_id = %run.tenant_id,
             repo_id = %run.repo_id,
-            "startup reconciler: no Kafka producer configured; marking orphaned run failed"
+            "reconciler: no Kafka producer configured; marking orphaned run failed"
         );
         mark_failed(
             &state.pool,
             run.id,
-            "startup reconciler: control-api restarted with no Kafka producer before message was published; re-trigger to start ingestion",
+            "reconciler: control-api restarted with no Kafka producer before message was published; re-trigger to start ingestion",
         )
         .await;
     }
@@ -219,7 +243,7 @@ async fn mark_failed(pool: &sqlx::PgPool, run_id: Uuid, error: &str) {
         tracing::error!(
             run_id = %run_id,
             error = %e,
-            "startup reconciler: failed to mark run as failed"
+            "reconciler: failed to mark run as failed"
         );
     }
 }
