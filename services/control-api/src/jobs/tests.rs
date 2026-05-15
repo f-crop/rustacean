@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use rb_auth::{LoginRateLimiter, PasswordHasher};
 use rb_email::from_transport;
@@ -444,5 +445,58 @@ async fn reconcile_dead_broker_marks_orphans_failed() {
     assert_eq!(
         status, "failed",
         "orphaned run must be marked failed when configured broker is unreachable"
+    );
+}
+
+/// The background loop spawned by `spawn_reconciler_loop` must heal a stuck
+/// queued run within its first tick (which fires immediately on interval
+/// creation, before any 2-minute delay).
+///
+/// In the no-producer test environment, "healed" means the run transitions to
+/// `failed`.  The test polls with a 5 s wall-clock timeout so it fails fast
+/// rather than hanging indefinitely on a broken CI environment.
+#[tokio::test]
+async fn reconciler_loop_heals_stuck_queued_run_on_first_tick() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (tenant_id, user_id, repo_id) = insert_fixtures(&pool).await;
+    // Insert a run that is 10 minutes old — well past the 2-minute threshold.
+    let run_id = insert_queued_run(&pool, tenant_id, repo_id, user_id, true).await;
+
+    let state = make_state(pool.clone());
+    let handle = spawn_reconciler_loop(state);
+
+    // Poll until the run transitions out of `queued`, with a 5 s timeout.
+    // The first tick of the interval fires immediately, so this should
+    // complete in milliseconds under normal conditions.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM control.ingestion_runs WHERE id = $1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch status");
+        if status != "queued" {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            handle.abort();
+            panic!("reconciler loop did not heal the stuck run within 5 s");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    handle.abort();
+
+    let final_status: String =
+        sqlx::query_scalar("SELECT status FROM control.ingestion_runs WHERE id = $1")
+            .bind(run_id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch final status");
+    assert_eq!(
+        final_status, "failed",
+        "stuck-queued run must be marked failed by the background reconciler (no producer in test)"
     );
 }

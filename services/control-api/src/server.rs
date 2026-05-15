@@ -160,9 +160,10 @@ pub async fn run(config: Config) -> Result<()> {
         tenant_session_count: Arc::new(TenantSessionCount::new()),
     };
 
-    // Reconcile any ingestion runs that were left in `queued` state by a prior
-    // crash or restart before their Kafka message was produced.
-    jobs::reconcile_orphaned_ingest_runs(&state).await;
+    // Spawn the periodic reconciler that heals ingestion runs left in `queued`
+    // by a crash or Kafka publish failure.  Runs every 2 minutes throughout
+    // the lifetime of the process (not just on startup).
+    drop(jobs::spawn_reconciler_loop(state.clone()));
 
     // Spawn the Kafka → SSE fan-out consumer.  Errors here are logged but do
     // not prevent the HTTP server from starting — the SSE endpoint degrades
