@@ -36,6 +36,12 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       CLUSTER_ID: VGVzdENsdXN0ZXJJZEtleQ
+      # KRaft metadata log hardening: limit snapshot interval, segment size, and tune
+      # broker heartbeat/session timeouts for resilience under GC pressure.
+      KAFKA_METADATA_LOG_MAX_SNAPSHOT_INTERVAL_MS: "300000"
+      KAFKA_METADATA_LOG_SEGMENT_BYTES: "10485760"
+      KAFKA_BROKER_HEARTBEAT_INTERVAL_MS: "2000"
+      KAFKA_BROKER_SESSION_TIMEOUT_MS: "9000"
     volumes:
       - test_kafka_data:/var/lib/kafka/data
     ports:
