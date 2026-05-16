@@ -52,8 +52,8 @@ impl ConsumerCfg {
         // Use $HOSTNAME (set by Docker/K8s to the container/pod name) so that each
         // replica gets a stable, unique group.instance.id across restarts without
         // hitting the full-rebalance path on every reconnect.
-        let hostname = std::env::var("HOSTNAME")
-            .unwrap_or_else(|_| format!("pid-{}", std::process::id()));
+        let hostname =
+            std::env::var("HOSTNAME").unwrap_or_else(|_| format!("pid-{}", std::process::id()));
         let instance_id = Some(format!("{group_id}-{hostname}"));
         Self {
             bootstrap_servers: std::env::var("KAFKA_BOOTSTRAP_SERVERS")
