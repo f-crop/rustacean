@@ -19,7 +19,8 @@ use bytes::Bytes;
 use metrics::counter;
 use rb_blob::{BlobRef, BlobStore};
 use rb_github::GhApp;
-use rb_kafka::{Consumer, EventEnvelope, Producer};
+use rb_kafka::{EventEnvelope, Producer};
+use rb_kafka_health::HealthyConsumer;
 use rb_schemas::{
     IngestRequest, IngestStage, IngestStatus, IngestStatusEvent, SourceFileEvent, TenantId,
 };
@@ -51,7 +52,7 @@ struct CloneCtx {
 }
 
 pub async fn run(
-    consumer: Consumer<IngestRequest>,
+    mut consumer: HealthyConsumer<IngestRequest>,
     pool: Arc<PgPool>,
     gh_app: Option<Arc<GhApp>>,
     blob_store: Arc<dyn BlobStore>,

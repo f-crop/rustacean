@@ -9,6 +9,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use metrics::counter;
 use rb_kafka::{Consumer, ConsumerCfg, EventEnvelope, Producer, ProducerCfg};
+use rb_kafka_health::{HealthyConsumer, KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::{GraphRelationEvent, IngestStage, IngestStatus, IngestStatusEvent, RelationKind};
 use rb_storage_neo4j::{CypherError, TenantGraph};
 use tokio::task::JoinHandle;
@@ -27,8 +28,15 @@ const MONOMORPH_NODE_CAP_DEFAULT: i64 = 5_000_000;
 ///
 /// Returns an error if the Kafka consumer cannot be created or subscribed.
 pub fn spawn(graph: Arc<TenantGraph>) -> Result<JoinHandle<()>> {
-    let consumer = Consumer::<GraphRelationEvent>::new(&ConsumerCfg::new("projector-neo4j"))?;
+    let neo4j_cfg = ConsumerCfg::new("projector-neo4j");
+    let consumer = Consumer::<GraphRelationEvent>::new(&neo4j_cfg)?;
     consumer.subscribe(&[TOPIC_COMMANDS])?;
+    let mut consumer = KafkaHealthWatcher::wrap(
+        consumer,
+        &neo4j_cfg,
+        &[TOPIC_COMMANDS.to_owned()],
+        WatchdogConfig::default(),
+    );
 
     let producer = Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
     let monomorph_cap = monomorph_cap_from_env();
@@ -63,7 +71,7 @@ pub fn spawn(graph: Arc<TenantGraph>) -> Result<JoinHandle<()>> {
 
 async fn handle_envelope(
     graph: &TenantGraph,
-    consumer: &Consumer<GraphRelationEvent>,
+    consumer: &HealthyConsumer<GraphRelationEvent>,
     producer: &Producer<IngestStatusEvent>,
     monomorph_cap: i64,
     envelope: EventEnvelope<GraphRelationEvent>,

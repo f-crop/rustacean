@@ -18,7 +18,8 @@ use anyhow::{Context as _, Result};
 use bytes::Bytes;
 use metrics::counter;
 use rb_blob::{BlobRef, BlobStore};
-use rb_kafka::{Consumer, EventEnvelope, Producer, RetryPolicy};
+use rb_kafka::{EventEnvelope, Producer, RetryPolicy};
+use rb_kafka_health::HealthyConsumer;
 use rb_schemas::{
     IngestRequest, IngestStage, IngestStatus, IngestStatusEvent, ItemKind, ParsedItemEvent,
     TenantId, parsed_item_event,
@@ -45,7 +46,7 @@ struct ParseCtx {
 }
 
 pub async fn run(
-    consumer: Consumer<IngestRequest>,
+    mut consumer: HealthyConsumer<IngestRequest>,
     blob_store: Arc<dyn BlobStore>,
     item_producer: Arc<Producer<ParsedItemEvent>>,
     typecheck_producer: Arc<Producer<IngestRequest>>,
