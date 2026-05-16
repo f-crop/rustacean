@@ -8,6 +8,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use metrics::counter;
 use rb_kafka::{Consumer, ConsumerCfg, EventEnvelope};
+use rb_kafka_health::{KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::Tombstone;
 use rb_storage_neo4j::TenantGraph;
 use rb_storage_pg::TenantPool;
@@ -26,8 +27,19 @@ pub fn spawn(
     graph: Arc<TenantGraph>,
     qdrant_url: Option<String>,
 ) -> Result<JoinHandle<()>> {
-    let consumer = Consumer::<Tombstone>::new(&ConsumerCfg::new("tombstoner"))?;
+    let cfg = ConsumerCfg::new("tombstoner");
+    let consumer = Consumer::<Tombstone>::new(&cfg)?;
     consumer.subscribe(&[TOPIC_TOMBSTONES])?;
+    let mut consumer = KafkaHealthWatcher::wrap(
+        consumer,
+        &cfg,
+        &[TOPIC_TOMBSTONES.to_owned()],
+        WatchdogConfig::default(),
+    );
+    tracing::info!(
+        kafka_health = "spawned",
+        "tombstoner kafka health watchdog active"
+    );
 
     let handle = tokio::spawn(async move {
         loop {
@@ -41,14 +53,18 @@ pub fn spawn(
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
                 Some(Ok(envelope)) => {
-                    handle_envelope(
+                    let commit = handle_envelope(
                         pool.as_ref(),
                         graph.as_ref(),
                         qdrant_url.as_deref(),
-                        &consumer,
-                        envelope,
+                        &envelope,
                     )
                     .await;
+                    if commit {
+                        if let Err(e) = consumer.commit(&envelope).await {
+                            tracing::warn!("tombstoner: commit failed: {e}");
+                        }
+                    }
                 }
             }
         }
@@ -57,13 +73,13 @@ pub fn spawn(
     Ok(handle)
 }
 
+/// Returns `true` if the caller should commit the offset.
 async fn handle_envelope(
     pool: &TenantPool,
     graph: &TenantGraph,
     qdrant_url: Option<&str>,
-    consumer: &Consumer<Tombstone>,
-    envelope: EventEnvelope<Tombstone>,
-) {
+    envelope: &EventEnvelope<Tombstone>,
+) -> bool {
     let tenant_id = envelope.tenant_id;
     let ev = &envelope.payload;
 
@@ -82,9 +98,7 @@ async fn handle_envelope(
                 repo_id   = %ev.repo_id,
                 "tombstoner: projections deleted"
             );
-            if let Err(e) = consumer.commit(&envelope).await {
-                tracing::warn!("tombstoner: commit failed: {e}");
-            }
+            true
         }
         Err(e) => {
             tracing::error!(
@@ -95,6 +109,7 @@ async fn handle_envelope(
             counter!("rb_tombstoner_events_total", "outcome" => "err").increment(1);
             // Do not commit — Kafka will redeliver for retry.
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            false
         }
     }
 }

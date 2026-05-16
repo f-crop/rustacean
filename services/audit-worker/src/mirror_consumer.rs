@@ -8,6 +8,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::DateTime;
 use rb_kafka::{Consumer, ConsumerCfg};
+use rb_kafka_health::{KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::{IngestStatus, IngestStatusEvent};
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
@@ -17,6 +18,16 @@ pub fn spawn(pool: &Arc<PgPool>) -> Result<JoinHandle<()>> {
     let cfg = ConsumerCfg::new("audit-worker-projector-mirror");
     let consumer = Consumer::<IngestStatusEvent>::new(&cfg)?;
     consumer.subscribe(&["rb.projector.events"])?;
+    let mut consumer = KafkaHealthWatcher::wrap(
+        consumer,
+        &cfg,
+        &["rb.projector.events".to_owned()],
+        WatchdogConfig::default(),
+    );
+    tracing::info!(
+        kafka_health = "spawned",
+        "mirror_consumer kafka health watchdog active"
+    );
     let pool = Arc::clone(pool);
 
     let handle = tokio::spawn(async move {
