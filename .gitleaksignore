@@ -11,3 +11,6 @@ ed45745ba598f205130a4cba0ddd2bb1b0fa79af:crates/rb-github/tests/fixtures/test_rs
 # 2048-bit RSA test-only key inlined as TEST_RSA_PEM const in app_config_store.rs unit tests.
 # Pure test fixture generated with openssl genrsa; no production usage.
 34089ebf49f0cad9e191fd52b043ad03ae680a5b:crates/rb-github/src/app_config_store.rs:private-key:451
+# Dev AES-256-GCM key first introduced in f4b74704 without gitleaks:allow annotation.
+# Annotated in 9cd3bcf4; historical diff still trips the scanner. Dev fixture only.
+f4b74704ded45b8ac5933633e1416a6418a4e2eb:compose/tailscale.env:generic-api-key:74
