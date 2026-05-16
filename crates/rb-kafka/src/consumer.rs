@@ -307,6 +307,46 @@ impl<E: ProstMessage + Default> Consumer<E> {
         }
     }
 
+    /// Returns an estimate of the total unconsumed message lag across all
+    /// currently assigned partitions.
+    ///
+    /// Uses `fetch_watermarks` (high watermark) minus the consumer's current
+    /// fetch position per partition.  Returns 0 when no partitions are assigned
+    /// or watermark fetches fail — the caller should treat 0 as "unknown/quiet"
+    /// and avoid spurious restarts.
+    pub async fn assignment_lag_estimate(&self) -> u64 {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            use rdkafka::consumer::Consumer as RdKafkaConsumer;
+            let Ok(assignment) = inner.assignment() else {
+                return 0u64;
+            };
+            let Ok(position) = inner.position() else {
+                return 0u64;
+            };
+            let mut total: u64 = 0;
+            for elem in assignment.elements() {
+                let topic = elem.topic();
+                let part = elem.partition();
+                let pos = position
+                    .find_partition(topic, part)
+                    .and_then(|e| e.offset().to_raw())
+                    .unwrap_or(0);
+                if let Ok((_, high)) =
+                    inner.fetch_watermarks(topic, part, Duration::from_millis(500))
+                {
+                    #[allow(clippy::cast_sign_loss)]
+                    if high > pos {
+                        total = total.saturating_add((high - pos) as u64);
+                    }
+                }
+            }
+            total
+        })
+        .await
+        .unwrap_or(0)
+    }
+
     pub async fn commit(&self, env: &EventEnvelope<E>) -> Result<(), KafkaError> {
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(

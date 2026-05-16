@@ -1163,6 +1163,7 @@ dependencies = [
  "rb-email",
  "rb-github",
  "rb-kafka",
+ "rb-kafka-health",
  "rb-mcp",
  "rb-query",
  "rb-schemas",
@@ -3958,6 +3959,19 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "uuid",
+]
+
+[[package]]
+name = "rb-kafka-health"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "metrics",
+ "prost",
+ "rb-kafka",
+ "rb-schemas",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

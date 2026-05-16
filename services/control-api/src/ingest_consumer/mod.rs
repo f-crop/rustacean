@@ -10,6 +10,7 @@ use std::sync::{Arc, atomic::Ordering};
 
 use anyhow::Result;
 use rb_kafka::{Consumer, ConsumerCfg};
+use rb_kafka_health::{KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::IngestStatusEvent;
 use rb_sse::EventBus;
 use sqlx::PgPool;
@@ -33,6 +34,12 @@ pub fn spawn(
 ) -> Result<tokio::task::JoinHandle<()>> {
     let consumer = Consumer::<IngestStatusEvent>::new(cfg)?;
     consumer.subscribe(&["rb.projector.events"])?;
+    let mut consumer = KafkaHealthWatcher::wrap(
+        consumer,
+        cfg,
+        &["rb.projector.events".to_owned()],
+        WatchdogConfig::default(),
+    );
 
     let handle = tokio::spawn(async move {
         loop {

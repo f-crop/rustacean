@@ -23,6 +23,7 @@ rb-auth = { path = "../../crates/rb-auth", version = "0.1.0" }
 migrate = { path = "../migrate", version = "0.1.0" }
 rb-email = { path = "../../crates/rb-email", version = "0.1.0" }
 rb-kafka = { path = "../../crates/rb-kafka", version = "0.1.0" }
+rb-kafka-health = { path = "../../crates/rb-kafka-health", version = "0.1.0" }
 rb-sse = { path = "../../crates/rb-sse", version = "0.1.0" }
 rb-github = { path = "../../crates/rb-github", version = "0.1.0" }
 rb-secrets = { path = "../../crates/rb-secrets", version = "0.1.0" }
