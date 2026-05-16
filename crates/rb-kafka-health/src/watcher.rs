@@ -26,6 +26,9 @@ where
     async fn commit(&self, env: &EventEnvelope<E>) -> Result<(), KafkaError>;
     async fn nack_to_dlq(&self, env: &EventEnvelope<E>, reason: &str) -> Result<(), KafkaError>;
     async fn lag_estimate(&self) -> u64;
+    /// Number of topic-partition assignments held by this consumer.
+    /// Returns `0` when the consumer-group membership has been lost.
+    async fn assigned_partition_count(&self) -> usize;
 }
 
 #[async_trait]
@@ -48,6 +51,10 @@ where
     async fn lag_estimate(&self) -> u64 {
         self.assignment_lag_estimate().await
     }
+
+    async fn assigned_partition_count(&self) -> usize {
+        rb_kafka::Consumer::assignment_count(self).await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -63,9 +70,19 @@ type ConsumerFactory<E> =
 // KafkaHealthWatcher — factory
 // ---------------------------------------------------------------------------
 
-/// Wraps a `Consumer<E>` with a watchdog that detects the
-/// `wait-unassign-to-complete` wedge state and transparently recreates the
-/// consumer when stalled.
+/// Wraps a `Consumer<E>` with a watchdog that detects wedge states and
+/// transparently recreates the consumer when stalled.
+///
+/// Detected conditions:
+///
+/// 1. **Lag wedge** — lag > 0 but no messages for `stall_timeout`.
+/// 2. **Group membership loss** — consumer previously received messages but now
+///    has zero assigned partitions (group evaporated after broker restart).
+///    Detected when lag == 0 on stall and `assigned_partition_count == 0`.
+/// 3. **Error cascade** — consecutive errors from `next()` exceed
+///    `max_error_streak`; catches the silent reconnect-retry loop
+///    (`REQTMOUT` / `ApiVersionRequest failed: Local: Timed out`) that
+///    produces repeated stream errors without progress.
 pub struct KafkaHealthWatcher;
 
 impl KafkaHealthWatcher {
@@ -74,7 +91,7 @@ impl KafkaHealthWatcher {
     /// * `cfg` — the same `ConsumerCfg` used to create `consumer`; reused
     ///   when the watchdog recreates the consumer after a wedge.
     /// * `topics` — topic list passed to `subscribe()`; reused on recreate.
-    /// * `watchdog_cfg` — stall timeout settings.
+    /// * `watchdog_cfg` — stall timeout and error-streak settings.
     #[must_use]
     pub fn wrap<E>(
         consumer: rb_kafka::Consumer<E>,
@@ -103,7 +120,7 @@ impl KafkaHealthWatcher {
 // ---------------------------------------------------------------------------
 
 /// A `Consumer<E>` wrapper that automatically recreates the consumer when a
-/// wedge state is detected (no messages for `stall_timeout` while lag > 0).
+/// wedge state is detected.
 ///
 /// Drop-in for `rb_kafka::Consumer<E>` at call sites that only use `next()`
 /// and `commit()`.
@@ -117,6 +134,11 @@ where
     last_recv: Instant,
     /// How many times the inner consumer has been recreated.
     pub recreate_count: u64,
+    /// `true` once the consumer has successfully delivered at least one message.
+    /// Guards group-loss detection so startup races don't cause spurious restarts.
+    pub(crate) had_assignment: bool,
+    /// Consecutive error results from `next()` without an intervening success.
+    pub(crate) consecutive_errors: u32,
 }
 
 impl<E> HealthyConsumer<E>
@@ -134,11 +156,37 @@ where
             config,
             last_recv: Instant::now(),
             recreate_count: 0,
+            had_assignment: false,
+            consecutive_errors: 0,
         }
     }
 
-    /// Receive the next message, transparently recreating the consumer if a
-    /// wedge state is detected.
+    /// Recreate the inner consumer via the factory.  Resets the stall clock
+    /// and `had_assignment` on success so the watchdog starts fresh.
+    async fn do_recreate(&mut self) {
+        match (self.factory)() {
+            Ok(new_inner) => {
+                self.inner = new_inner;
+                self.recreate_count += 1;
+                self.last_recv = Instant::now();
+                self.had_assignment = false;
+                self.consecutive_errors = 0;
+                info!(
+                    recreate_count = self.recreate_count,
+                    "kafka consumer recreated successfully"
+                );
+            }
+            Err(e) => {
+                error!(error = %e, "kafka consumer recreation failed; will retry");
+                // Brief back-off; last_recv intentionally NOT reset so the stall
+                // timer fires again immediately, driving retry.
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    /// Receive the next message, transparently recreating the consumer on any
+    /// detected wedge state.
     ///
     /// Mirrors the `Option<Result<…>>` signature of `rb_kafka::Consumer::next`.
     pub async fn next(&mut self) -> Option<Result<EventEnvelope<E>, KafkaError>> {
@@ -146,50 +194,86 @@ where
             let elapsed = self.last_recv.elapsed();
             let remaining = self.config.stall_timeout.checked_sub(elapsed);
 
-            let timed_out = match remaining {
-                None | Some(Duration::ZERO) => true,
-                Some(d) => match tokio::time::timeout(d, self.inner.next()).await {
-                    Ok(result) => {
-                        self.last_recv = Instant::now();
-                        return result;
+            // ----------------------------------------------------------------
+            // Fast path: stall timeout hasn't expired — poll the consumer.
+            // ----------------------------------------------------------------
+            match remaining {
+                Some(d) if d > Duration::ZERO => {
+                    match tokio::time::timeout(d, self.inner.next()).await {
+                        Ok(inner_result) => {
+                            // Inspect before returning so we can update watchdog
+                            // state without consuming the value.
+                            let is_ok = matches!(inner_result, Some(Ok(_)));
+
+                            if is_ok {
+                                self.last_recv = Instant::now();
+                                self.consecutive_errors = 0;
+                                self.had_assignment = true;
+                            } else if matches!(inner_result, Some(Err(_))) {
+                                self.consecutive_errors = self.consecutive_errors.saturating_add(1);
+                                if self.config.max_error_streak > 0
+                                    && self.consecutive_errors >= self.config.max_error_streak
+                                {
+                                    warn!(
+                                        consecutive = self.consecutive_errors,
+                                        threshold = self.config.max_error_streak,
+                                        "kafka error cascade detected; recreating consumer"
+                                    );
+                                    counter!("rb_kafka_health_error_streak_restart_total")
+                                        .increment(1);
+                                    self.do_recreate().await;
+                                    continue;
+                                }
+                            }
+
+                            return inner_result;
+                        }
+                        Err(_elapsed) => {
+                            // Stall timeout expired — fall through to stall handling.
+                        }
                     }
-                    Err(_timeout) => true,
-                },
-            };
-
-            if timed_out {
-                // Check whether there are actually messages to consume.
-                let lag = self.inner.lag_estimate().await;
-                if lag == 0 {
-                    // Topic is genuinely quiet; reset stall clock and loop.
-                    self.last_recv = Instant::now();
-                    continue;
                 }
+                _ => {
+                    // remaining is None or zero — already in stall state.
+                }
+            }
 
-                // Wedge confirmed: lag > 0 but nothing received for stall_timeout.
+            // ----------------------------------------------------------------
+            // Stall path: no successful message for stall_timeout.
+            // ----------------------------------------------------------------
+            let lag = self.inner.lag_estimate().await;
+
+            if lag > 0 {
+                // Classic wedge: lag present but consumer is frozen.
                 warn!(
                     lag,
                     stall_secs = self.config.stall_timeout.as_secs(),
                     "kafka consumer wedge detected; recreating"
                 );
                 counter!("rb_kafka_health_wedge_total").increment(1);
-
-                match (self.factory)() {
-                    Ok(new_inner) => {
-                        self.inner = new_inner;
-                        self.recreate_count += 1;
-                        self.last_recv = Instant::now();
-                        info!(
-                            recreate_count = self.recreate_count,
-                            "kafka consumer recreated successfully"
-                        );
-                    }
-                    Err(e) => {
-                        error!(error = %e, "kafka consumer recreation failed; will retry");
-                        // Brief back-off before the next attempt.
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    }
+                self.do_recreate().await;
+            } else if self.had_assignment {
+                // Lag is zero but we previously received messages.
+                // Check whether the consumer-group membership was lost —
+                // after a broker restart the group can evaporate, leaving the
+                // consumer with zero partitions.  lag_estimate() returns 0 in
+                // this state because there is no assignment to compute lag from,
+                // masking the wedge from the lag-based check above.
+                let partitions = self.inner.assigned_partition_count().await;
+                if partitions == 0 {
+                    warn!(
+                        stall_secs = self.config.stall_timeout.as_secs(),
+                        "consumer group membership lost (0 partitions); recreating"
+                    );
+                    counter!("rb_kafka_health_group_loss_restart_total").increment(1);
+                    self.do_recreate().await;
+                } else {
+                    // Genuinely quiet topic with valid assignment; reset clock.
+                    self.last_recv = Instant::now();
                 }
+            } else {
+                // No messages received yet (startup or quiet topic); reset clock.
+                self.last_recv = Instant::now();
             }
         }
     }
@@ -224,18 +308,40 @@ mod tests {
 
     type MsgQueue<E> = Mutex<Vec<Option<Result<EventEnvelope<E>, KafkaError>>>>;
 
-    /// A consumer that either returns prepared messages or stalls indefinitely.
     struct MockConsumer<E: ProstMessage + Default + Send + Sync + 'static> {
-        #[allow(dead_code)]
         messages: MsgQueue<E>,
         lag: Arc<AtomicU64>,
+        assignment_count: Arc<AtomicU64>,
     }
 
     impl<E: ProstMessage + Default + Send + Sync + 'static> MockConsumer<E> {
+        /// Stalling consumer with 1 simulated assigned partition (normal state).
         fn stalling(lag: Arc<AtomicU64>) -> Self {
             Self {
                 messages: Mutex::new(vec![]),
                 lag,
+                assignment_count: Arc::new(AtomicU64::new(1)),
+            }
+        }
+
+        /// Stalling consumer with a configurable partition count (for group-loss tests).
+        fn stalling_with_partitions(lag: Arc<AtomicU64>, partitions: Arc<AtomicU64>) -> Self {
+            Self {
+                messages: Mutex::new(vec![]),
+                lag,
+                assignment_count: partitions,
+            }
+        }
+
+        /// Consumer that drains `messages` then stalls.
+        fn with_messages(
+            messages: Vec<Option<Result<EventEnvelope<E>, KafkaError>>>,
+            lag: Arc<AtomicU64>,
+        ) -> Self {
+            Self {
+                messages: Mutex::new(messages),
+                lag,
+                assignment_count: Arc::new(AtomicU64::new(1)),
             }
         }
     }
@@ -268,11 +374,24 @@ mod tests {
         async fn lag_estimate(&self) -> u64 {
             self.lag.load(Ordering::Relaxed)
         }
+
+        async fn assigned_partition_count(&self) -> usize {
+            self.assignment_count.load(Ordering::Relaxed) as usize
+        }
     }
 
     #[allow(dead_code)]
     fn dummy_cfg() -> ConsumerCfg {
         ConsumerCfg::new("test-group")
+    }
+
+    fn make_stream_error<E: ProstMessage + Default + Send + Sync + 'static>()
+    -> Option<Result<EventEnvelope<E>, KafkaError>> {
+        // Use a generic broker error to simulate any stream error (REQTMOUT cascade,
+        // broker unavailable, etc.).  The watcher tracks ALL consecutive errors.
+        Some(Err(KafkaError::Broker(
+            "simulated: Local: Timed out".to_owned(),
+        )))
     }
 
     // ── wedge detection: lag > 0 triggers recreate ───────────────────────────
@@ -299,11 +418,11 @@ mod tests {
             factory,
             WatchdogConfig {
                 stall_timeout: Duration::from_millis(50),
+                max_error_streak: 30,
             },
         );
 
         // After two stall cycles the watchdog should have recreated at least once.
-        // We give it enough time for 2× stall_timeout + recreation + one more cycle.
         tokio::time::timeout(Duration::from_millis(400), healthy.next())
             .await
             .ok();
@@ -339,6 +458,7 @@ mod tests {
             factory,
             WatchdogConfig {
                 stall_timeout: Duration::from_millis(30),
+                max_error_streak: 30,
             },
         );
 
@@ -349,7 +469,7 @@ mod tests {
         assert_eq!(
             recreate_calls.load(Ordering::Relaxed),
             0,
-            "factory must not be called when lag is zero"
+            "factory must not be called when lag is zero and partitions are assigned"
         );
         assert_eq!(
             healthy.recreate_count, 0,
@@ -363,7 +483,6 @@ mod tests {
     async fn recreate_count_tracks_multiple_recreations() {
         let lag = Arc::new(AtomicU64::new(50));
 
-        // Factory always succeeds and returns a stalling consumer.
         let lag2 = Arc::clone(&lag);
         let factory: ConsumerFactory<rb_schemas::AgentSessionCommand> = Arc::new(move || {
             let l = Arc::clone(&lag2);
@@ -380,10 +499,10 @@ mod tests {
             factory,
             WatchdogConfig {
                 stall_timeout: Duration::from_millis(30),
+                max_error_streak: 30,
             },
         );
 
-        // Run for 5× the stall_timeout so the watchdog fires multiple times.
         tokio::time::timeout(Duration::from_millis(250), healthy.next())
             .await
             .ok();
@@ -392,6 +511,235 @@ mod tests {
             healthy.recreate_count >= 2,
             "expected at least 2 recreations in 5× stall window, got {}",
             healthy.recreate_count
+        );
+    }
+
+    // ── group membership loss: lag=0, no partitions, had_assignment=true ──────
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn group_loss_triggers_recreate() {
+        let recreate_counter = Arc::new(AtomicU64::new(0));
+        let recreate_counter2 = Arc::clone(&recreate_counter);
+
+        // lag=0 because there are no partitions to compute lag from
+        let lag = Arc::new(AtomicU64::new(0));
+        let lag2 = Arc::clone(&lag);
+        // assignment_count=0: group evaporated from the broker
+        let partitions = Arc::new(AtomicU64::new(0));
+        let partitions2 = Arc::clone(&partitions);
+
+        let factory: ConsumerFactory<rb_schemas::AgentSessionCommand> = Arc::new(move || {
+            recreate_counter2.fetch_add(1, Ordering::Relaxed);
+            let l = Arc::clone(&lag2);
+            let p = Arc::clone(&partitions2);
+            Ok(Box::new(MockConsumer::stalling_with_partitions(l, p))
+                as Box<dyn ConsumerOps<rb_schemas::AgentSessionCommand>>)
+        });
+
+        let mut healthy = HealthyConsumer::with_factory(
+            Box::new(MockConsumer::stalling_with_partitions(
+                Arc::clone(&lag),
+                Arc::clone(&partitions),
+            )),
+            factory,
+            WatchdogConfig {
+                stall_timeout: Duration::from_millis(50),
+                max_error_streak: 30,
+            },
+        );
+
+        // Simulate "we were receiving messages before the broker restart"
+        healthy.had_assignment = true;
+
+        tokio::time::timeout(Duration::from_millis(400), healthy.next())
+            .await
+            .ok();
+
+        assert!(
+            recreate_counter.load(Ordering::Relaxed) >= 1,
+            "watchdog must recreate when group membership is lost (lag=0, partitions=0)"
+        );
+        assert!(
+            healthy.recreate_count >= 1,
+            "recreate_count should be >= 1 after group loss"
+        );
+    }
+
+    // ── no spurious recreate on startup with no assignment ────────────────────
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn no_recreate_on_startup_with_no_assignment() {
+        let recreate_calls = Arc::new(AtomicU64::new(0));
+        let recreate_calls2 = Arc::clone(&recreate_calls);
+
+        let lag = Arc::new(AtomicU64::new(0));
+        let partitions = Arc::new(AtomicU64::new(0)); // no partitions yet
+
+        let factory: ConsumerFactory<rb_schemas::AgentSessionCommand> = Arc::new(move || {
+            recreate_calls2.fetch_add(1, Ordering::Relaxed);
+            Err(KafkaError::Broker("should not be called".into()))
+        });
+
+        // had_assignment stays false (default) — startup state
+        let mut healthy = HealthyConsumer::with_factory(
+            Box::new(MockConsumer::stalling_with_partitions(
+                Arc::clone(&lag),
+                Arc::clone(&partitions),
+            )),
+            factory,
+            WatchdogConfig {
+                stall_timeout: Duration::from_millis(30),
+                max_error_streak: 30,
+            },
+        );
+
+        tokio::time::timeout(Duration::from_millis(200), healthy.next())
+            .await
+            .ok();
+
+        assert_eq!(
+            recreate_calls.load(Ordering::Relaxed),
+            0,
+            "must not restart on startup when no assignment exists yet"
+        );
+    }
+
+    // ── error cascade at threshold triggers recreate ──────────────────────────
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn error_cascade_at_threshold_triggers_recreate() {
+        let recreate_counter = Arc::new(AtomicU64::new(0));
+        let recreate_counter2 = Arc::clone(&recreate_counter);
+        let lag = Arc::new(AtomicU64::new(0));
+        let lag2 = Arc::clone(&lag);
+
+        // threshold=1: first error immediately triggers restart
+        let threshold: u32 = 1;
+        let errors = vec![make_stream_error::<rb_schemas::AgentSessionCommand>()];
+
+        let factory: ConsumerFactory<rb_schemas::AgentSessionCommand> = Arc::new(move || {
+            recreate_counter2.fetch_add(1, Ordering::Relaxed);
+            let l = Arc::clone(&lag2);
+            Ok(Box::new(MockConsumer::stalling(l))
+                as Box<dyn ConsumerOps<rb_schemas::AgentSessionCommand>>)
+        });
+
+        let mut healthy = HealthyConsumer::with_factory(
+            Box::new(MockConsumer::with_messages(errors, Arc::clone(&lag))),
+            factory,
+            WatchdogConfig {
+                stall_timeout: Duration::from_secs(60), // long — stall must not fire
+                max_error_streak: threshold,
+            },
+        );
+
+        tokio::time::timeout(Duration::from_millis(500), healthy.next())
+            .await
+            .ok();
+
+        assert!(
+            recreate_counter.load(Ordering::Relaxed) >= 1,
+            "factory must be called after {} consecutive error(s)",
+            threshold
+        );
+        assert!(
+            healthy.recreate_count >= 1,
+            "recreate_count should be >= 1 after error cascade"
+        );
+    }
+
+    // ── errors below threshold: returned to caller, no recreate ──────────────
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn errors_below_threshold_no_recreate() {
+        let recreate_calls = Arc::new(AtomicU64::new(0));
+        let recreate_calls2 = Arc::clone(&recreate_calls);
+        let lag = Arc::new(AtomicU64::new(0));
+
+        let threshold: u32 = 5;
+        // Only 2 errors — below threshold
+        let errors = vec![
+            make_stream_error::<rb_schemas::AgentSessionCommand>(),
+            make_stream_error::<rb_schemas::AgentSessionCommand>(),
+        ];
+
+        let factory: ConsumerFactory<rb_schemas::AgentSessionCommand> = Arc::new(move || {
+            recreate_calls2.fetch_add(1, Ordering::Relaxed);
+            Err(KafkaError::Broker("should not be called".into()))
+        });
+
+        let mut healthy = HealthyConsumer::with_factory(
+            Box::new(MockConsumer::with_messages(errors, Arc::clone(&lag))),
+            factory,
+            WatchdogConfig {
+                stall_timeout: Duration::from_secs(60),
+                max_error_streak: threshold,
+            },
+        );
+
+        // Consume both errors
+        let r1 = tokio::time::timeout(Duration::from_millis(100), healthy.next()).await;
+        assert!(
+            matches!(r1, Ok(Some(Err(_)))),
+            "first error should be returned to caller"
+        );
+
+        let r2 = tokio::time::timeout(Duration::from_millis(100), healthy.next()).await;
+        assert!(
+            matches!(r2, Ok(Some(Err(_)))),
+            "second error should be returned to caller"
+        );
+
+        assert_eq!(
+            recreate_calls.load(Ordering::Relaxed),
+            0,
+            "factory must not be called below threshold"
+        );
+        assert_eq!(healthy.recreate_count, 0);
+        assert_eq!(
+            healthy.consecutive_errors, 2,
+            "consecutive_errors must track errors below threshold"
+        );
+    }
+
+    // ── max_error_streak=0 disables error-cascade restart ────────────────────
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn error_streak_zero_disables_cascade_restart() {
+        let recreate_calls = Arc::new(AtomicU64::new(0));
+        let recreate_calls2 = Arc::clone(&recreate_calls);
+        let lag = Arc::new(AtomicU64::new(0));
+
+        let errors = vec![
+            make_stream_error::<rb_schemas::AgentSessionCommand>(),
+            make_stream_error::<rb_schemas::AgentSessionCommand>(),
+            make_stream_error::<rb_schemas::AgentSessionCommand>(),
+        ];
+
+        let factory: ConsumerFactory<rb_schemas::AgentSessionCommand> = Arc::new(move || {
+            recreate_calls2.fetch_add(1, Ordering::Relaxed);
+            Err(KafkaError::Broker("should not be called".into()))
+        });
+
+        let mut healthy = HealthyConsumer::with_factory(
+            Box::new(MockConsumer::with_messages(errors, Arc::clone(&lag))),
+            factory,
+            WatchdogConfig {
+                stall_timeout: Duration::from_secs(60),
+                max_error_streak: 0, // disabled
+            },
+        );
+
+        for _ in 0..3_u32 {
+            tokio::time::timeout(Duration::from_millis(100), healthy.next())
+                .await
+                .ok();
+        }
+
+        assert_eq!(
+            recreate_calls.load(Ordering::Relaxed),
+            0,
+            "max_error_streak=0 must disable error-cascade restart"
         );
     }
 }
