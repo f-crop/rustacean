@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use rb_blob::store_from_env;
 use rb_kafka::{Consumer, ConsumerCfg, Producer, ProducerCfg};
+use rb_kafka_health::{KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::{GraphRelationEvent, IngestStatusEvent, TypecheckedItemEvent};
 
 mod consumer;
@@ -30,9 +31,15 @@ async fn main() -> Result<()> {
         .await
         .context("failed to init blob store")?;
 
-    let item_consumer: Consumer<TypecheckedItemEvent> =
-        Consumer::new(&ConsumerCfg::new("ingest-graph"))?;
+    let cfg = ConsumerCfg::new("ingest-graph");
+    let item_consumer: Consumer<TypecheckedItemEvent> = Consumer::new(&cfg)?;
     item_consumer.subscribe(&[consumer::TOPIC_TYPECHECKED_ITEMS])?;
+    let item_consumer = KafkaHealthWatcher::wrap(
+        item_consumer,
+        &cfg,
+        &[consumer::TOPIC_TYPECHECKED_ITEMS.to_owned()],
+        WatchdogConfig::default(),
+    );
 
     let relation_producer = Arc::new(Producer::<GraphRelationEvent>::new(&ProducerCfg::default())?);
     let embed_producer = Arc::new(Producer::<TypecheckedItemEvent>::new(

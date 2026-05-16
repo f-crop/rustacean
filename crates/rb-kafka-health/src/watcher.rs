@@ -25,6 +25,7 @@ where
     async fn next(&self) -> Option<Result<EventEnvelope<E>, KafkaError>>;
     async fn commit(&self, env: &EventEnvelope<E>) -> Result<(), KafkaError>;
     async fn lag_estimate(&self) -> u64;
+    async fn nack_to_dlq(&self, env: &EventEnvelope<E>, reason: &str) -> Result<(), KafkaError>;
 }
 
 #[async_trait]
@@ -42,6 +43,10 @@ where
 
     async fn lag_estimate(&self) -> u64 {
         self.assignment_lag_estimate().await
+    }
+
+    async fn nack_to_dlq(&self, env: &EventEnvelope<E>, reason: &str) -> Result<(), KafkaError> {
+        rb_kafka::Consumer::nack_to_dlq(self, env, reason).await
     }
 }
 
@@ -193,6 +198,15 @@ where
     pub async fn commit(&self, env: &EventEnvelope<E>) -> Result<(), KafkaError> {
         self.inner.commit(env).await
     }
+
+    /// Publish a copy of `env` to its DLQ topic via the inner consumer.
+    pub async fn nack_to_dlq(
+        &self,
+        env: &EventEnvelope<E>,
+        reason: &str,
+    ) -> Result<(), KafkaError> {
+        self.inner.nack_to_dlq(env, reason).await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +259,14 @@ mod tests {
 
         async fn lag_estimate(&self) -> u64 {
             self.lag.load(Ordering::Relaxed)
+        }
+
+        async fn nack_to_dlq(
+            &self,
+            _env: &EventEnvelope<E>,
+            _reason: &str,
+        ) -> Result<(), KafkaError> {
+            Ok(())
         }
     }
 

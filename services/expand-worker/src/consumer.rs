@@ -24,7 +24,8 @@ use anyhow::{Context as _, Result};
 use bytes::Bytes;
 use metrics::counter;
 use rb_blob::{BlobRef, BlobStore};
-use rb_kafka::{Consumer, EventEnvelope, Producer, RetryPolicy};
+use rb_kafka::{EventEnvelope, Producer, RetryPolicy};
+use rb_kafka_health::HealthyConsumer;
 use rb_schemas::{
     ExpandedFileEvent, IngestRequest, IngestStage, IngestStatus, IngestStatusEvent, TenantId,
     expanded_file_event,
@@ -47,7 +48,7 @@ struct ExpandCtx {
 }
 
 pub async fn run(
-    consumer: Consumer<IngestRequest>,
+    mut consumer: HealthyConsumer<IngestRequest>,
     blob_store: Arc<dyn BlobStore>,
     expanded_producer: Arc<Producer<ExpandedFileEvent>>,
     parse_producer: Arc<Producer<IngestRequest>>,

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use rb_blob::store_from_env;
 use rb_kafka::{Consumer, ConsumerCfg, Producer, ProducerCfg};
+use rb_kafka_health::{KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::{ExpandedFileEvent, IngestRequest, IngestStatusEvent};
 
 mod archive;
@@ -30,8 +31,15 @@ async fn main() -> Result<()> {
         .await
         .context("failed to init blob store")?;
 
-    let consumer: Consumer<IngestRequest> = Consumer::new(&ConsumerCfg::new("expand-worker"))?;
+    let cfg = ConsumerCfg::new("expand-worker");
+    let consumer: Consumer<IngestRequest> = Consumer::new(&cfg)?;
     consumer.subscribe(&[consumer::TOPIC_EXPAND_COMMANDS])?;
+    let consumer = KafkaHealthWatcher::wrap(
+        consumer,
+        &cfg,
+        &[consumer::TOPIC_EXPAND_COMMANDS.to_owned()],
+        WatchdogConfig::default(),
+    );
 
     let expanded_producer = Arc::new(Producer::<ExpandedFileEvent>::new(&ProducerCfg::default())?);
     let parse_producer = Arc::new(Producer::<IngestRequest>::new(&ProducerCfg::default())?);

@@ -5,6 +5,7 @@ use jsonwebtoken::EncodingKey;
 use rb_blob::store_from_env;
 use rb_github::GhApp;
 use rb_kafka::{Consumer, ConsumerCfg, Producer, ProducerCfg};
+use rb_kafka_health::{KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::{IngestRequest, IngestStatusEvent, SourceFileEvent};
 use sqlx::postgres::PgPoolOptions;
 use tokio::task::JoinHandle;
@@ -75,9 +76,15 @@ async fn main() -> Result<()> {
         .await
         .context("failed to init blob store")?;
 
-    let consumer: Consumer<IngestRequest> =
-        Consumer::new(&ConsumerCfg::new("ingest-clone-worker"))?;
+    let cfg = ConsumerCfg::new("ingest-clone-worker");
+    let consumer: Consumer<IngestRequest> = Consumer::new(&cfg)?;
     consumer.subscribe(&[consumer::TOPIC_CLONE_COMMANDS])?;
+    let consumer = KafkaHealthWatcher::wrap(
+        consumer,
+        &cfg,
+        &[consumer::TOPIC_CLONE_COMMANDS.to_owned()],
+        WatchdogConfig::default(),
+    );
 
     let source_producer = Arc::new(Producer::<SourceFileEvent>::new(&ProducerCfg::default())?);
     let expand_producer = Arc::new(Producer::<IngestRequest>::new(&ProducerCfg::default())?);
