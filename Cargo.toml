@@ -33,6 +33,7 @@ members = [
     "services/embed-worker",
     "services/agent-runner",
     "crates/rb-mcp",
+    "crates/rb-kafka-health",
 ]
 
 [workspace.package]

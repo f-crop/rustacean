@@ -1,0 +1,19 @@
+[package]
+name = "rb-kafka-health"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rb-kafka = { path = "../rb-kafka", version = "0.1.0" }
+rb-schemas = { path = "../rb-schemas", version = "0.1.0" }
+prost.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+metrics.workspace = true
+async-trait.workspace = true
+
+[lints]
+workspace = true
