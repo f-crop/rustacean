@@ -24,6 +24,7 @@ where
 {
     async fn next(&self) -> Option<Result<EventEnvelope<E>, KafkaError>>;
     async fn commit(&self, env: &EventEnvelope<E>) -> Result<(), KafkaError>;
+    async fn nack_to_dlq(&self, env: &EventEnvelope<E>, reason: &str) -> Result<(), KafkaError>;
     async fn lag_estimate(&self) -> u64;
 }
 
@@ -38,6 +39,10 @@ where
 
     async fn commit(&self, env: &EventEnvelope<E>) -> Result<(), KafkaError> {
         rb_kafka::Consumer::commit(self, env).await
+    }
+
+    async fn nack_to_dlq(&self, env: &EventEnvelope<E>, reason: &str) -> Result<(), KafkaError> {
+        rb_kafka::Consumer::nack_to_dlq(self, env, reason).await
     }
 
     async fn lag_estimate(&self) -> u64 {
@@ -193,6 +198,15 @@ where
     pub async fn commit(&self, env: &EventEnvelope<E>) -> Result<(), KafkaError> {
         self.inner.commit(env).await
     }
+
+    /// Route a message to the dead-letter queue via the inner consumer.
+    pub async fn nack_to_dlq(
+        &self,
+        env: &EventEnvelope<E>,
+        reason: &str,
+    ) -> Result<(), KafkaError> {
+        self.inner.nack_to_dlq(env, reason).await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +254,14 @@ mod tests {
         }
 
         async fn commit(&self, _env: &EventEnvelope<E>) -> Result<(), KafkaError> {
+            Ok(())
+        }
+
+        async fn nack_to_dlq(
+            &self,
+            _env: &EventEnvelope<E>,
+            _reason: &str,
+        ) -> Result<(), KafkaError> {
             Ok(())
         }
 

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 use rb_blob::store_from_env;
 use rb_kafka::{Consumer, ConsumerCfg, Producer, ProducerCfg};
+use rb_kafka_health::{KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::{IngestRequest, IngestStatusEvent, TypecheckedItemEvent};
 
 mod consumer;
@@ -30,9 +31,15 @@ async fn main() -> Result<()> {
         .await
         .context("failed to init blob store")?;
 
-    let cmd_consumer: Consumer<IngestRequest> =
-        Consumer::new(&ConsumerCfg::new("typecheck-worker"))?;
+    let typecheck_cfg = ConsumerCfg::new("typecheck-worker");
+    let cmd_consumer: Consumer<IngestRequest> = Consumer::new(&typecheck_cfg)?;
     cmd_consumer.subscribe(&[consumer::TOPIC_TYPECHECK_COMMANDS])?;
+    let cmd_consumer = KafkaHealthWatcher::wrap(
+        cmd_consumer,
+        &typecheck_cfg,
+        &[consumer::TOPIC_TYPECHECK_COMMANDS.to_owned()],
+        WatchdogConfig::default(),
+    );
 
     let item_producer = Arc::new(Producer::<TypecheckedItemEvent>::new(
         &ProducerCfg::default(),

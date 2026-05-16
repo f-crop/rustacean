@@ -19,7 +19,8 @@ use anyhow::{Context as _, Result};
 use bytes::Bytes;
 use metrics::counter;
 use rb_blob::{BlobRef, BlobStore};
-use rb_kafka::{Consumer, EventEnvelope, Producer, RetryPolicy};
+use rb_kafka::{EventEnvelope, Producer, RetryPolicy};
+use rb_kafka_health::HealthyConsumer;
 use rb_schemas::{
     IngestRequest, IngestStage, IngestStatus, IngestStatusEvent, TenantId, TypecheckedItemEvent,
     typechecked_item_event,
@@ -40,7 +41,7 @@ struct TypecheckCtx {
 }
 
 pub async fn run(
-    consumer: Consumer<IngestRequest>,
+    mut consumer: HealthyConsumer<IngestRequest>,
     blob_store: Arc<dyn BlobStore>,
     item_producer: Arc<Producer<TypecheckedItemEvent>>,
     status_producer: Arc<Producer<IngestStatusEvent>>,

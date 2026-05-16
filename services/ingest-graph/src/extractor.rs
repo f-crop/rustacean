@@ -247,7 +247,6 @@ fn fmt_path_simple(path: &syn::Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_call_relations;
     use super::*;
 
     #[test]

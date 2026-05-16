@@ -8,6 +8,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use metrics::counter;
 use rb_kafka::{Consumer, ConsumerCfg, EventEnvelope, Producer, ProducerCfg};
+use rb_kafka_health::{HealthyConsumer, KafkaHealthWatcher, WatchdogConfig};
 use rb_schemas::{
     GraphRelationEvent, IngestStage, IngestStatus, IngestStatusEvent, ParsedItemEvent,
     SourceFileEvent,
@@ -29,18 +30,37 @@ const TOPIC_PROJECTOR_EVENTS: &str = "rb.projector.events";
 #[allow(clippy::missing_errors_doc)]
 pub fn spawn(pool: Arc<TenantPool>) -> Result<JoinHandle<()>> {
     // Source file consumer (from clone stage)
-    let source_consumer =
-        Consumer::<SourceFileEvent>::new(&ConsumerCfg::new("projector-pg-source"))?;
+    let source_cfg = ConsumerCfg::new("projector-pg-source");
+    let source_consumer = Consumer::<SourceFileEvent>::new(&source_cfg)?;
     source_consumer.subscribe(&[TOPIC_SOURCE_FILE])?;
+    let mut source_consumer = KafkaHealthWatcher::wrap(
+        source_consumer,
+        &source_cfg,
+        &[TOPIC_SOURCE_FILE.to_owned()],
+        WatchdogConfig::default(),
+    );
 
     // Parsed item consumer (from parse stage)
-    let item_consumer = Consumer::<ParsedItemEvent>::new(&ConsumerCfg::new("projector-pg-items"))?;
+    let items_cfg = ConsumerCfg::new("projector-pg-items");
+    let item_consumer = Consumer::<ParsedItemEvent>::new(&items_cfg)?;
     item_consumer.subscribe(&[TOPIC_PARSED_ITEMS])?;
+    let mut item_consumer = KafkaHealthWatcher::wrap(
+        item_consumer,
+        &items_cfg,
+        &[TOPIC_PARSED_ITEMS.to_owned()],
+        WatchdogConfig::default(),
+    );
 
     // Relation consumer (from graph stage)
-    let relation_consumer =
-        Consumer::<GraphRelationEvent>::new(&ConsumerCfg::new("projector-pg-relations"))?;
+    let relations_cfg = ConsumerCfg::new("projector-pg-relations");
+    let relation_consumer = Consumer::<GraphRelationEvent>::new(&relations_cfg)?;
     relation_consumer.subscribe(&[TOPIC_GRAPH_RELATIONS])?;
+    let mut relation_consumer = KafkaHealthWatcher::wrap(
+        relation_consumer,
+        &relations_cfg,
+        &[TOPIC_GRAPH_RELATIONS.to_owned()],
+        WatchdogConfig::default(),
+    );
 
     let producer = Arc::new(Producer::<IngestStatusEvent>::new(&ProducerCfg::default())?);
 
@@ -101,7 +121,7 @@ pub fn spawn(pool: Arc<TenantPool>) -> Result<JoinHandle<()>> {
 
 async fn handle_source_file(
     pool: &TenantPool,
-    consumer: &Consumer<SourceFileEvent>,
+    consumer: &HealthyConsumer<SourceFileEvent>,
     producer: &Producer<IngestStatusEvent>,
     envelope: EventEnvelope<SourceFileEvent>,
 ) {
@@ -141,7 +161,7 @@ async fn handle_source_file(
 
 async fn handle_parsed_item(
     pool: &TenantPool,
-    consumer: &Consumer<ParsedItemEvent>,
+    consumer: &HealthyConsumer<ParsedItemEvent>,
     producer: &Producer<IngestStatusEvent>,
     envelope: EventEnvelope<ParsedItemEvent>,
 ) {
@@ -181,7 +201,7 @@ async fn handle_parsed_item(
 
 async fn handle_relation(
     pool: &TenantPool,
-    consumer: &Consumer<GraphRelationEvent>,
+    consumer: &HealthyConsumer<GraphRelationEvent>,
     producer: &Producer<IngestStatusEvent>,
     envelope: EventEnvelope<GraphRelationEvent>,
 ) {

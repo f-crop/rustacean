@@ -18,7 +18,8 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use metrics::counter;
 use rb_blob::{BlobRef, BlobStore};
-use rb_kafka::{Consumer, EventEnvelope, Producer, RetryPolicy};
+use rb_kafka::{EventEnvelope, Producer, RetryPolicy};
+use rb_kafka_health::HealthyConsumer;
 use rb_schemas::{
     GraphRelationEvent, IngestStage, IngestStatus, IngestStatusEvent, TenantId,
     TypecheckedItemEvent, typechecked_item_event,
@@ -40,7 +41,7 @@ struct GraphCtx {
 }
 
 pub async fn run(
-    consumer: Consumer<TypecheckedItemEvent>,
+    mut consumer: HealthyConsumer<TypecheckedItemEvent>,
     blob_store: Arc<dyn BlobStore>,
     relation_producer: Arc<Producer<GraphRelationEvent>>,
     embed_producer: Arc<Producer<TypecheckedItemEvent>>,
