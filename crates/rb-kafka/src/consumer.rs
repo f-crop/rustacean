@@ -307,6 +307,25 @@ impl<E: ProstMessage + Default> Consumer<E> {
         }
     }
 
+    /// Returns the number of topic-partition assignments currently held by this
+    /// consumer.  Returns `0` when the consumer has no partitions assigned —
+    /// e.g. after consumer-group membership is lost following a broker restart.
+    ///
+    /// Used by `rb-kafka-health` to distinguish "quiet topic" (lag == 0 with
+    /// valid partitions) from "group membership lost" (lag == 0, no partitions).
+    pub async fn assignment_count(&self) -> usize {
+        let inner = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            use rdkafka::consumer::Consumer as RdKafkaConsumer;
+            inner
+                .assignment()
+                .map(|tpl| tpl.elements().len())
+                .unwrap_or(0)
+        })
+        .await
+        .unwrap_or(0)
+    }
+
     /// Returns an estimate of the total unconsumed message lag across all
     /// currently assigned partitions.
     ///
