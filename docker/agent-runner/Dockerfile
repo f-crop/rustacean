@@ -38,8 +38,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ── Stage 4: runtime image ────────────────────────────────────────────────────
 # Base on node:20-bookworm-slim so we have node/npm/npx for:
 #   • @anthropic-ai/claude-code (CLI binary the ClaudeCode adapter spawns)
-#   • npx @modelcontextprotocol/server-rust-brain (MCP server invoked from
-#     workspace .mcp.json — see services/agent-runner/src/adapters/mod.rs)
+#   • npx -y @rustbrain/mcp-server (MCP server invoked lazily from workspace
+#     .mcp.json — see services/agent-runner/src/adapters/mod.rs)
 FROM node:20-bookworm-slim AS runtime
 
 # Install git, ssh, and the C runtime deps the Rust binary links against.
