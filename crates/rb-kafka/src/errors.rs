@@ -47,6 +47,28 @@ impl KafkaError {
         )
     }
 
+    /// Returns `true` when the error represents a local or protocol-level
+    /// request timeout (`REQTMOUT` / `ApiVersionRequest failed: Local: Timed out`).
+    ///
+    /// Used by `rb-kafka-health` to detect the sustained reconnect-retry
+    /// cascade that appears after a broker restart where the consumer
+    /// cannot rejoin and produces a stream of consecutive timeout errors.
+    #[must_use]
+    pub fn is_reqtmout(&self) -> bool {
+        use rdkafka::error::RDKafkaErrorCode;
+        let Self::Rdkafka(inner) = self else {
+            return false;
+        };
+        matches!(
+            inner.rdkafka_error_code(),
+            Some(
+                RDKafkaErrorCode::TimedOutQueue
+                    | RDKafkaErrorCode::RequestTimedOut
+                    | RDKafkaErrorCode::OperationTimedOut
+            )
+        )
+    }
+
     /// Returns true when the error indicates the Kafka broker cluster is
     /// unreachable or not yet available (librdkafka lazy-connect scenarios).
     /// Callers should surface this as HTTP 503, not 500.
