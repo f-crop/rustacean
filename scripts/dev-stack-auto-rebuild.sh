@@ -31,22 +31,13 @@ LOG_DIR="${RB_LOG_DIR:-"$HOME/.local/state/rustbrain"}"
 LOG_FILE="$LOG_DIR/dev-stack-rebuilds.ndjson"
 BYPASS_FILE="$REPO_ROOT/compose/.no-auto-rebuild"
 
-# Source the compose env-file into the shell so host-port overrides
-# (e.g. CONTROL_API_HOST_PORT=18080 on mars) are visible during health checks.
-# docker compose's --env-file flag only passes vars to containers, not to this shell.
-if [[ -n "${COMPOSE_ENV_FILE:-}" && -f "$COMPOSE_ENV_FILE" ]]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$COMPOSE_ENV_FILE"
-  set +a
-fi
-
 # -- Helpers -----------------------------------------------------------------
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 log_record() {
   local result="$1" health="$2" rebuilt_json="$3" reason="$4"
+  _LOG_WRITTEN=true
   local elapsed=$(( $(date +%s) - ELAPSED_START ))
   python3 -c "
 import json, sys
@@ -62,6 +53,57 @@ print(json.dumps({
 }))
 " "$START_TS" "$PREV_SHA" "$NEW_SHA" "$result" "$health" "$rebuilt_json" "$reason" "$elapsed" >> "$LOG_FILE"
 }
+
+# -- Early init: must precede COMPOSE_ENV_FILE sourcing so the EXIT trap can
+#    write a log record even when sourcing fails (e.g. unquoted values in env
+#    file that bash misparses as commands).
+# ---------------------------------------------------------------------------
+
+# Default SHAs for trap reporting; overwritten by flag parsing below.
+PREV_SHA="unknown"
+NEW_SHA="unknown"
+START_TS="$(ts)"
+ELAPSED_START="$(date +%s)"
+_LOG_WRITTEN=false
+mkdir -p "$LOG_DIR"
+
+_on_early_exit() {
+  local rc=$?
+  [[ $rc -eq 0 || "$_LOG_WRITTEN" == "true" ]] && return
+  local ts_now; ts_now="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")"
+  echo "[dev-stack-auto-rebuild] early exit rc=$rc at $ts_now (prev=${PREV_SHA} new=${NEW_SHA})" >&2
+  local elapsed=$(( $(date +%s) - ELAPSED_START ))
+  python3 -c "
+import json, sys
+print(json.dumps({
+  'timestamp': sys.argv[1],
+  'prev_sha':  sys.argv[2],
+  'new_sha':   sys.argv[3],
+  'result':    'failed',
+  'health':    '',
+  'rebuilt':   [],
+  'reason':    'early exit rc=' + sys.argv[4],
+  'elapsed_s': int(sys.argv[5]),
+}))
+" "$ts_now" "$PREV_SHA" "$NEW_SHA" "$rc" "$elapsed" >> "$LOG_FILE" 2>/dev/null || true
+}
+trap '_on_early_exit' EXIT
+
+# -- Source compose env-file -------------------------------------------------
+# docker compose's --env-file flag only passes vars to containers, not to this
+# shell. Source it here so host-port overrides (e.g. CONTROL_API_HOST_PORT=18080
+# on mars) are visible during health checks.
+#
+# IMPORTANT: values with spaces MUST be double-quoted in the env file
+# (e.g. RB_SSH_AUTHORIZED_KEYS="ssh-ed25519 …"). Unquoted multi-word values
+# are mis-parsed by bash as "VAR=first-word COMMAND args", causing a
+# command-not-found error that silently kills this script under set -e.
+if [[ -n "${COMPOSE_ENV_FILE:-}" && -f "$COMPOSE_ENV_FILE" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$COMPOSE_ENV_FILE"
+  set +a
+fi
 
 post_gh_status() {
   local state="$1" desc="$2"
@@ -122,10 +164,6 @@ if [[ -z "$PREV_SHA" || -z "$NEW_SHA" ]]; then
   NEW_SHA="$(git rev-parse HEAD)"
   PREV_SHA="$(git rev-parse HEAD^1 2>/dev/null || git rev-parse "$(git rev-list --max-parents=0 HEAD)")"
 fi
-
-START_TS="$(ts)"
-ELAPSED_START="$(date +%s)"
-mkdir -p "$LOG_DIR"
 
 echo "[dev-stack-auto-rebuild] $START_TS  $PREV_SHA → $NEW_SHA"
 
