@@ -120,6 +120,8 @@ async fn process_clone(ctx: &CloneCtx, envelope: &EventEnvelope<IngestRequest>) 
 
     let repo_id = Uuid::parse_str(&req.repo_id).context("invalid repo_id UUID")?;
 
+    emit_processing_status(&ctx.status_producer, tenant_id, req).await;
+
     tracing::info!(%ingest_run_id, %repo_id, "ingest_clone: starting clone");
 
     // 1. Resolve the GitHub clone URL.
@@ -414,6 +416,32 @@ async fn emit_expand_command(
     Ok(())
 }
 
+async fn emit_processing_status(
+    producer: &Producer<IngestStatusEvent>,
+    tenant_id: TenantId,
+    req: &IngestRequest,
+) {
+    let ev = IngestStatusEvent {
+        ingest_request_id: req.event_id.clone(),
+        tenant_id: tenant_id.to_string(),
+        status: IngestStatus::Processing as i32,
+        error_message: String::new(),
+        occurred_at_ms: chrono::Utc::now().timestamp_millis(),
+        stage: IngestStage::Clone as i32,
+        stage_seq: 1,
+        ingest_run_id: req.ingest_run_id.clone(),
+        attempt: 0,
+    };
+    let envelope = rb_kafka::EventEnvelope::new(tenant_id, ev);
+    let key = tenant_id.to_string();
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), envelope)
+        .await
+    {
+        tracing::warn!("ingest_clone: failed to publish processing status: {e}");
+    }
+}
+
 async fn emit_done_status(
     producer: &Producer<IngestStatusEvent>,
     tenant_id: TenantId,
@@ -579,5 +607,15 @@ mod tests {
     #[test]
     fn clone_timeout_is_five_minutes() {
         assert_eq!(CLONE_TIMEOUT_SECS, 300);
+    }
+
+    #[test]
+    fn processing_status_value_is_2() {
+        assert_eq!(IngestStatus::Processing as i32, 2);
+    }
+
+    #[test]
+    fn clone_stage_seq_is_1() {
+        assert_eq!(IngestStage::Clone as i32, 1);
     }
 }
