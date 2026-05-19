@@ -1,0 +1,40 @@
+[Unit]
+Description=Rustbrain dev-stack auto-rebuild watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/rustacean
+
+ExecStart=%h/projects/rustacean/scripts/dev-stack-watch.sh %h/projects/rustacean
+
+Restart=on-failure
+RestartSec=30
+
+# Compose command for mars — tailscale overlay + remapped ports.
+Environment="COMPOSE_CMD=docker compose --env-file %h/projects/rustacean/compose/tailscale.env -f %h/projects/rustacean/compose/dev.yml -f %h/projects/rustacean/compose/tailscale.yml"
+
+# Polling interval (seconds)
+Environment="POLL_INTERVAL=60"
+
+# Sourced by dev-stack-auto-rebuild.sh so host-port overrides
+# (CONTROL_API_HOST_PORT=18080, FRONTEND_HOST_PORT=15173) resolve during health checks.
+# docker compose --env-file only exports vars to containers, not to this shell.
+Environment="COMPOSE_ENV_FILE=%h/projects/rustacean/compose/tailscale.env"
+
+# Explicit repo path for dev-stack-auto-rebuild.sh
+Environment="RB_REPO_PATH=%h/projects/rustacean"
+
+# Persist last-known SHA across service restarts
+Environment="RB_STATE_DIR=%h/.local/state/rustbrain"
+
+# Full PATH so docker is found in the clean systemd environment
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rustbrain-dev-watch
+
+[Install]
+WantedBy=default.target

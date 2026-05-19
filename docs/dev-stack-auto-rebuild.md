@@ -62,10 +62,15 @@ name the locally-built artifact consistently; they are not treated as pull targe
 
 ## Setup on mars
 
+The service is installed as a **user systemd service** (no root required). `loginctl enable-linger jarnura`
+is already active on mars, so the user manager starts at boot and the service survives logout.
+The checked-in unit file at `infra/systemd/rustbrain-dev-watch.service` uses `%h` specifiers so
+it resolves correctly for any user whose repo is at `~/projects/rustacean`.
+
 ### 1. Clone or pull the repo
 
 ```bash
-cd /opt/rustbrain   # or wherever the repo lives on mars
+cd ~/projects/rustacean   # actual path on mars
 git pull
 ```
 
@@ -88,56 +93,29 @@ $COMPOSE_CMD build
 This tags all 11 custom images locally. Subsequent rebuilds are handled automatically by
 `dev-stack-watch.sh` for all services whose source paths change on `main`.
 
-### 4. Create the systemd service
+### 4. Install the user systemd service
 
 ```bash
-sudo tee /etc/systemd/system/rustbrain-dev-watch.service <<'EOF'
-[Unit]
-Description=Rustbrain dev-stack auto-rebuild watcher
-After=network-online.target docker.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/opt/rustbrain
-ExecStart=/opt/rustbrain/scripts/dev-stack-watch.sh /opt/rustbrain
-Restart=on-failure
-RestartSec=30
-
-# Compose command for mars (Tailscale overlay)
-Environment="COMPOSE_CMD=docker compose --env-file /opt/rustbrain/compose/tailscale.env -f /opt/rustbrain/compose/dev.yml -f /opt/rustbrain/compose/tailscale.yml"
-Environment="POLL_INTERVAL=60"
-
-# Source the compose env-file into the rebuild script's shell so host-port overrides
-# (e.g. CONTROL_API_HOST_PORT=18080, FRONTEND_HOST_PORT=15173) are visible during
-# health checks. docker compose's --env-file only reaches containers, not this shell.
-Environment="COMPOSE_ENV_FILE=/opt/rustbrain/compose/tailscale.env"
-
-# Optional: post GitHub commit status on rebuild completion
-# Environment="GITHUB_TOKEN=ghp_..."
-# Environment="GITHUB_REPO=jarnura/rustbrain"
-
-[Install]
-WantedBy=multi-user.target
-EOF
+mkdir -p ~/.config/systemd/user/
+cp infra/systemd/rustbrain-dev-watch.service ~/.config/systemd/user/
 ```
 
-Adjust `User=` and `WorkingDirectory=` / `ExecStart=` paths to match your actual mars layout.
+The unit file uses `%h` specifiers which systemd 248+ expands to the user's home directory
+in both path fields (`WorkingDirectory=`, `ExecStart=`) and `Environment=` values.
 
 ### 5. Enable and start
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now rustbrain-dev-watch
-sudo systemctl status rustbrain-dev-watch
+systemctl --user daemon-reload
+systemctl --user enable --now rustbrain-dev-watch
+systemctl --user status rustbrain-dev-watch
 ```
 
 ### 6. Verify
 
 Tail the service log:
 ```bash
-journalctl -fu rustbrain-dev-watch
+journalctl --user -fu rustbrain-dev-watch
 ```
 
 On the next merge to `main` that touches a service, you should see:
@@ -225,9 +203,9 @@ The file is in `.gitignore` territory — do not commit it.
 To disable the watcher entirely for a longer window:
 
 ```bash
-sudo systemctl stop rustbrain-dev-watch
+systemctl --user stop rustbrain-dev-watch
 # ... do your manual work ...
-sudo systemctl start rustbrain-dev-watch
+systemctl --user start rustbrain-dev-watch
 ```
 
 ## Manual rebuild
@@ -257,7 +235,7 @@ The watcher (`dev-stack-watch.sh`) automatically detects a stopped stack at star
 ## Troubleshooting
 
 **Rebuild never triggers**
-- Check `journalctl -fu rustbrain-dev-watch` — the watch loop should log every new SHA it sees.
+- Check `journalctl --user -fu rustbrain-dev-watch` — the watch loop should log every new SHA it sees.
 - Confirm the repo on mars has the remote `origin` pointing at GitHub: `git remote -v`.
 - Confirm network access: `git fetch origin main` from the repo directory.
 
