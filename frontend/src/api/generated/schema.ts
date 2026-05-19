@@ -2687,6 +2687,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Installation belongs to a deactivated App (installation_for_different_app) */
+            readonly 409: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description GitHub App not configured on this instance */
             readonly 503: {
                 headers: {
