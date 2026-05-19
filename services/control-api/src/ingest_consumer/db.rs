@@ -9,6 +9,31 @@ use super::sse::stage_label;
 
 pub(crate) const TOTAL_PIPELINE_STAGES: i64 = 9;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn processing_maps_to_running() {
+        let result = stage_db_params(IngestStatus::Processing, "");
+        assert_eq!(result, Some(("running", None)));
+    }
+
+    #[test]
+    fn done_maps_to_succeeded() {
+        assert_eq!(
+            stage_db_params(IngestStatus::Done, ""),
+            Some(("succeeded", None))
+        );
+    }
+
+    #[test]
+    fn pending_and_unspecified_produce_no_db_update() {
+        assert!(stage_db_params(IngestStatus::Pending, "").is_none());
+        assert!(stage_db_params(IngestStatus::Unspecified, "").is_none());
+    }
+}
+
 /// Returns the `pipeline_stage_runs.status` string and optional error
 /// for a given [`IngestStatus`], or `None` if no DB update is warranted.
 pub(crate) fn stage_db_params(
@@ -46,7 +71,7 @@ pub(crate) async fn update_stage_run(
         "running" => {
             sqlx::query(
                 "UPDATE control.pipeline_stage_runs \
-                 SET status = 'running', started_at = now() \
+                 SET status = 'running', started_at = COALESCE(started_at, now()) \
                  WHERE ingestion_run_id = $1 AND stage = $2",
             )
             .bind(run_id)

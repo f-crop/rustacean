@@ -134,6 +134,8 @@ async fn process_item(
     let tenant_id = envelope.tenant_id;
     let ingest_run_id = &ev.ingest_run_id;
 
+    emit_processing_status(&ctx.status_producer, tenant_id, &ev.ingest_run_id).await;
+
     tracing::debug!(%ingest_run_id, fqn = %ev.fqn, "ingest_graph: processing item");
 
     let body = resolve_body(ctx, ev.body.as_ref()).await?;
@@ -231,6 +233,32 @@ async fn emit_embed_command(
     Ok(())
 }
 
+async fn emit_processing_status(
+    producer: &Producer<IngestStatusEvent>,
+    tenant_id: TenantId,
+    ingest_run_id: &str,
+) {
+    let status_ev = IngestStatusEvent {
+        ingest_request_id: Uuid::new_v4().to_string(),
+        tenant_id: tenant_id.to_string(),
+        status: IngestStatus::Processing as i32,
+        error_message: String::new(),
+        occurred_at_ms: chrono::Utc::now().timestamp_millis(),
+        stage: IngestStage::Extract as i32,
+        stage_seq: 5,
+        ingest_run_id: ingest_run_id.to_owned(),
+        attempt: 0,
+    };
+    let envelope = rb_kafka::EventEnvelope::new(tenant_id, status_ev);
+    let key = tenant_id.to_string();
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), envelope)
+        .await
+    {
+        tracing::warn!("ingest_graph: failed to publish processing status: {e}");
+    }
+}
+
 async fn emit_done_status(
     ctx: &GraphCtx,
     tenant_id: TenantId,
@@ -310,6 +338,11 @@ mod tests {
     #[test]
     fn stage_seq_is_5_for_extract() {
         assert_eq!(IngestStage::Extract as i32, 5);
+    }
+
+    #[test]
+    fn processing_status_value_is_2() {
+        assert_eq!(IngestStatus::Processing as i32, 2);
     }
 
     #[test]

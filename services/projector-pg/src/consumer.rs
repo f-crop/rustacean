@@ -130,6 +130,8 @@ async fn handle_source_file(
     let tenant_ctx = TenantCtx::new(tenant_id);
     let ingest_run_id = ev.ingest_run_id.clone();
 
+    emit_processing_status(producer, &tenant_id, &ingest_run_id).await;
+
     match projection::write_source_file(pool, &tenant_ctx, &envelope.tenant_id, ev).await {
         Ok(()) => {
             counter!("rb_projector_pg_events_total", "event_type" => "source_file", "outcome" => "ok")
@@ -169,6 +171,8 @@ async fn handle_parsed_item(
     let tenant_id = envelope.tenant_id;
     let tenant_ctx = TenantCtx::new(tenant_id);
     let ingest_run_id = ev.ingest_run_id.clone();
+
+    emit_processing_status(producer, &tenant_id, &ingest_run_id).await;
 
     match projection::write_parsed_item(pool, &tenant_ctx, &envelope.tenant_id, ev).await {
         Ok(()) => {
@@ -210,6 +214,8 @@ async fn handle_relation(
     let tenant_ctx = TenantCtx::new(tenant_id);
     let ingest_run_id = ev.ingest_run_id.clone();
 
+    emit_processing_status(producer, &tenant_id, &ingest_run_id).await;
+
     match projection::write_relation(pool, &tenant_ctx, &envelope.tenant_id, ev).await {
         Ok(()) => {
             counter!("rb_projector_pg_events_total", "event_type" => "relation", "outcome" => "ok")
@@ -237,6 +243,32 @@ async fn handle_relation(
             .await;
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
+    }
+}
+
+async fn emit_processing_status(
+    producer: &Producer<IngestStatusEvent>,
+    tenant_id: &rb_schemas::TenantId,
+    ingest_run_id: &str,
+) {
+    let ev = IngestStatusEvent {
+        ingest_request_id: String::new(),
+        tenant_id: tenant_id.to_string(),
+        status: IngestStatus::Processing as i32,
+        error_message: String::new(),
+        occurred_at_ms: chrono::Utc::now().timestamp_millis(),
+        stage: IngestStage::ProjectPg as i32,
+        stage_seq: 7,
+        ingest_run_id: ingest_run_id.to_owned(),
+        attempt: 0,
+    };
+    let env = EventEnvelope::new(*tenant_id, ev);
+    let key = tenant_id.to_string();
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), env)
+        .await
+    {
+        tracing::warn!("projector_pg: failed to publish processing status: {e}");
     }
 }
 
@@ -359,5 +391,15 @@ mod tests {
         let tid = SchemasTenantId::new();
         let ev = build_failed_status_event(&tid, "run-1", "err");
         assert_eq!(ev.stage, IngestStage::ProjectPg as i32);
+    }
+
+    #[test]
+    fn project_pg_stage_seq_is_7() {
+        assert_eq!(IngestStage::ProjectPg as i32, 7);
+    }
+
+    #[test]
+    fn processing_status_value_is_2() {
+        assert_eq!(IngestStatus::Processing as i32, 2);
     }
 }

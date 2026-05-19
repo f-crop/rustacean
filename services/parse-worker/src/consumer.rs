@@ -137,6 +137,8 @@ async fn process_parse(ctx: &ParseCtx, envelope: &EventEnvelope<IngestRequest>) 
     let tenant_id = envelope.tenant_id;
     let ingest_run_id = &req.ingest_run_id;
 
+    emit_processing_status(&ctx.status_producer, tenant_id, req).await;
+
     let blob_uri = envelope
         .blob_ref
         .as_deref()
@@ -359,6 +361,32 @@ async fn emit_typecheck_command(
     Ok(())
 }
 
+async fn emit_processing_status(
+    producer: &Producer<IngestStatusEvent>,
+    tenant_id: TenantId,
+    req: &IngestRequest,
+) {
+    let ev = IngestStatusEvent {
+        ingest_request_id: req.event_id.clone(),
+        tenant_id: tenant_id.to_string(),
+        status: IngestStatus::Processing as i32,
+        error_message: String::new(),
+        occurred_at_ms: chrono::Utc::now().timestamp_millis(),
+        stage: IngestStage::Parse as i32,
+        stage_seq: 3,
+        ingest_run_id: req.ingest_run_id.clone(),
+        attempt: 0,
+    };
+    let envelope = rb_kafka::EventEnvelope::new(tenant_id, ev);
+    let key = tenant_id.to_string();
+    if let Err(e) = producer
+        .publish(TOPIC_PROJECTOR_EVENTS, key.as_bytes(), envelope)
+        .await
+    {
+        tracing::warn!("parse_worker: failed to publish processing status: {e}");
+    }
+}
+
 async fn emit_done_status(ctx: &ParseCtx, tenant_id: TenantId, req: &IngestRequest) -> Result<()> {
     let ev = IngestStatusEvent {
         ingest_request_id: req.event_id.clone(),
@@ -463,6 +491,11 @@ mod tests {
     #[test]
     fn stage_seq_is_3_for_parse() {
         assert_eq!(IngestStage::Parse as i32, 3);
+    }
+
+    #[test]
+    fn processing_status_value_is_2() {
+        assert_eq!(IngestStatus::Processing as i32, 2);
     }
 
     #[test]
