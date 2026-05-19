@@ -1322,7 +1322,7 @@
             "description": "Installation not found or not owned by this tenant"
           },
           "409": {
-            "description": "Repository already connected (repo_already_connected)"
+            "description": "Repository already connected (repo_already_connected) OR installation belongs to a deactivated App (installation_for_different_app)"
           },
           "422": {
             "description": "Repository not accessible via installation (repo_not_accessible)"

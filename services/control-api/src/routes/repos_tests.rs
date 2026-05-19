@@ -98,7 +98,7 @@ fn github_500_maps_to_internal() {
     assert!(matches!(app_err, AppError::Internal(_)));
 }
 
-// ----- installation_for_different_app (RUSAA-1561) -----
+// ----- installation_for_different_app -----
 
 #[test]
 fn installation_for_different_app_returns_409() {

@@ -3046,7 +3046,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Repository already connected (repo_already_connected) */
+            /** @description Repository already connected (repo_already_connected) OR installation belongs to a deactivated App (installation_for_different_app) */
             readonly 409: {
                 headers: {
                     readonly [name: string]: unknown;
