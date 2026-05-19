@@ -1,12 +1,12 @@
 # NPM Token Rotation Runbook
 
-How to rotate the `NPM_TOKEN` GitHub Actions secret used by `mcp-server-publish.yml` to publish packages under the `@rustbrain` npm org.
+How to rotate the `NPM_TOKEN` GitHub Actions secret used by `mcp-server-publish.yml` to publish packages under the `@rustacean` npm org.
 
 Rotate every **90 days** or immediately upon suspected compromise.
 
 ## Overview
 
-The `@rustbrain` npm org owns the `@rustbrain/mcp-server` package. CI publishes via an automation-type token stored as the `NPM_TOKEN` GitHub Actions secret on `f-crop/rustacean`. Automation tokens bypass 2FA, so they must be kept short-lived and scoped to `@rustbrain` only.
+The `@rustacean` npm org owns the `@rustacean/mcp-server` package. CI publishes via an automation-type token stored as the `NPM_TOKEN` GitHub Actions secret on `f-crop/rustacean`. Automation tokens bypass 2FA, so they must be kept short-lived and scoped to `@rustacean` only.
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ The `@rustbrain` npm org owns the `@rustbrain/mcp-server` package. CI publishes 
 3. Set **Token type** to **Automation** (bypasses 2FA; required for CI).
 4. Set the token description to: `rustacean-ci-<YYYY-MM-DD>` (e.g. `rustacean-ci-2026-05-19`).
 5. Under **Packages and scopes**, restrict to:
-   - **Organization**: `@rustbrain`
+   - **Organization**: `@rustacean`
    - **Permissions**: `Read and write` (publish)
 6. Click **Generate Token** and copy the value immediately — it is shown only once.
 
@@ -77,18 +77,18 @@ Set a calendar reminder for the next rotation date when you finish: **90 days fr
 
 ## Initial setup (first-time only)
 
-The first-time setup requires reserving the `@rustbrain` org before generating any tokens:
+The first-time setup requires reserving the `@rustacean` org before generating any tokens:
 
 1. Log in at <https://www.npmjs.com> as the team account.
 2. Click **+** → **Create Organization**.
-3. Enter org name: `rustbrain` (this claims `@rustbrain`).
+3. Enter org name: `rustacean` (this claims `@rustacean`).
 4. Select the **Free** plan (public packages only).
-5. Confirm. The org is now `@rustbrain`.
+5. Confirm. The org is now `@rustacean`.
 6. Proceed from Step 1 above to generate the first token.
 
 ## References
 
 - Consuming workflow: `.github/workflows/mcp-server-publish.yml`
-- Published package: `@rustbrain/mcp-server` on npmjs.com
+- Published package: `@rustacean/mcp-server` on npmjs.com
 - Parent issue: RUSAA-1539 (MCP server package + publish workflow)
 - npm automation token docs: <https://docs.npmjs.com/creating-and-viewing-access-tokens>
