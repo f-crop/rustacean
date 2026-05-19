@@ -125,3 +125,29 @@ sudo systemctl stop rustbrain-dev-health.timer
 # ... maintenance ...
 sudo systemctl start rustbrain-dev-health.timer
 ```
+
+## Known pitfall: nginx caches upstream IP at startup
+
+**Symptom**: after the auto-rebuild watcher recreates `control-api` (new Docker bridge IP),
+all `/v1/*` requests through the frontend return `502 Bad Gateway` until the frontend
+container is manually restarted. nginx error log shows the dead IP:
+
+```
+connect() failed (111: Connection refused) ... upstream: "http://172.25.0.XX:8080/v1/..."
+```
+
+**Root cause**: plain `proxy_pass http://control-api:8080;` causes nginx to resolve the
+hostname once at startup and cache the IP for the container lifetime.
+
+**Fix** (shipped in `docker/frontend/nginx.conf`): use Docker's embedded DNS resolver with
+a 10-second TTL and route `proxy_pass` through a variable:
+
+```nginx
+resolver 127.0.0.11 valid=10s;
+set $upstream control-api:8080;
+proxy_pass http://$upstream;
+```
+
+When `proxy_pass` references a variable nginx re-resolves via the configured resolver on
+each request (within the TTL), so a recreated `control-api` is picked up within 10 seconds
+without any manual restart.
