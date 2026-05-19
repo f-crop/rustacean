@@ -1,0 +1,30 @@
+{
+  "name": "@rustbrain/mcp-server",
+  "version": "0.1.0",
+  "description": "stdio ↔ HTTP bridge for the Rustbrain MCP server",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "type": "module",
+  "main": "dist/src/cli.js",
+  "bin": { "rustbrain-mcp": "dist/src/cli.js" },
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test dist/test/*.test.js",
+    "prepublishOnly": "npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  },
+  "files": [
+    "dist/src/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/f-crop/rustacean"
+  }
+}
