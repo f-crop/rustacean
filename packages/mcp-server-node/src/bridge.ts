@@ -57,6 +57,9 @@ export async function runBridge(
       sessionId = result.sessionId;
     }
 
+    // 202 with empty body (e.g. notifications/initialized) — nothing to forward
+    if (!result.body.trim()) continue;
+
     const rpcResp: RpcMessage = JSON.parse(result.body);
     if (rpcResp.error?.code === UNAUTHORIZED_MCP) {
       process.stderr.write('[rustbrain-mcp] UNAUTHORIZED: check RB_AGENT_API_KEY\n');
@@ -75,6 +78,11 @@ async function sendWithRetry(
 
   // Only retry when we had a session — avoids infinite loops on missing auth
   if (sessionId === undefined) {
+    return result;
+  }
+
+  // Empty body (e.g. 202 for notifications) — no error code to inspect
+  if (!result.body.trim()) {
     return result;
   }
 

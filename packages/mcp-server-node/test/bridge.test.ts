@@ -151,6 +151,33 @@ test('surfaces UNAUTHORIZED_MCP error in output', async () => {
   assert.equal(resp.error.code, UNAUTHORIZED_MCP);
 });
 
+test('silently skips empty-body 202 notification response without crashing', async () => {
+  let callCount = 0;
+  const post: PostFn = async (body) => {
+    callCount++;
+    const m = JSON.parse(body).method as string;
+    if (m === 'notifications/initialized') {
+      return { body: '', sessionId: undefined };
+    }
+    return { body: OK_RESP(callCount), sessionId: callCount === 1 ? 'sess-1' : undefined };
+  };
+  const { stream, lines } = captureOutput();
+
+  await runBridge(
+    post,
+    makeInput(
+      '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+      '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}',
+      '{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}',
+    ),
+    stream,
+  );
+
+  // notification response silently dropped; initialize + tools/list forwarded
+  assert.equal(lines().length, 2);
+  assert.equal(callCount, 3);
+});
+
 test('skips non-JSON lines without crashing', async () => {
   let callCount = 0;
   const post: PostFn = async () => {
