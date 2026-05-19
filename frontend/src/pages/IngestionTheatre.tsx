@@ -205,7 +205,6 @@ function IngestionTheatreInner(): JSX.Element {
     }
     void hydrate();
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Once SSE delivers events for the seeded run, drop the seed so later runs
