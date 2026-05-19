@@ -62,8 +62,7 @@ impl KafkaError {
         matches!(
             inner.rdkafka_error_code(),
             Some(
-                RDKafkaErrorCode::TimedOut
-                    | RDKafkaErrorCode::TimedOutQueue
+                RDKafkaErrorCode::TimedOutQueue
                     | RDKafkaErrorCode::RequestTimedOut
                     | RDKafkaErrorCode::OperationTimedOut
             )
