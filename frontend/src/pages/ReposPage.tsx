@@ -372,6 +372,8 @@ function InstallStep(): JSX.Element {
 function AvailableReposError({ error }: { readonly error: unknown }): JSX.Element {
   const installUrl = useGithubInstallUrl();
   const status = (error as { status?: number } | null)?.status;
+  const bodyInstallUrl = (error as { body?: { install_url?: string } } | null)?.body
+    ?.install_url;
 
   const handleReinstall = async () => {
     try {
@@ -382,20 +384,25 @@ function AvailableReposError({ error }: { readonly error: unknown }): JSX.Elemen
     }
   };
 
-  if (status === 404) {
+  if (status === 404 || status === 409) {
+    const handleClick = bodyInstallUrl
+      ? () => window.location.assign(bodyInstallUrl)
+      : handleReinstall;
+
     return (
       <div className="flex flex-col gap-3">
         <p className="text-sm text-destructive">
-          This GitHub installation is not accessible from your workspace. It may be linked to a
-          different account. Re-install the GitHub App to connect repositories for this workspace.
+          {status === 409
+            ? "This installation belongs to a different GitHub App. Re-install the active App to continue."
+            : "This GitHub installation is not accessible from your workspace. It may be linked to a different account. Re-install the GitHub App to connect repositories for this workspace."}
         </p>
         <button
           type="button"
-          disabled={installUrl.isPending}
-          onClick={handleReinstall}
+          disabled={!bodyInstallUrl && installUrl.isPending}
+          onClick={handleClick}
           className="self-start rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {installUrl.isPending ? "Generating link…" : "Re-install GitHub App →"}
+          {!bodyInstallUrl && installUrl.isPending ? "Generating link…" : "Re-install GitHub App →"}
         </button>
       </div>
     );
