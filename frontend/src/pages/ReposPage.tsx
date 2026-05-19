@@ -372,8 +372,6 @@ function InstallStep(): JSX.Element {
 function AvailableReposError({ error }: { readonly error: unknown }): JSX.Element {
   const installUrl = useGithubInstallUrl();
   const status = (error as { status?: number } | null)?.status;
-  const bodyInstallUrl = (error as { body?: { install_url?: string } } | null)?.body
-    ?.install_url;
 
   const handleReinstall = async () => {
     try {
@@ -385,10 +383,6 @@ function AvailableReposError({ error }: { readonly error: unknown }): JSX.Elemen
   };
 
   if (status === 404 || status === 409) {
-    const handleClick = bodyInstallUrl
-      ? () => window.location.assign(bodyInstallUrl)
-      : handleReinstall;
-
     return (
       <div className="flex flex-col gap-3">
         <p className="text-sm text-destructive">
@@ -398,11 +392,11 @@ function AvailableReposError({ error }: { readonly error: unknown }): JSX.Elemen
         </p>
         <button
           type="button"
-          disabled={!bodyInstallUrl && installUrl.isPending}
-          onClick={handleClick}
+          disabled={installUrl.isPending}
+          onClick={handleReinstall}
           className="self-start rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {!bodyInstallUrl && installUrl.isPending ? "Generating link…" : "Re-install GitHub App →"}
+          {installUrl.isPending ? "Generating link…" : "Re-install GitHub App →"}
         </button>
       </div>
     );
