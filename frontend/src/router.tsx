@@ -158,7 +158,7 @@ const agentSessionReplayRoute = createRoute({
 });
 
 const adminGithubSearchSchema = z.object({
-  registered: z.enum(["true"]).optional(),
+  registered: z.boolean().optional(),
 });
 
 const adminGithubRoute = createRoute({

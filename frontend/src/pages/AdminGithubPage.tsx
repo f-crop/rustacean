@@ -65,9 +65,9 @@ export function AdminGithubPage(): JSX.Element {
 }
 
 function AdminGithubPageInner(): JSX.Element {
-  const search = useSearch({ strict: false }) as { registered?: string };
+  const search = useSearch({ strict: false }) as { registered?: boolean };
   const [showRegisteredBanner, setShowRegisteredBanner] = useState(
-    search.registered === "true",
+    search.registered === true,
   );
 
   const status = useGithubAppStatus({
