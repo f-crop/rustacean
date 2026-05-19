@@ -32,6 +32,19 @@ mod tests {
         assert!(stage_db_params(IngestStatus::Pending, "").is_none());
         assert!(stage_db_params(IngestStatus::Unspecified, "").is_none());
     }
+
+    /// RUSAA-1560: maybe_complete_run must issue two UPDATEs — one gated on
+    /// `status IN ('queued', 'running')` for the transition, and one always
+    /// fired on `status = 'succeeded'` to advance finished_at.  The threshold
+    /// must remain TOTAL_PIPELINE_STAGES so all 9 stages must have succeeded
+    /// before either UPDATE fires.
+    #[test]
+    fn total_pipeline_stages_gates_completion_and_finished_at_update() {
+        assert_eq!(
+            TOTAL_PIPELINE_STAGES, 9,
+            "gate must cover all 9 pipeline stages; bump if a new stage is added"
+        );
+    }
 }
 
 /// Returns the `pipeline_stage_runs.status` string and optional error
@@ -133,7 +146,18 @@ pub(crate) async fn maybe_start_run(pool: &PgPool, ingest_run_id: &str) -> Resul
     Ok(())
 }
 
-/// If all pipeline stages have succeeded, mark the run `succeeded`.
+/// If all pipeline stages have succeeded, mark the run `succeeded` and advance
+/// `finished_at` to `MAX(pipeline_stage_runs.finished_at)`.
+///
+/// Fan-out stages (extract, embed, project_*) emit one `Done` event per
+/// processed item rather than one per run. They become `succeeded` in
+/// `pipeline_stage_runs` after their first item, but `update_stage_run`
+/// keeps advancing `finished_at` on every subsequent item. By issuing two
+/// separate UPDATEs — one for the status transition (guarded by
+/// `status IN ('queued', 'running')`) and one for `finished_at` (always
+/// fires on any `succeeded` run) — each item's Done event advances
+/// `ingestion_runs.finished_at` until the last projection item sets the
+/// accurate wall-clock end time.
 pub(crate) async fn maybe_complete_run(pool: &PgPool, ingest_run_id: &str) -> Result<()> {
     let run_id: Uuid = ingest_run_id
         .parse()
@@ -149,15 +173,33 @@ pub(crate) async fn maybe_complete_run(pool: &PgPool, ingest_run_id: &str) -> Re
     .context("failed to count succeeded stages")?;
 
     if succeeded >= TOTAL_PIPELINE_STAGES {
+        // Transition to succeeded (no-op when already succeeded or failed).
         sqlx::query(
             "UPDATE control.ingestion_runs \
-             SET status = 'succeeded', finished_at = now() \
+             SET status = 'succeeded' \
              WHERE id = $1 AND status IN ('queued', 'running')",
         )
         .bind(run_id)
         .execute(pool)
         .await
         .context("failed to mark ingestion_run succeeded")?;
+
+        // Advance finished_at to the latest stage completion time. This runs
+        // after every Done event from a fan-out stage, so finished_at converges
+        // to the true end time once the last projection item is processed.
+        sqlx::query(
+            "UPDATE control.ingestion_runs \
+             SET finished_at = (\
+               SELECT MAX(psr.finished_at) \
+               FROM control.pipeline_stage_runs psr \
+               WHERE psr.ingestion_run_id = $1\
+             ) \
+             WHERE id = $1 AND status = 'succeeded'",
+        )
+        .bind(run_id)
+        .execute(pool)
+        .await
+        .context("failed to advance ingestion_run finished_at")?;
     }
 
     Ok(())
