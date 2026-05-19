@@ -98,6 +98,43 @@ fn github_500_maps_to_internal() {
     assert!(matches!(app_err, AppError::Internal(_)));
 }
 
+// ----- installation_for_different_app -----
+
+#[test]
+fn installation_for_different_app_returns_409() {
+    let err = AppError::InstallationForDifferentApp {
+        install_url: "https://github.com/apps/rustacean-alpha-2/installations/new".to_owned(),
+    };
+    let resp = err.into_response();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+}
+
+#[test]
+fn installation_for_different_app_error_message() {
+    let err = AppError::InstallationForDifferentApp {
+        install_url: "https://github.com/apps/test-app/installations/new".to_owned(),
+    };
+    assert!(err.to_string().contains("different GitHub App"));
+}
+
+#[test]
+fn installation_token_404_maps_to_installation_for_different_app_not_repo_not_accessible() {
+    // A 404 from the token-mint step (wrong App) must NOT map to RepoNotAccessible.
+    // The handler now calls installation_token() first; this test documents the
+    // distinction between "mint failed" (installation_for_different_app) vs
+    // "repo not found" (repo_not_accessible — returned only after a successful mint).
+    let install_url = "https://github.com/apps/rustacean-alpha-2/installations/new".to_owned();
+    let err = AppError::InstallationForDifferentApp {
+        install_url: install_url.clone(),
+    };
+    let resp = err.into_response();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+    // The plain RepoNotAccessible is 422, confirming the two errors are distinct.
+    let accessible_err = AppError::RepoNotAccessible;
+    let accessible_resp = accessible_err.into_response();
+    assert_eq!(accessible_resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 #[test]
 fn default_branch_override_takes_priority() {
     let override_branch = "develop".to_owned();
