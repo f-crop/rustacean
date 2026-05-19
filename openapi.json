@@ -1000,6 +1000,9 @@
           "404": {
             "description": "Installation not found or not owned by this tenant"
           },
+          "409": {
+            "description": "Installation belongs to a deactivated App (installation_for_different_app)"
+          },
           "503": {
             "description": "GitHub App not configured on this instance"
           }
