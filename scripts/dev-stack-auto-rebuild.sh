@@ -182,7 +182,7 @@ ALL_RUST_SERVICES=(
   control-api agent-runner parse-worker typecheck-worker ingest-graph ingest-clone
   expand-worker embed-worker projector-pg projector-neo4j tombstoner
 )
-declare -A REBUILD_SERVICE
+declare -A REBUILD_SERVICE=()
 REBUILD_FRONTEND=false
 
 mark_rust_service() { REBUILD_SERVICE["$1"]=true; }
