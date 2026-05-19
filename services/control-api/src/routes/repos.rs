@@ -92,7 +92,7 @@ pub struct TriggerIngestResponse {
         (status = 401, description = "Not authenticated or session expired"),
         (status = 403, description = "Email not verified"),
         (status = 404, description = "Installation not found or not owned by this tenant"),
-        (status = 409, description = "Repository already connected (repo_already_connected)"),
+        (status = 409, description = "Repository already connected (repo_already_connected) OR installation belongs to a deactivated App (installation_for_different_app)"),
         (status = 422, description = "Repository not accessible via installation (repo_not_accessible)"),
         (status = 503, description = "GitHub App not configured on this instance"),
     ),
@@ -123,6 +123,35 @@ pub async fn connect_repo(
     .await?;
 
     let (numeric_installation_id,) = row.ok_or(AppError::NotFound)?;
+
+    // Mint the installation token before fetching the repo so that a
+    // "wrong App" failure produces a 409 instead of being swallowed into a
+    // generic 422/500.  If the active App has changed since this installation
+    // was created, GitHub returns 404/401 on the access_tokens endpoint.
+    match gh.installation_token(numeric_installation_id).await {
+        Ok(_) => {} // token is now cached; fetch_repo will reuse it
+        Err(GhError::ApiError {
+            status: 404 | 401, ..
+        }) => {
+            let slug: Option<(String,)> = sqlx::query_as(
+                "SELECT slug FROM control.github_app_config \
+                 WHERE is_active = true LIMIT 1",
+            )
+            .fetch_optional(&state.pool)
+            .await?;
+            let install_url = slug.map_or_else(
+                || "https://github.com/apps".to_owned(),
+                |(s,)| format!("https://github.com/apps/{s}/installations/new"),
+            );
+            tracing::warn!(
+                numeric_installation_id,
+                install_url = %install_url,
+                "installation token mint failed: installation belongs to a deactivated GitHub App"
+            );
+            return Err(AppError::InstallationForDifferentApp { install_url });
+        }
+        Err(other) => return Err(AppError::Internal(anyhow::anyhow!("{other}"))),
+    }
 
     let repo_info = gh
         .fetch_repo(numeric_installation_id, body.github_repo_id)

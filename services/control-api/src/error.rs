@@ -52,6 +52,8 @@ pub enum AppError {
     GithubInstallationConflict,
     #[error("repository is not accessible via the given installation")]
     RepoNotAccessible,
+    #[error("installation belongs to a different GitHub App; reinstall the active App to continue")]
+    InstallationForDifferentApp { install_url: String },
     #[error("repository is already connected to this tenant")]
     RepoAlreadyConnected,
     #[error("an ingestion run is already in progress for this repository")]
@@ -165,6 +167,14 @@ impl IntoResponse for AppError {
                 "repo_not_accessible",
                 self.to_string(),
             ),
+            AppError::InstallationForDifferentApp { install_url } => {
+                let body = Json(serde_json::json!({
+                    "error": "installation_for_different_app",
+                    "message": self.to_string(),
+                    "install_url": install_url,
+                }));
+                return (StatusCode::CONFLICT, body).into_response();
+            }
             AppError::RepoAlreadyConnected => (
                 StatusCode::CONFLICT,
                 "repo_already_connected",
