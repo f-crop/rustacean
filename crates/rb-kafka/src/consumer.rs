@@ -319,8 +319,7 @@ impl<E: ProstMessage + Default> Consumer<E> {
             use rdkafka::consumer::Consumer as RdKafkaConsumer;
             inner
                 .assignment()
-                .map(|tpl| tpl.elements().len())
-                .unwrap_or(0)
+                .map_or(0, |tpl| tpl.elements().len())
         })
         .await
         .unwrap_or(0)
