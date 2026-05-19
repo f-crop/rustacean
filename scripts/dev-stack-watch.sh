@@ -33,6 +33,22 @@ REBUILD_SCRIPT="$SCRIPT_DIR/dev-stack-auto-rebuild.sh"
 # This is needed to inspect running container counts for cold-start detection.
 COMPOSE_CMD="${COMPOSE_CMD:-docker compose -f $REPO_ROOT/compose/dev.yml}"
 
+# Runs the rebuild script with all output tee'd to a timestamped log file so
+# failures are visible even when the rebuild script exits before its first echo.
+# Propagates the rebuild script's exit code to the caller.
+run_rebuild() {
+  local log="$STATE_DIR/rebuild-$(date +%Y%m%dT%H%M%S)-$$.log"
+  local rc
+  set +e
+  "$REBUILD_SCRIPT" "$@" 2>&1 | tee "$log"
+  rc=${PIPESTATUS[0]}
+  set -e
+  if [[ $rc -ne 0 ]]; then
+    echo "[dev-stack-watch] rebuild exited $rc — log: $log" >&2
+  fi
+  return $rc
+}
+
 # Returns exit code 0 when zero compose services are currently running.
 stack_is_cold() {
   local running_ids
@@ -76,7 +92,7 @@ if stack_is_cold; then
   _cs_delay="${COLD_START_RETRY_DELAY:-30}"
   _cs_max="${COLD_START_MAX_ATTEMPTS:-5}"
   while [[ $_cs_attempt -le $_cs_max ]]; do
-    if "$REBUILD_SCRIPT" --cold-start "$LAST_KNOWN_SHA" "$LAST_KNOWN_SHA"; then
+    if run_rebuild --cold-start "$LAST_KNOWN_SHA" "$LAST_KNOWN_SHA"; then
       echo "[dev-stack-watch] cold start succeeded on attempt $_cs_attempt"
       break
     fi
@@ -125,12 +141,10 @@ while true; do
   # If the stack is fully stopped, force a cold start so infra services come up too.
   if stack_is_cold; then
     echo "[dev-stack-watch] stack is not running — triggering cold start: $PREV_SHA → $NEW_SHA"
-    "$REBUILD_SCRIPT" --cold-start "$PREV_SHA" "$NEW_SHA" || \
-      echo "[dev-stack-watch] cold start exited non-zero — see logs for details" >&2
+    run_rebuild --cold-start "$PREV_SHA" "$NEW_SHA" || true
   else
     echo "[dev-stack-watch] triggering rebuild: $PREV_SHA → $NEW_SHA"
     # Never let a rebuild failure crash the watch loop.
-    "$REBUILD_SCRIPT" "$PREV_SHA" "$NEW_SHA" || \
-      echo "[dev-stack-watch] rebuild exited non-zero — see logs for details" >&2
+    run_rebuild "$PREV_SHA" "$NEW_SHA" || true
   fi
 done
