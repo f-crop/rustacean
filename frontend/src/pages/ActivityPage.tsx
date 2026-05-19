@@ -59,7 +59,14 @@ function ActivityPageInner({ tenantId }: ActivityPageInnerProps): JSX.Element {
   const allAudit = useAuditEvents(tenantId, { limit: 200 });
   const userAudit = useAuditEvents(tenantId, { limit: 100 });
   const queryAudit = useAuditEvents(tenantId, { action: "search.executed", limit: 50 });
-  const recentIngestions = useRecentIngestions(tenantId);
+  const recentIngestions = useRecentIngestions(tenantId, 50, {
+    refetchInterval: (query) => {
+      const hasActive = query.state.data?.runs.some(
+        (r) => r.status === "running" || r.status === "queued",
+      );
+      return hasActive ? 10_000 : false;
+    },
+  });
   const invalidateIngestions = useInvalidateRecentIngestions();
 
   const { events, readyState } = useEventStream(`${apiBase}/v1/ingest/events`, ["ingest.status"]);
