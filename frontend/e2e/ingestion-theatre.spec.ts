@@ -26,6 +26,18 @@ async function setupPage(page: import("@playwright/test").Page): Promise<void> {
   await mockSseStream(page);
 }
 
+const STAGE_LABELS: Array<[stage: string, label: string]> = [
+  ["clone", "Clone"],
+  ["expand", "Expand"],
+  ["parse", "Parse"],
+  ["typecheck", "Typecheck"],
+  ["extract", "Extract"],
+  ["embed", "Embed"],
+  ["project_pg", "Project (PostgreSQL)"],
+  ["project_neo4j", "Project (Neo4j)"],
+  ["project_qdrant", "Project (Qdrant)"],
+];
+
 test.describe("Ingestion Theatre — empty state", () => {
   test("renders empty state when no events on the bus", async ({ page }) => {
     await setupPage(page);
@@ -42,16 +54,15 @@ test.describe("Ingestion Theatre — empty state", () => {
     ).toBeVisible();
   });
 
-  test("empty state shows all 6 pipeline stages as pending", async ({
+  test("empty state shows all 9 pipeline stages as pending", async ({
     page,
   }) => {
     await setupPage(page);
     await page.goto("/ingestion");
 
-    const stages = ["clone", "expand", "parse", "typecheck", "graph", "embed"];
-    for (const stage of stages) {
+    for (const [, label] of STAGE_LABELS) {
       await expect(
-        page.getByRole("listitem").filter({ hasText: stage }),
+        page.getByRole("listitem").filter({ hasText: label }),
       ).toBeVisible();
     }
   });
@@ -84,37 +95,37 @@ test.describe("Ingestion Theatre — live events", () => {
     await mockSseStream(page, [
       "id: evt-1\n",
       "event: ingest.status\n",
-      'data: {"ingest_request_id":"req-1","tenant_id":"tenant-1","status":"processing","error_message":"","occurred_at_ms":1700000001000}\n',
+      'data: {"ingest_request_id":"req-1","tenant_id":"tenant-1","status":"processing","stage":"clone","stage_seq":0,"ingest_run_id":"run-1","error_message":"","occurred_at_ms":1700000001000}\n',
       "\n",
     ]);
 
     await page.goto("/ingestion");
     await expect(page.getByTestId("ingestion-active-state")).toBeVisible();
 
-    const cloneItem = page.getByRole("listitem").filter({ hasText: "clone" });
+    const cloneItem = page.getByRole("listitem").filter({ hasText: "Clone" });
     await expect(cloneItem).toBeVisible();
     await expect(
-      cloneItem.getByRole("img", { name: "clone stage: Running" }),
+      cloneItem.getByRole("img", { name: "Clone stage: Running" }),
     ).toBeVisible();
   });
 
-  test("done event flips all stages to done", async ({ page }) => {
+  test("done events per stage show each stage as done", async ({ page }) => {
     await mockAuthenticatedSession(page);
-    await mockSseStream(page, [
-      "id: evt-2\n",
-      "event: ingest.status\n",
-      'data: {"ingest_request_id":"req-1","tenant_id":"tenant-1","status":"done","error_message":"","occurred_at_ms":1700000002000}\n',
-      "\n",
+    const stageEvents: string[] = STAGE_LABELS.flatMap(([stage], i) => [
+      `id: evt-${i + 1}\n`,
+      `event: ingest.status\n`,
+      `data: {"ingest_request_id":"req-1","tenant_id":"tenant-1","status":"done","stage":"${stage}","stage_seq":${i},"ingest_run_id":"run-1","error_message":"","occurred_at_ms":${1700000002000 + i}}\n`,
+      `\n`,
     ]);
+    await mockSseStream(page, stageEvents);
 
     await page.goto("/ingestion");
     await expect(page.getByTestId("ingestion-active-state")).toBeVisible();
 
-    const stages = ["clone", "expand", "parse", "typecheck", "graph", "embed"];
-    for (const stage of stages) {
-      const item = page.getByRole("listitem").filter({ hasText: stage });
+    for (const [, label] of STAGE_LABELS) {
+      const item = page.getByRole("listitem").filter({ hasText: label });
       await expect(
-        item.getByRole("img", { name: `${stage} stage: Done` }),
+        item.getByRole("img", { name: `${label} stage: Done` }),
       ).toBeVisible();
     }
   });
@@ -126,7 +137,7 @@ test.describe("Ingestion Theatre — live events", () => {
     await mockSseStream(page, [
       "id: evt-3\n",
       "event: ingest.status\n",
-      'data: {"ingest_request_id":"req-1","tenant_id":"tenant-1","status":"processing","error_message":"","occurred_at_ms":1700000003000}\n',
+      'data: {"ingest_request_id":"req-1","tenant_id":"tenant-1","status":"processing","stage":"clone","stage_seq":0,"ingest_run_id":"run-1","error_message":"","occurred_at_ms":1700000003000}\n',
       "\n",
     ]);
 
@@ -155,4 +166,3 @@ test.describe("Ingestion Theatre — auth gate", () => {
     await expect(page.locator("text=Sign in to view ingestion progress")).toBeVisible();
   });
 });
-
