@@ -7,8 +7,11 @@ const PIPELINE_STAGES = [
   "expand",
   "parse",
   "typecheck",
-  "graph",
+  "extract",
   "embed",
+  "project_pg",
+  "project_neo4j",
+  "project_qdrant",
 ] as const;
 
 type PipelineStage = (typeof PIPELINE_STAGES)[number];
@@ -27,12 +30,29 @@ interface IngestStatusEvent {
   status: IngestStatus;
   error_message: string;
   occurred_at_ms: number;
+  stage: string | null;
+  stage_seq: number;
+  ingest_run_id: string;
 }
 
 interface StageState {
   readonly stage: PipelineStage;
   readonly status: StageStatus;
 }
+
+const STAGE_LABELS: Record<PipelineStage, string> = {
+  clone: "Clone",
+  expand: "Expand",
+  parse: "Parse",
+  typecheck: "Typecheck",
+  extract: "Extract",
+  embed: "Embed",
+  project_pg: "Project (PostgreSQL)",
+  project_neo4j: "Project (Neo4j)",
+  project_qdrant: "Project (Qdrant)",
+};
+
+const PIPELINE_STAGE_SET = new Set<string>(PIPELINE_STAGES);
 
 function parseIngestEvent(raw: string): IngestStatusEvent | null {
   try {
@@ -42,41 +62,36 @@ function parseIngestEvent(raw: string): IngestStatusEvent | null {
   }
 }
 
+function mapIngestStatus(status: IngestStatus): StageStatus | null {
+  switch (status) {
+    case "processing":
+      return "running";
+    case "done":
+      return "done";
+    case "failed":
+      return "error";
+    default:
+      return null;
+  }
+}
+
 function deriveStageStates(
   events: ReadonlyArray<{ data: string }>,
 ): StageState[] {
-  const initial: StageState[] = PIPELINE_STAGES.map((stage) => ({
-    stage,
-    status: "pending",
-  }));
+  const byStage = new Map<string, StageStatus>(
+    PIPELINE_STAGES.map((s) => [s, "pending"]),
+  );
 
-  if (events.length === 0) return initial;
-
-  const parsed = events
-    .map((e) => parseIngestEvent(e.data))
-    .filter((e): e is IngestStatusEvent => e !== null);
-
-  if (parsed.length === 0) return initial;
-
-  const latest = parsed[parsed.length - 1];
-  if (!latest) return initial;
-
-  switch (latest.status) {
-    case "processing":
-      return PIPELINE_STAGES.map((stage, i) => ({
-        stage,
-        status: i === 0 ? "running" : "pending",
-      }));
-    case "done":
-      return PIPELINE_STAGES.map((stage) => ({ stage, status: "done" }));
-    case "failed":
-      return PIPELINE_STAGES.map((stage, i) => ({
-        stage,
-        status: i === 0 ? "error" : "pending",
-      }));
-    default:
-      return initial;
+  for (const raw of events) {
+    const e = parseIngestEvent(raw.data);
+    if (!e || !e.stage || !PIPELINE_STAGE_SET.has(e.stage)) continue;
+    const stageStatus = mapIngestStatus(e.status);
+    if (stageStatus !== null) {
+      byStage.set(e.stage, stageStatus);
+    }
   }
+
+  return PIPELINE_STAGES.map((s) => ({ stage: s, status: byStage.get(s)! }));
 }
 
 const STATUS_LABEL: Record<StageStatus, string> = {
@@ -108,12 +123,13 @@ interface StageRowProps {
 }
 
 function StageRow({ state, index, isLast }: StageRowProps): JSX.Element {
+  const label = STAGE_LABELS[state.stage];
   return (
     <li className="flex items-start gap-4">
       <div className="flex flex-col items-center">
         <div
           role="img"
-          aria-label={`${state.stage} stage: ${STATUS_LABEL[state.status]}`}
+          aria-label={`${label} stage: ${STATUS_LABEL[state.status]}`}
           className={STATUS_INDICATOR[state.status]}
         />
         {!isLast && (
@@ -124,13 +140,13 @@ function StageRow({ state, index, isLast }: StageRowProps): JSX.Element {
         )}
       </div>
       <div className="pb-8 last:pb-0">
-        <p className="text-sm font-medium capitalize">{state.stage}</p>
+        <p className="text-sm font-medium">{label}</p>
         <p className={`text-xs ${STATUS_COLOR[state.status]}`}>
           {STATUS_LABEL[state.status]}
         </p>
       </div>
       <span className="sr-only">
-        Step {index + 1} of {PIPELINE_STAGES.length}: {state.stage},{" "}
+        Step {index + 1} of {PIPELINE_STAGES.length}: {label},{" "}
         {STATUS_LABEL[state.status]}
       </span>
     </li>
