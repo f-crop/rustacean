@@ -62,11 +62,7 @@ impl<E: ProstMessage + Default + Send + Sync + 'static> ConsumerOps<E> for MockC
         Ok(())
     }
 
-    async fn nack_to_dlq(
-        &self,
-        _env: &EventEnvelope<E>,
-        _reason: &str,
-    ) -> Result<(), KafkaError> {
+    async fn nack_to_dlq(&self, _env: &EventEnvelope<E>, _reason: &str) -> Result<(), KafkaError> {
         Ok(())
     }
 

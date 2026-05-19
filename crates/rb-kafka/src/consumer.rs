@@ -317,9 +317,7 @@ impl<E: ProstMessage + Default> Consumer<E> {
         let inner = self.inner.clone();
         tokio::task::spawn_blocking(move || {
             use rdkafka::consumer::Consumer as RdKafkaConsumer;
-            inner
-                .assignment()
-                .map_or(0, |tpl| tpl.elements().len())
+            inner.assignment().map_or(0, |tpl| tpl.elements().len())
         })
         .await
         .unwrap_or(0)
