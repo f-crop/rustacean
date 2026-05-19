@@ -1,6 +1,8 @@
 import { useMe } from "@/api";
+import { apiClient } from "@/api/client";
 import { PageContainer } from "@/components/repos/PageContainer";
 import { useEventStream } from "@/hooks/useEventStream";
+import { useEffect, useState } from "react";
 
 const PIPELINE_STAGES = [
   "clone",
@@ -75,11 +77,25 @@ function mapIngestStatus(status: IngestStatus): StageStatus | null {
   }
 }
 
+function mapRestStageStatus(status: string): StageStatus {
+  switch (status) {
+    case "running":
+      return "running";
+    case "succeeded":
+      return "done";
+    case "failed":
+      return "error";
+    default:
+      return "pending";
+  }
+}
+
 function deriveStageStates(
   events: ReadonlyArray<{ data: string }>,
+  seed?: ReadonlyMap<string, StageStatus>,
 ): StageState[] {
   const byStage = new Map<string, StageStatus>(
-    PIPELINE_STAGES.map((s) => [s, "pending"]),
+    PIPELINE_STAGES.map((s) => [s, seed?.get(s) ?? "pending"]),
   );
 
   for (const raw of events) {
@@ -160,9 +176,48 @@ function IngestionTheatreInner(): JSX.Element {
     ["ingest.status"],
   );
 
+  const [seedStages, setSeedStages] = useState<ReadonlyMap<string, StageStatus> | undefined>(undefined);
+  const [seededRunId, setSeededRunId] = useState<string | null>(null);
+
+  // On mount, hydrate stage state from REST so stages completed before SSE
+  // connection are shown correctly rather than stuck at "Pending".
+  useEffect(() => {
+    let cancelled = false;
+    async function hydrate() {
+      const { data, error } = await apiClient.GET("/v1/ingestions/recent", {
+        params: { query: { limit: 5 } },
+      });
+      if (error || !data || cancelled) return;
+      const activeRun = data.runs.find(
+        (r) => r.status === "running" || r.status === "queued",
+      );
+      if (!activeRun) return;
+      const { data: timeline } = await apiClient.GET(
+        "/v1/ingestions/{ingestion_run_id}/stages",
+        { params: { path: { ingestion_run_id: activeRun.id } } },
+      );
+      if (!timeline || cancelled) return;
+      const map = new Map<string, StageStatus>(
+        timeline.stages.map((s) => [s.stage, mapRestStageStatus(s.status)]),
+      );
+      setSeedStages(map);
+      setSeededRunId(activeRun.id);
+    }
+    void hydrate();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Once SSE delivers events for the seeded run, drop the seed so later runs
+  // don't inherit stale state.
   const ingestEvents = events.filter((e) => e.type === "ingest.status");
-  const stageStates = deriveStageStates(ingestEvents);
-  const hasEvents = ingestEvents.length > 0;
+  const activeSseRunId = ingestEvents.length > 0
+    ? (parseIngestEvent(ingestEvents[ingestEvents.length - 1]!.data)?.ingest_run_id ?? null)
+    : null;
+  const effectiveSeed = activeSseRunId === null || activeSseRunId === seededRunId ? seedStages : undefined;
+
+  const stageStates = deriveStageStates(ingestEvents, effectiveSeed);
+  const hasEvents = ingestEvents.length > 0 || effectiveSeed !== undefined;
 
   return (
     <PageContainer>
