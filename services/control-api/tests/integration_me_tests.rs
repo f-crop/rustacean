@@ -12,7 +12,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build};
+use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build_public};
 use rb_sse::{EventBus, SseConfig};
 
 async fn collect_body(body: Body) -> Vec<u8> {
@@ -180,7 +180,7 @@ async fn integration_me_returns_user_and_tenant_for_active_session() {
     let Some((state, pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
     let email = format!("integ-me-ok-{}@test.example", Uuid::new_v4().simple());
     let token = signup_and_login(
         app.clone(),
@@ -225,7 +225,7 @@ async fn integration_me_extends_session_last_seen_at() {
     let Some((state, pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
     let email = format!("integ-me-refresh-{}@test.example", Uuid::new_v4().simple());
     let token = signup_and_login(
         app.clone(),
@@ -287,7 +287,7 @@ async fn integration_me_returns_session_expired_for_expired_cookie() {
     let Some((state, pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
     let email = format!("integ-me-expired-{}@test.example", Uuid::new_v4().simple());
     let token = signup_and_login(
         app.clone(),
@@ -332,7 +332,7 @@ async fn integration_me_anonymous_returns_unauthorized() {
     let Some((state, _pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
 
     let resp = app
         .oneshot(
@@ -355,7 +355,7 @@ async fn integration_me_with_unverified_email_returns_email_not_verified() {
     let Some((state, pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
     let email = format!(
         "integ-me-unverified-{}@test.example",
         Uuid::new_v4().simple()

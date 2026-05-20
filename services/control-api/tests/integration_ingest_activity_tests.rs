@@ -1,4 +1,4 @@
-//! Integration tests for ingestion-run activity timestamps (started_at backfill).
+//! Integration tests for ingestion-run activity timestamps (`started_at` backfill).
 //!
 //! These tests require a running Postgres instance accessible via
 //! `RB_DATABASE_URL`. When that variable is absent the tests skip gracefully.
@@ -140,6 +140,7 @@ async fn fail_run_sets_started_at_when_null() {
 /// runs that complete before any Processing event is processed always have a
 /// non-NULL `started_at`.
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn complete_run_sets_started_at_when_null() {
     let Some(pool) = real_pool().await else {
         return; // skip: no DB
@@ -240,31 +241,24 @@ async fn complete_run_sets_started_at_when_null() {
             .unwrap_or_else(|e| panic!("insert stage {stage}: {e}"));
     }
 
-    // Execute the first UPDATE from maybe_complete_run (mirrors ingest_consumer/db.rs).
+    // Execute the single UPDATE from maybe_complete_run (mirrors ingest_consumer/db.rs).
+    // status, started_at, and finished_at are set atomically so finished_at is
+    // frozen at transition time and does not advance on subsequent Done events.
     sqlx::query(
         "UPDATE control.ingestion_runs \
-         SET status = 'succeeded', started_at = COALESCE(started_at, now()) \
+         SET status = 'succeeded', \
+             started_at = COALESCE(started_at, now()), \
+             finished_at = (\
+               SELECT MAX(psr.finished_at) \
+               FROM control.pipeline_stage_runs psr \
+               WHERE psr.ingestion_run_id = $1\
+             ) \
          WHERE id = $1 AND status IN ('queued', 'running')",
     )
     .bind(run_id)
     .execute(&pool)
     .await
-    .expect("status transition");
-
-    // Execute the second UPDATE (advance finished_at).
-    sqlx::query(
-        "UPDATE control.ingestion_runs \
-         SET finished_at = (\
-           SELECT MAX(psr.finished_at) \
-           FROM control.pipeline_stage_runs psr \
-           WHERE psr.ingestion_run_id = $1\
-         ) \
-         WHERE id = $1 AND status = 'succeeded'",
-    )
-    .bind(run_id)
-    .execute(&pool)
-    .await
-    .expect("advance finished_at");
+    .expect("status transition with finished_at");
 
     let (started_at, finished_at, created_at): (
         Option<chrono::DateTime<chrono::Utc>>,
@@ -289,5 +283,177 @@ async fn complete_run_sets_started_at_when_null() {
         finished > created_at,
         "finished_at must be > created_at (non-zero duration); \
          got created={created_at}, finished={finished}"
+    );
+}
+
+/// AC: `finished_at` must NOT advance after the run reaches terminal status.
+/// Simulates fan-out stage Done events arriving after the run is `succeeded`:
+/// re-fires the second UPDATE with a later stage timestamp and asserts that
+/// `ingestion_runs.finished_at` does not change.
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn finished_at_frozen_after_terminal_status() {
+    let Some(pool) = real_pool().await else {
+        return; // skip: no DB
+    };
+
+    let tenant_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+    let repo_id = Uuid::new_v4();
+    let run_id = Uuid::new_v4();
+
+    let slug = format!("act1621-{}", tenant_id.simple());
+    let schema_name = format!("act1621_{}", tenant_id.simple());
+
+    sqlx::query(
+        "INSERT INTO control.tenants (id, slug, name, schema_name) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(tenant_id)
+    .bind(&slug)
+    .bind("Activity 1621 Freeze Test Tenant")
+    .bind(&schema_name)
+    .execute(&pool)
+    .await
+    .expect("insert tenant");
+
+    sqlx::query(
+        "INSERT INTO control.users (id, email, password_hash, email_verified_at) \
+         VALUES ($1, $2, $3, now())",
+    )
+    .bind(user_id)
+    .bind(format!("act1621-{}@test.example", user_id.simple()))
+    .bind("$argon2id$v=19$m=65536,t=1,p=1$placeholder_hash")
+    .execute(&pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO control.tenant_members (tenant_id, user_id, role) VALUES ($1, $2, 'owner')",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .expect("insert tenant_member");
+
+    sqlx::query(
+        "INSERT INTO control.repos \
+         (id, tenant_id, github_repo_id, full_name, default_branch, connected_by) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(repo_id)
+    .bind(tenant_id)
+    .bind(15963_i64)
+    .bind("test-org/act1621-repo")
+    .bind("main")
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .expect("insert repo");
+
+    sqlx::query(
+        "INSERT INTO control.ingestion_runs (id, tenant_id, repo_id, status, requested_by) \
+         VALUES ($1, $2, $3, 'queued', $4)",
+    )
+    .bind(run_id)
+    .bind(tenant_id)
+    .bind(repo_id)
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .expect("insert ingestion_run");
+
+    // Seed all 9 stages as succeeded with known timestamps.
+    let stages: &[(&str, &str)] = &[
+        ("clone", "now() - interval '10 seconds'"),
+        ("expand", "now() - interval '9 seconds'"),
+        ("parse", "now() - interval '8 seconds'"),
+        ("typecheck", "now() - interval '7 seconds'"),
+        ("extract", "now() - interval '6 seconds'"),
+        ("embed", "now() - interval '5 seconds'"),
+        ("project_pg", "now() - interval '4 seconds'"),
+        ("project_neo4j", "now() - interval '3 seconds'"),
+        ("project_qdrant", "now() - interval '2 seconds'"),
+    ];
+    for (stage, ts_expr) in stages {
+        let sql = format!(
+            "INSERT INTO control.pipeline_stage_runs \
+             (id, ingestion_run_id, stage, status, finished_at) \
+             VALUES (gen_random_uuid(), $1, $2, 'succeeded', {ts_expr})"
+        );
+        sqlx::query(&sql)
+            .bind(run_id)
+            .bind(*stage)
+            .execute(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("insert stage {stage}: {e}"));
+    }
+
+    // Transition to succeeded (the single atomic UPDATE from maybe_complete_run).
+    sqlx::query(
+        "UPDATE control.ingestion_runs \
+         SET status = 'succeeded', \
+             started_at = COALESCE(started_at, now()), \
+             finished_at = (\
+               SELECT MAX(psr.finished_at) \
+               FROM control.pipeline_stage_runs psr \
+               WHERE psr.ingestion_run_id = $1\
+             ) \
+         WHERE id = $1 AND status IN ('queued', 'running')",
+    )
+    .bind(run_id)
+    .execute(&pool)
+    .await
+    .expect("first transition");
+
+    let finished_at_first: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT finished_at FROM control.ingestion_runs WHERE id = $1")
+            .bind(run_id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch finished_at after first transition");
+    let frozen = finished_at_first.expect("finished_at must be set after transition");
+
+    // Simulate a fan-out Done event arriving after terminal status: advance a
+    // stage's finished_at to a future timestamp then re-fire the UPDATE.
+    sqlx::query(
+        "UPDATE control.pipeline_stage_runs \
+         SET finished_at = now() + interval '60 seconds' \
+         WHERE ingestion_run_id = $1 AND stage = 'project_pg'",
+    )
+    .bind(run_id)
+    .execute(&pool)
+    .await
+    .expect("simulate late Done event");
+
+    // Re-fire the transition UPDATE as maybe_complete_run would on a late Done event.
+    sqlx::query(
+        "UPDATE control.ingestion_runs \
+         SET status = 'succeeded', \
+             started_at = COALESCE(started_at, now()), \
+             finished_at = (\
+               SELECT MAX(psr.finished_at) \
+               FROM control.pipeline_stage_runs psr \
+               WHERE psr.ingestion_run_id = $1\
+             ) \
+         WHERE id = $1 AND status IN ('queued', 'running')",
+    )
+    .bind(run_id)
+    .execute(&pool)
+    .await
+    .expect("re-fire after late Done");
+
+    let finished_at_second: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT finished_at FROM control.ingestion_runs WHERE id = $1")
+            .bind(run_id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch finished_at after re-fire");
+    let after = finished_at_second.expect("finished_at must still be set");
+
+    assert_eq!(
+        frozen, after,
+        "finished_at must not advance after run reaches terminal status; \
+         frozen={frozen}, after re-fire={after}"
     );
 }

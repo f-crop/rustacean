@@ -18,7 +18,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build};
+use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build_public};
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -211,7 +211,7 @@ async fn ac1_events_stream_without_session_returns_401() {
     };
 
     let session_id = Uuid::new_v4();
-    let resp = build(state)
+    let resp = build_public(state)
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -245,7 +245,7 @@ async fn ac2_events_stream_returns_sse_for_session_owner() {
 
     let fixtures = insert_agent_session_fixtures(&pool).await;
 
-    let resp = build(state)
+    let resp = build_public(state)
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -276,8 +276,7 @@ async fn ac2_events_stream_returns_sse_for_session_owner() {
         .unwrap();
     assert!(
         content_type.contains("text/event-stream"),
-        "AC2: content-type must be text/event-stream, got {}",
-        content_type
+        "AC2: content-type must be text/event-stream, got {content_type}"
     );
 }
 
@@ -296,13 +295,12 @@ async fn ac3_events_stream_nonexistent_session_returns_404() {
     let fixtures = insert_agent_session_fixtures(&pool).await;
     let nonexistent_session_id = Uuid::new_v4();
 
-    let resp = build(state)
+    let resp = build_public(state)
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/agents/sessions/{}/events",
-                    nonexistent_session_id
+                    "/v1/agents/sessions/{nonexistent_session_id}/events"
                 ))
                 .header("accept", "text/event-stream")
                 .header("cookie", format!("rb_session={}", fixtures.session_token))
@@ -410,11 +408,11 @@ async fn ac4_events_stream_cross_tenant_access_denied() {
     .expect("insert agent_session B");
 
     // User A tries to access User B's session
-    let resp = build(state)
+    let resp = build_public(state)
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/agents/sessions/{}/events", agent_session_b_id))
+                .uri(format!("/v1/agents/sessions/{agent_session_b_id}/events"))
                 .header("accept", "text/event-stream")
                 .header("cookie", format!("rb_session={}", fixtures_a.session_token))
                 .body(Body::empty())

@@ -299,7 +299,7 @@ async fn integration_resend_verification_already_verified_returns_204() {
     );
 }
 
-/// Dev-mode auto-verify: signup with noop transport returns email_verification_required: false.
+/// Dev-mode auto-verify: signup with noop transport returns `email_verification_required: false`.
 #[tokio::test]
 async fn integration_signup_noop_transport_auto_verifies() {
     let Some((state, pool)) = real_db_state().await else {
@@ -332,8 +332,7 @@ async fn integration_signup_noop_transport_auto_verifies() {
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(
         body["email_verification_required"], false,
-        "noop transport must auto-verify: got {:?}",
-        body
+        "noop transport must auto-verify: got {body:?}"
     );
 
     // DB row must have email_verified_at set.
@@ -371,7 +370,6 @@ async fn integration_signup_noop_transport_auto_verifies() {
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(
         body["email_verification_required"], false,
-        "login after noop signup must not require verification: got {:?}",
-        body
+        "login after noop signup must not require verification: got {body:?}"
     );
 }

@@ -9,44 +9,6 @@ use super::sse::stage_label;
 
 pub(crate) const TOTAL_PIPELINE_STAGES: i64 = 9;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn processing_maps_to_running() {
-        let result = stage_db_params(IngestStatus::Processing, "");
-        assert_eq!(result, Some(("running", None)));
-    }
-
-    #[test]
-    fn done_maps_to_succeeded() {
-        assert_eq!(
-            stage_db_params(IngestStatus::Done, ""),
-            Some(("succeeded", None))
-        );
-    }
-
-    #[test]
-    fn pending_and_unspecified_produce_no_db_update() {
-        assert!(stage_db_params(IngestStatus::Pending, "").is_none());
-        assert!(stage_db_params(IngestStatus::Unspecified, "").is_none());
-    }
-
-    /// RUSAA-1560: maybe_complete_run must issue two UPDATEs — one gated on
-    /// `status IN ('queued', 'running')` for the transition, and one always
-    /// fired on `status = 'succeeded'` to advance finished_at.  The threshold
-    /// must remain TOTAL_PIPELINE_STAGES so all 9 stages must have succeeded
-    /// before either UPDATE fires.
-    #[test]
-    fn total_pipeline_stages_gates_completion_and_finished_at_update() {
-        assert_eq!(
-            TOTAL_PIPELINE_STAGES, 9,
-            "gate must cover all 9 pipeline stages; bump if a new stage is added"
-        );
-    }
-}
-
 /// Returns the `pipeline_stage_runs.status` string and optional error
 /// for a given [`IngestStatus`], or `None` if no DB update is warranted.
 pub(crate) fn stage_db_params(
@@ -173,34 +135,26 @@ pub(crate) async fn maybe_complete_run(pool: &PgPool, ingest_run_id: &str) -> Re
     .context("failed to count succeeded stages")?;
 
     if succeeded >= TOTAL_PIPELINE_STAGES {
+        // Single UPDATE gated on running/queued so finished_at is written once
+        // and frozen — subsequent Done events from fan-out stages after the run
+        // reaches terminal status no longer advance it (RUSAA-1621).
         // COALESCE backfills started_at when Processing events were lost or
         // arrived after Done events on a fast pipeline.
         sqlx::query(
             "UPDATE control.ingestion_runs \
-             SET status = 'succeeded', started_at = COALESCE(started_at, now()) \
+             SET status = 'succeeded', \
+                 started_at = COALESCE(started_at, now()), \
+                 finished_at = (\
+                   SELECT MAX(psr.finished_at) \
+                   FROM control.pipeline_stage_runs psr \
+                   WHERE psr.ingestion_run_id = $1\
+                 ) \
              WHERE id = $1 AND status IN ('queued', 'running')",
         )
         .bind(run_id)
         .execute(pool)
         .await
         .context("failed to mark ingestion_run succeeded")?;
-
-        // Advance finished_at to the latest stage completion time. This runs
-        // after every Done event from a fan-out stage, so finished_at converges
-        // to the true end time once the last projection item is processed.
-        sqlx::query(
-            "UPDATE control.ingestion_runs \
-             SET finished_at = (\
-               SELECT MAX(psr.finished_at) \
-               FROM control.pipeline_stage_runs psr \
-               WHERE psr.ingestion_run_id = $1\
-             ) \
-             WHERE id = $1 AND status = 'succeeded'",
-        )
-        .bind(run_id)
-        .execute(pool)
-        .await
-        .context("failed to advance ingestion_run finished_at")?;
     }
 
     Ok(())
@@ -264,4 +218,42 @@ pub(crate) async fn handle_db_updates(pool: &PgPool, ev: &IngestStatusEvent) -> 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn processing_maps_to_running() {
+        let result = stage_db_params(IngestStatus::Processing, "");
+        assert_eq!(result, Some(("running", None)));
+    }
+
+    #[test]
+    fn done_maps_to_succeeded() {
+        assert_eq!(
+            stage_db_params(IngestStatus::Done, ""),
+            Some(("succeeded", None))
+        );
+    }
+
+    #[test]
+    fn pending_and_unspecified_produce_no_db_update() {
+        assert!(stage_db_params(IngestStatus::Pending, "").is_none());
+        assert!(stage_db_params(IngestStatus::Unspecified, "").is_none());
+    }
+
+    /// `maybe_complete_run` issues a single UPDATE gated on `status IN ('queued',
+    /// 'running')` that sets status, `started_at`, AND `finished_at` atomically.
+    /// `finished_at` is frozen at the moment of the first transition to succeeded
+    /// and does not advance on subsequent Done events from fan-out stages.
+    /// All 9 stages must have succeeded before the UPDATE fires.
+    #[test]
+    fn total_pipeline_stages_gates_completion_and_finished_at_update() {
+        assert_eq!(
+            TOTAL_PIPELINE_STAGES, 9,
+            "gate must cover all 9 pipeline stages; bump if a new stage is added"
+        );
+    }
 }

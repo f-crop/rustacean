@@ -12,7 +12,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use control_api::{AppState, Config, build};
+use control_api::{AppState, Config, build_public};
 use rb_sse::{EventBus, SseConfig};
 
 fn test_state() -> AppState {
@@ -55,7 +55,7 @@ fn test_state() -> AppState {
 }
 
 fn app() -> axum::Router {
-    build(test_state())
+    build_public(test_state())
 }
 
 async fn collect_body(body: Body) -> Vec<u8> {
@@ -390,7 +390,7 @@ async fn integration_login_full_flow() {
     let Some((state, pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
     let email = format!("integ-login-{}@test.example", Uuid::new_v4().simple());
     let password = "correct-horse-battery-staple";
 
@@ -468,7 +468,7 @@ async fn integration_login_rate_limit() {
     let Some((state, _pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
     let email = format!("integ-ratelimit-{}@test.example", Uuid::new_v4().simple());
     let password = "correct-horse-battery-staple";
 
@@ -546,7 +546,7 @@ async fn integration_signup_cookie_has_secure_flag() {
     let Some((state, _pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
     let email = format!(
         "integ-signup-secure-{}@test.example",
         Uuid::new_v4().simple()

@@ -9,10 +9,29 @@
 use anyhow::{Context as _, Result};
 use serde_json::json;
 
+/// Hard character limits for each composite field.
+///
+/// `nomic-embed-text` context: 8192 `WordPiece` tokens.  Code tokenises at
+/// roughly 2–4 chars per token; complex generic signatures can tokenise as
+/// low as 1 char per token.  Conservative per-field caps keep the total
+/// well inside the model limit even in the worst case.
+///
+/// Budget (chars):
+///   fqn              ≤   300  (generous for deep module paths)
+///   `type_signature` ≤ 2 000  (complex generics in macro-generated items)
+///   `trait_bounds`   ≤ 1 000  (joined; individual bounds are shorter)
+///   source           ≤ 4 000  (most of the semantic content lives here)
+///   labels/newlines  ≤    50
+///   total            ≤ 7 350  → worst-case 7 350 tokens < 8 192 limit
+const MAX_SIGNATURE_CHARS: usize = 2_000;
+const MAX_BOUNDS_CHARS: usize = 1_000;
+const MAX_SOURCE_CHARS: usize = 4_000;
+
 /// Build the §3.5.7 composite embedding prompt for one item.
 ///
-/// Fields that are empty or absent are omitted to avoid polluting the
-/// embedding with uninformative whitespace lines.
+/// Fields that are empty or absent are omitted. Each field is capped at its
+/// constant limit (see above) so the composite fits within the embedding
+/// model context window on any tokeniser.
 pub(crate) fn build_composite(
     fqn: &str,
     type_signature: &str,
@@ -24,17 +43,36 @@ pub(crate) fn build_composite(
     parts.push(format!("fqn: {fqn}"));
 
     if !type_signature.is_empty() {
-        parts.push(format!("signature: {type_signature}"));
+        if type_signature.len() > MAX_SIGNATURE_CHARS {
+            parts.push(format!(
+                "signature: {}[...]",
+                &type_signature[..MAX_SIGNATURE_CHARS]
+            ));
+        } else {
+            parts.push(format!("signature: {type_signature}"));
+        }
     }
 
     if !trait_bounds.is_empty() {
-        parts.push(format!("bounds: {}", trait_bounds.join(", ")));
+        let joined = trait_bounds.join(", ");
+        if joined.len() > MAX_BOUNDS_CHARS {
+            parts.push(format!("bounds: {}[...]", &joined[..MAX_BOUNDS_CHARS]));
+        } else {
+            parts.push(format!("bounds: {joined}"));
+        }
     }
 
     if let Some(src) = source_text {
         let trimmed = src.trim();
         if !trimmed.is_empty() {
-            parts.push(format!("source:\n{trimmed}"));
+            if trimmed.len() > MAX_SOURCE_CHARS {
+                parts.push(format!(
+                    "source:\n{}\n[... truncated]",
+                    &trimmed[..MAX_SOURCE_CHARS]
+                ));
+            } else {
+                parts.push(format!("source:\n{trimmed}"));
+            }
         }
     }
 
@@ -137,5 +175,38 @@ mod tests {
     fn composite_skips_whitespace_only_source() {
         let composite = build_composite("x::y", "", &[], Some("   \n  "));
         assert!(!composite.contains("source"));
+    }
+
+    #[test]
+    fn composite_truncates_long_source() {
+        let long_src = "x".repeat(MAX_SOURCE_CHARS + 100);
+        let composite = build_composite("x::y", "", &[], Some(&long_src));
+        assert!(
+            composite.contains("[... truncated]"),
+            "must append truncation marker"
+        );
+        let source_line = composite.lines().skip(1).collect::<Vec<_>>().join("\n");
+        assert!(
+            source_line.len() <= MAX_SOURCE_CHARS + 50,
+            "source section must not exceed MAX_SOURCE_CHARS by more than the marker"
+        );
+    }
+
+    #[test]
+    fn composite_does_not_truncate_source_within_limit() {
+        let short_src = "fn foo() {}";
+        let composite = build_composite("x::y", "", &[], Some(short_src));
+        assert!(!composite.contains("[... truncated]"));
+        assert!(composite.contains("fn foo() {}"));
+    }
+
+    #[test]
+    fn composite_truncates_exactly_at_boundary() {
+        let exact_src = "a".repeat(MAX_SOURCE_CHARS);
+        let composite = build_composite("x::y", "", &[], Some(&exact_src));
+        assert!(
+            !composite.contains("[... truncated]"),
+            "exact limit must not truncate"
+        );
     }
 }
