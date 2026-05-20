@@ -352,6 +352,29 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/auth/resend-verification": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Resend a verification email.
+         * @description Invalidates any existing unused verify tokens for the address and issues a
+         *     fresh one with a 1-hour expiry. Always returns 204 to avoid email
+         *     enumeration — callers cannot distinguish a known-unverified address from
+         *     an unknown or already-verified one. Rate-gated via the login rate limiter.
+         */
+        readonly post: operations["resend_verification"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/auth/reset-password": {
         readonly parameters: {
             readonly query?: never;
@@ -997,29 +1020,6 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
-    readonly "/v1/auth/resend-verification": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly get?: never;
-        readonly put?: never;
-        /**
-         * Resend a verification email.
-         * @description Invalidates any existing unused verify tokens for the address and issues a
-         *     fresh one with a 1-hour expiry. Always returns 204 to avoid email
-         *     enumeration — callers cannot distinguish a known-unverified address from
-         *     an unknown or already-verified one. Rate-gated via the login rate limiter.
-         */
-        readonly post: operations["resend_verification"];
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1455,6 +1455,10 @@ export interface components {
             readonly name: string;
             readonly private: boolean;
         };
+        readonly ResendVerificationRequest: {
+            /** @description Email address of the account awaiting verification. */
+            readonly email: string;
+        };
         readonly ResetPasswordRequest: {
             /** @description New password; minimum 12 characters. */
             readonly new_password: string;
@@ -1708,10 +1712,6 @@ export interface components {
         readonly VerifyEmailRequest: {
             /** @description Plaintext verification token from the emailed link. */
             readonly token: string;
-        };
-        readonly ResendVerificationRequest: {
-            /** @description Email address of the account awaiting verification. */
-            readonly email: string;
         };
     };
     responses: never;
@@ -2482,6 +2482,35 @@ export interface operations {
             };
             /** @description No active session (unauthorized) */
             readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly resend_verification: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ResendVerificationRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Verification email sent (or silently skipped) */
+            readonly 204: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Rate-limited (rate_limited) */
+            readonly 429: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
@@ -3935,35 +3964,6 @@ export interface operations {
             };
             /** @description Target user is not a member */
             readonly 404: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    readonly resend_verification: {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        readonly requestBody: {
-            readonly content: {
-                readonly "application/json": components["schemas"]["ResendVerificationRequest"];
-            };
-        };
-        readonly responses: {
-            /** @description Verification email sent (or silently skipped) */
-            readonly 204: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Rate-limited (rate_limited) */
-            readonly 429: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
