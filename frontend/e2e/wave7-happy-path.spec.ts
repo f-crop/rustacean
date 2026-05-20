@@ -164,7 +164,7 @@ test.describe("Wave 7 happy path", () => {
     ).toBeVisible();
 
     await expect(
-      page.getByRole("cell", { name: /parse \d\/9/ }),
+      page.getByRole("cell", { name: /parse \(\d\/9\)/ }),
     ).toBeVisible();
   });
 
