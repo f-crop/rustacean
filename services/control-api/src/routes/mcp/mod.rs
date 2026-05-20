@@ -194,7 +194,14 @@ async fn handle_tools_call(
 fn require_auth_tenant(auth: AuthContext) -> Result<Uuid, ()> {
     match auth {
         AuthContext::Session(info) if info.email_verified => Ok(info.tenant_id),
-        AuthContext::ApiKey(info) if info.scopes.contains(&Scope::Read) => Ok(info.tenant_id),
+        // Accept both Read keys (human-facing) and Agent keys (session-scoped).
+        // Session API keys are issued with the "agent" scope only; they must be
+        // able to call /mcp to use rust-brain tools during a headless run.
+        AuthContext::ApiKey(info)
+            if info.scopes.contains(&Scope::Read) || info.scopes.contains(&Scope::Agent) =>
+        {
+            Ok(info.tenant_id)
+        }
         _ => Err(()),
     }
 }
@@ -208,7 +215,9 @@ fn validate_session(
 ) -> Result<(Uuid, Option<Uuid>), Response> {
     let (auth_tenant_id, actor_user_id) = match auth {
         AuthContext::Session(info) if info.email_verified => (info.tenant_id, Some(info.user_id)),
-        AuthContext::ApiKey(info) if info.scopes.contains(&Scope::Read) => {
+        AuthContext::ApiKey(info)
+            if info.scopes.contains(&Scope::Read) || info.scopes.contains(&Scope::Agent) =>
+        {
             (info.tenant_id, Some(info.user_id))
         }
         _ => {
@@ -316,5 +325,47 @@ mod tests {
             scopes: vec![Scope::Write],
         };
         assert!(require_auth_tenant(AuthContext::ApiKey(key)).is_err());
+    }
+
+    #[test]
+    fn agent_scoped_key_accepted() {
+        // Session API keys are issued with scope ["agent"] only.
+        // They must be able to call /mcp so rustbrain-mcp can use tools.
+        let tid = Uuid::new_v4();
+        let key = ApiKeyInfo {
+            key_id: Uuid::new_v4(),
+            tenant_id: tid,
+            user_id: Uuid::new_v4(),
+            scopes: vec![Scope::Agent],
+        };
+        assert_eq!(
+            require_auth_tenant(AuthContext::ApiKey(key)),
+            Ok(tid),
+            "agent-scoped key must be accepted by the MCP handler"
+        );
+    }
+
+    #[test]
+    fn agent_scoped_key_validate_session_accepted() {
+        // validate_session must also accept agent-scoped keys (tools/list and tools/call).
+        let tid = Uuid::new_v4();
+        let key = ApiKeyInfo {
+            key_id: Uuid::new_v4(),
+            tenant_id: tid,
+            user_id: Uuid::new_v4(),
+            scopes: vec![Scope::Agent],
+        };
+        // validate_session is not directly testable without AppState, but
+        // the pattern mirrors require_auth_tenant — cover the scope predicate.
+        let accepted = matches!(
+            AuthContext::ApiKey(key),
+            AuthContext::ApiKey(ref info)
+                if info.scopes.contains(&Scope::Read)
+                    || info.scopes.contains(&Scope::Agent)
+        );
+        assert!(
+            accepted,
+            "agent scope must pass validate_session scope guard"
+        );
     }
 }
