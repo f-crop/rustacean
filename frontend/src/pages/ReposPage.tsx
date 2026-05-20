@@ -25,8 +25,15 @@ import { PageContainer } from "@/components/repos/PageContainer";
 // ReposPage — entry point
 // ---------------------------------------------------------------------------
 
+function isEmailNotVerifiedError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const body = (error as { body?: { error?: string } }).body;
+  return body?.error === "email_not_verified";
+}
+
 export function ReposPage(): JSX.Element {
   const me = useMe({ retry: false });
+  const search = useSearch({ from: routes.repos });
 
   if (me.isLoading) {
     return (
@@ -37,6 +44,25 @@ export function ReposPage(): JSX.Element {
   }
 
   if (me.isError || !me.data) {
+    if (isEmailNotVerifiedError(me.error)) {
+      return (
+        <PageContainer>
+          <h1 className="text-2xl font-semibold tracking-tight">Repositories</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {search.install === "success"
+              ? "GitHub App installed — please verify your email to continue."
+              : "Your email isn't verified yet. Please verify it to manage repositories."}
+          </p>
+          <Link
+            to={routes.verifyEmail}
+            className="mt-4 inline-block text-sm text-primary hover:underline"
+          >
+            Verify email →
+          </Link>
+        </PageContainer>
+      );
+    }
+
     return (
       <PageContainer>
         <h1 className="text-2xl font-semibold tracking-tight">Repositories</h1>
@@ -342,7 +368,11 @@ function InstallStep(): JSX.Element {
       const result = await installUrl.mutateAsync();
       window.location.assign(result.url);
     } catch (err) {
-      toast.error(formatApiError(err, "Could not generate install link."));
+      toast.error(
+        isEmailNotVerifiedError(err)
+          ? "Please verify your email before installing the GitHub App."
+          : formatApiError(err, "Could not generate install link."),
+      );
     }
   };
 
