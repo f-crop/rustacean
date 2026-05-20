@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { apiClient, toApiError, type ApiError } from "../client";
 import type { components } from "../generated/schema";
@@ -35,6 +36,13 @@ export function useRecentIngestions(
 
 export function useInvalidateRecentIngestions() {
   const qc = useQueryClient();
-  return (tenantId: string) =>
-    qc.invalidateQueries({ queryKey: recentIngestionsQueryKey(tenantId) });
+  return useCallback(
+    (tenantId: string) => {
+      // Cancel any in-flight polling requests first so a stale "running" response
+      // cannot arrive after the fresh refetch and overwrite "succeeded" in cache.
+      void qc.cancelQueries({ queryKey: recentIngestionsQueryKey(tenantId) });
+      return qc.invalidateQueries({ queryKey: recentIngestionsQueryKey(tenantId) });
+    },
+    [qc],
+  );
 }

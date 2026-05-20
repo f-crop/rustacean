@@ -188,20 +188,23 @@ function IngestionTheatreInner(): JSX.Element {
         params: { query: { limit: 5 } },
       });
       if (error || !data || cancelled) return;
-      const activeRun = data.runs.find(
-        (r) => r.status === "running" || r.status === "queued",
-      );
-      if (!activeRun) return;
+      // Prefer an active run so live stages are shown; fall back to the most
+      // recent terminal run so a completed pipeline doesn't revert to all-Pending
+      // on navigation return or hard refresh.
+      const targetRun =
+        data.runs.find((r) => r.status === "running" || r.status === "queued") ??
+        data.runs.find((r) => r.status === "succeeded" || r.status === "failed");
+      if (!targetRun) return;
       const { data: timeline } = await apiClient.GET(
         "/v1/ingestions/{ingestion_run_id}/stages",
-        { params: { path: { ingestion_run_id: activeRun.id } } },
+        { params: { path: { ingestion_run_id: targetRun.id } } },
       );
       if (!timeline || cancelled) return;
       const map = new Map<string, StageStatus>(
         timeline.stages.map((s) => [s.stage, mapRestStageStatus(s.status)]),
       );
       setSeedStages(map);
-      setSeededRunId(activeRun.id);
+      setSeededRunId(targetRun.id);
     }
     void hydrate();
     return () => { cancelled = true; };
