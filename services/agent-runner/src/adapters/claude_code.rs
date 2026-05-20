@@ -59,9 +59,12 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             }
         }
 
+        let mcp_config_path = ctx.workspace_path.join(".mcp.json");
         let mut cmd = build_base_command("claude", &ctx.workspace_path);
         cmd.args(["-p", "--output-format", "stream-json", "--verbose"])
             .arg("--dangerously-skip-permissions")
+            .arg("--mcp-config")
+            .arg(&mcp_config_path)
             .env("CLAUDE_CONFIG_DIR", &session_config)
             .env("RB_AGENT_API_KEY", &ctx.api_key)
             .env("RB_AGENT_TENANT_ID", &ctx.tenant_id);
@@ -168,6 +171,36 @@ mod tests {
         assert!(
             err.to_string().contains("claude_not_logged_in"),
             "expected claude_not_logged_in, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn mcp_config_written_to_workspace_before_spawn() {
+        let _guard = ENV_LOCK.lock().await;
+        let tmp = TempDir::new().unwrap();
+        // SAFETY: ENV_LOCK serializes all env mutations across these tests.
+        unsafe {
+            std::env::set_var("ANTHROPIC_API_KEY", "test-key");
+            std::env::set_var("RUST_BRAIN_API_BASE", "http://control-api:8081");
+            std::env::remove_var("MCP_SERVER_CMD");
+        }
+
+        let adapter = ClaudeCodeAdapter::new();
+        // .mcp.json must be written to workspace_path before claude is invoked;
+        // spawn passes --mcp-config pointing to this file.  Verify the file exists
+        // regardless of whether the claude binary is present in the test environment.
+        let _ = adapter.spawn(&make_ctx(tmp.path())).await;
+
+        let mcp_path = tmp.path().join(".mcp.json");
+        assert!(
+            mcp_path.exists(),
+            ".mcp.json must be written to workspace before spawn so --mcp-config resolves"
+        );
+        let raw = std::fs::read_to_string(&mcp_path).unwrap();
+        let cfg: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            cfg["mcpServers"]["rust-brain"]["command"], "rustbrain-mcp",
+            "MCP command must be the pre-installed binary"
         );
     }
 
