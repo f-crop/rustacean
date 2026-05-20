@@ -90,6 +90,8 @@ function mapRestStageStatus(status: string): StageStatus {
   }
 }
 
+const TERMINAL_STAGE_STATUSES = new Set<StageStatus>(["done", "error"]);
+
 function deriveStageStates(
   events: ReadonlyArray<{ data: string }>,
   seed?: ReadonlyMap<string, StageStatus>,
@@ -103,7 +105,12 @@ function deriveStageStates(
     if (!e || !e.stage || !PIPELINE_STAGE_SET.has(e.stage)) continue;
     const stageStatus = mapIngestStatus(e.status);
     if (stageStatus !== null) {
-      byStage.set(e.stage, stageStatus);
+      // Fan-out stages (extract, embed, project_*) emit one processing+done
+      // pair per item. Once a stage is terminal, ignore any further processing
+      // events so the UI doesn't flip done→running between items.
+      if (!TERMINAL_STAGE_STATUSES.has(byStage.get(e.stage)!)) {
+        byStage.set(e.stage, stageStatus);
+      }
     }
   }
 
