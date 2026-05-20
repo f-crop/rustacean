@@ -88,7 +88,7 @@ function ActivityPageInner({ tenantId }: ActivityPageInnerProps): JSX.Element {
     if (!latestIngest) return;
     try {
       const parsed = JSON.parse(latestIngest.data) as { status?: string };
-      if (parsed.status === "succeeded" || parsed.status === "done") {
+      if (parsed.status === "succeeded" || parsed.status === "done" || parsed.status === "failed") {
         void invalidateIngestions(tenantId);
       }
     } catch {

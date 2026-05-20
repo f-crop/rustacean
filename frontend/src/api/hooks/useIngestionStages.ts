@@ -26,7 +26,7 @@ export function currentStageLabel(stages: readonly StageRunItem[]): string | nul
   const running = stages.find((s) => s.status === "running");
   if (!running) return null;
   const seq = (PIPELINE_STAGES as readonly string[]).indexOf(running.stage);
-  return `${running.stage} ${seq === -1 ? "?" : seq + 1}/${TOTAL_STAGES}`;
+  return `${running.stage} (${seq === -1 ? "?" : seq + 1}/${TOTAL_STAGES})`;
 }
 
 export function useIngestionStagesForRunningRuns(
