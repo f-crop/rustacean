@@ -138,6 +138,24 @@ while true; do
   LAST_KNOWN_SHA="$NEW_SHA"
   echo "$LAST_KNOWN_SHA" > "$SHA_STATE_FILE"
 
+  # When on a feature branch the fast-forward above is skipped, leaving the
+  # working tree at the branch HEAD. Docker build context comes from the working
+  # tree, so stale files cause Docker to hit cached layers for code that changed
+  # on main. Fix this by temporarily checking out changed files from origin/main
+  # before building, then restoring them afterwards so the branch stays clean.
+  _WK_CHECKED_OUT=()
+  if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
+    mapfile -t _WK_DELTA < <(git diff --name-only "$PREV_SHA" "$NEW_SHA" 2>/dev/null || true)
+    if [[ ${#_WK_DELTA[@]} -gt 0 ]]; then
+      echo "[dev-stack-watch] on branch $CURRENT_BRANCH — syncing ${#_WK_DELTA[@]} changed file(s) from $REMOTE/$BRANCH into working tree"
+      for _f in "${_WK_DELTA[@]}"; do
+        if git checkout "$REMOTE/$BRANCH" -- "$_f" 2>/dev/null; then
+          _WK_CHECKED_OUT+=("$_f")
+        fi
+      done
+    fi
+  fi
+
   # If the stack is fully stopped, force a cold start so infra services come up too.
   if stack_is_cold; then
     echo "[dev-stack-watch] stack is not running — triggering cold start: $PREV_SHA → $NEW_SHA"
@@ -146,5 +164,14 @@ while true; do
     echo "[dev-stack-watch] triggering rebuild: $PREV_SHA → $NEW_SHA"
     # Never let a rebuild failure crash the watch loop.
     run_rebuild "$PREV_SHA" "$NEW_SHA" || true
+  fi
+
+  # Restore any files temporarily checked out from main so the working tree
+  # stays consistent with the current feature branch.
+  if [[ ${#_WK_CHECKED_OUT[@]} -gt 0 ]]; then
+    echo "[dev-stack-watch] restoring ${#_WK_CHECKED_OUT[@]} file(s) to $CURRENT_BRANCH"
+    for _f in "${_WK_CHECKED_OUT[@]}"; do
+      git checkout HEAD -- "$_f" 2>/dev/null || git rm --cached "$_f" 2>/dev/null || true
+    done
   fi
 done
