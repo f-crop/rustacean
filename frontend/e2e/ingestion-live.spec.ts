@@ -124,41 +124,30 @@ test.describe("Live-stack ingestion UAT", () => {
   });
 
   /**
-   * Test 3: Ingestion page renders against real stack without route mocks
+   * Test 3: /ingestion redirects to /activity against real stack
    *
-   * Navigates to the ingestion page WITHOUT mocking any routes. The frontend
-   * calls /v1/me and /v1/ingest/events against the real control-api. If the
-   * user session is valid and the SSE broker is live, the page renders without
-   * the "Not authenticated" fallback.
+   * Navigates to /ingestion WITHOUT mocking any routes. The frontend
+   * calls /v1/me against the real control-api and redirects to /activity.
+   * If the session is valid, the Activity heading is visible.
    *
    * Mocked contrast:
    *   - Mocked: page.route("**\/v1\/me") returns a fake user → renders fine
    *   - Live:   no route mock → must have a real session → proves real stack
    */
-  test("ingestion page renders against real stack without any route mocks", async ({ page }) => {
+  test("ingestion route redirects to activity against real stack without any route mocks", async ({ page }) => {
     await page.goto(`${LIVE_FRONTEND_URL}/`);
     await loginViaPage(page);
 
-    // Navigate to ingestion — NO route mocks registered on this page
+    // Navigate to /ingestion — NO route mocks registered
     await page.goto(`${LIVE_FRONTEND_URL}/ingestion`);
 
-    // Must not show the unauthenticated fallback
-    await expect(page.locator("text=Sign in to view ingestion progress")).not.toBeVisible({
-      timeout: 8_000,
-    });
+    // Must redirect to /activity
+    await expect(page).toHaveURL(/\/activity/, { timeout: 8_000 });
 
-    // Ingestion Theatre heading must be present (real /v1/me succeeded)
+    // Activity heading must be present (real /v1/me succeeded)
     await expect(
-      page.getByRole("heading", { name: "Ingestion Theatre" }),
+      page.getByRole("heading", { name: "Activity", exact: true }),
     ).toBeVisible({ timeout: 8_000 });
-
-    // Either active state or empty state is shown — both require a real SSE connection
-    const hasActiveState = await page.getByTestId("ingestion-active-state").isVisible();
-    const hasEmptyState = await page.getByTestId("ingestion-empty-state").isVisible();
-    expect(
-      hasActiveState || hasEmptyState,
-      "expected either active or empty ingestion state — real SSE stream must be connected",
-    ).toBe(true);
   });
 
   /**

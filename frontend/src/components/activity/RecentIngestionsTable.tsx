@@ -21,6 +21,8 @@ interface RecentIngestionsTableProps {
   readonly isLoading: boolean;
   readonly isError: boolean;
   readonly error: { status: number; body: unknown } | null;
+  /** Map from run ID → "stage N/9" label for currently-running rows. */
+  readonly currentStages?: Record<string, string>;
 }
 
 export function RecentIngestionsTable({
@@ -28,6 +30,7 @@ export function RecentIngestionsTable({
   isLoading,
   isError,
   error,
+  currentStages = {},
 }: RecentIngestionsTableProps): JSX.Element {
   if (isLoading) {
     return (
@@ -84,6 +87,9 @@ export function RecentIngestionsTable({
               Status
             </th>
             <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+              Current stage
+            </th>
+            <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
               Started
             </th>
             <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
@@ -95,27 +101,34 @@ export function RecentIngestionsTable({
           </tr>
         </thead>
         <tbody>
-          {runs.map((run) => (
-            <tr key={run.id} className="border-b border-border last:border-0 hover:bg-muted/20">
-              <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                {run.id.slice(0, 8)}…
-              </td>
-              <td className="px-4 py-2">
-                <RunStatusCell status={run.status} />
-              </td>
-              <td className="px-4 py-2 text-xs text-muted-foreground">
-                {run.started_at ? formatTimestamp(run.started_at) : "—"}
-              </td>
-              <td className="px-4 py-2 text-xs text-muted-foreground">
-                {TERMINAL_STATUSES.has(run.status) && run.finished_at
-                  ? formatTimestamp(run.finished_at)
-                  : "—"}
-              </td>
-              <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                {run.trace_id ? `${run.trace_id.slice(0, 8)}…` : "—"}
-              </td>
-            </tr>
-          ))}
+          {runs.map((run) => {
+            const isTerminal = TERMINAL_STATUSES.has(run.status);
+            const stageLabel = !isTerminal ? (currentStages[run.id] ?? null) : null;
+            return (
+              <tr key={run.id} className="border-b border-border last:border-0 hover:bg-muted/20">
+                <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                  {run.id.slice(0, 8)}…
+                </td>
+                <td className="px-4 py-2">
+                  <RunStatusCell status={run.status} />
+                </td>
+                <td className="px-4 py-2 text-xs text-muted-foreground">
+                  {stageLabel ?? "—"}
+                </td>
+                <td className="px-4 py-2 text-xs text-muted-foreground">
+                  {run.started_at ? formatTimestamp(run.started_at) : "—"}
+                </td>
+                <td className="px-4 py-2 text-xs text-muted-foreground">
+                  {isTerminal && run.finished_at
+                    ? formatTimestamp(run.finished_at)
+                    : "—"}
+                </td>
+                <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                  {run.trace_id ? `${run.trace_id.slice(0, 8)}…` : "—"}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
