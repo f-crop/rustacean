@@ -72,7 +72,10 @@ pub async fn write_mcp_config(
     api_key: &str,
     tenant_id: &str,
 ) -> Result<()> {
+    // Prefer an explicit override; fall back to the control-api base URL that
+    // compose already sets as RB_CONTROL_API_BASE_URL; last resort: localhost.
     let api_base = std::env::var("RUST_BRAIN_API_BASE")
+        .or_else(|_| std::env::var("RB_CONTROL_API_BASE_URL"))
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     // C4: Validate URL scheme to prevent SSRF attacks
@@ -80,11 +83,16 @@ pub async fn write_mcp_config(
         anyhow::bail!("RUST_BRAIN_API_BASE must use http:// or https:// scheme, got: {api_base}");
     }
 
+    // Use the binary pre-installed in the Docker image (rustbrain-mcp) so spawned
+    // sessions don't need npm-registry access. MCP_SERVER_CMD lets local dev
+    // or tests override the path without rebuilding the image.
+    let mcp_cmd = std::env::var("MCP_SERVER_CMD").unwrap_or_else(|_| "rustbrain-mcp".to_string());
+
     let mcp_config = serde_json::json!({
         "mcpServers": {
             "rust-brain": {
-                "command": "npx",
-                "args": ["-y", "@rustbrain/mcp-server"],
+                "command": mcp_cmd,
+                "args": [],
                 "env": {
                     "RB_AGENT_API_KEY": api_key,
                     "RB_AGENT_TENANT_ID": tenant_id,
@@ -110,4 +118,118 @@ pub async fn write_mcp_config(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use tokio::sync::Mutex;
+
+    // Serialize tests that mutate process environment variables.
+    static ENV_LOCK: Mutex<()> = Mutex::const_new(());
+
+    #[tokio::test]
+    async fn write_mcp_config_falls_back_to_rb_control_api_base_url() {
+        let _guard = ENV_LOCK.lock().await;
+        let tmp = TempDir::new().unwrap();
+        // SAFETY: ENV_LOCK serializes all env mutations in this module's tests.
+        unsafe {
+            std::env::remove_var("RUST_BRAIN_API_BASE");
+            std::env::set_var("RB_CONTROL_API_BASE_URL", "http://control-api:8081");
+            std::env::remove_var("MCP_SERVER_CMD");
+        }
+
+        write_mcp_config(tmp.path(), "rb_live_test", "tenant-abc")
+            .await
+            .unwrap();
+
+        let raw = tokio::fs::read_to_string(tmp.path().join(".mcp.json"))
+            .await
+            .unwrap();
+        let cfg: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let server = &cfg["mcpServers"]["rust-brain"];
+        assert_eq!(
+            server["command"], "rustbrain-mcp",
+            "should use pre-installed binary"
+        );
+        assert_eq!(
+            server["args"],
+            serde_json::json!([]),
+            "args must be empty array"
+        );
+        assert_eq!(
+            server["env"]["RB_AGENT_API_BASE"], "http://control-api:8081",
+            "should pick up RB_CONTROL_API_BASE_URL"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_mcp_config_rust_brain_api_base_takes_priority() {
+        let _guard = ENV_LOCK.lock().await;
+        let tmp = TempDir::new().unwrap();
+        // SAFETY: ENV_LOCK serializes all env mutations in this module's tests.
+        unsafe {
+            std::env::set_var("RUST_BRAIN_API_BASE", "https://explicit.host/api");
+            std::env::set_var("RB_CONTROL_API_BASE_URL", "http://control-api:8081");
+            std::env::remove_var("MCP_SERVER_CMD");
+        }
+
+        write_mcp_config(tmp.path(), "rb_live_test", "tenant-abc")
+            .await
+            .unwrap();
+
+        let raw = tokio::fs::read_to_string(tmp.path().join(".mcp.json"))
+            .await
+            .unwrap();
+        let cfg: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            cfg["mcpServers"]["rust-brain"]["env"]["RB_AGENT_API_BASE"],
+            "https://explicit.host/api",
+            "RUST_BRAIN_API_BASE must take priority over RB_CONTROL_API_BASE_URL"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_mcp_config_mcp_server_cmd_override() {
+        let _guard = ENV_LOCK.lock().await;
+        let tmp = TempDir::new().unwrap();
+        // SAFETY: ENV_LOCK serializes all env mutations in this module's tests.
+        unsafe {
+            std::env::set_var("RUST_BRAIN_API_BASE", "http://localhost:8080");
+            std::env::set_var("MCP_SERVER_CMD", "/custom/rustbrain-mcp");
+        }
+
+        write_mcp_config(tmp.path(), "rb_live_test", "tenant-abc")
+            .await
+            .unwrap();
+
+        let raw = tokio::fs::read_to_string(tmp.path().join(".mcp.json"))
+            .await
+            .unwrap();
+        let cfg: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            cfg["mcpServers"]["rust-brain"]["command"], "/custom/rustbrain-mcp",
+            "MCP_SERVER_CMD must override the default binary name"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_mcp_config_rejects_non_http_scheme() {
+        let _guard = ENV_LOCK.lock().await;
+        let tmp = TempDir::new().unwrap();
+        // SAFETY: ENV_LOCK serializes all env mutations in this module's tests.
+        unsafe {
+            std::env::set_var("RUST_BRAIN_API_BASE", "file:///etc/passwd");
+            std::env::remove_var("RB_CONTROL_API_BASE_URL");
+        }
+
+        let err = write_mcp_config(tmp.path(), "key", "tenant")
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("must use http://"),
+            "expected SSRF validation error, got: {err}"
+        );
+    }
 }

@@ -35,11 +35,21 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo build --release -p agent-runner && \
     cp target/release/rb-agent-runner /usr/local/bin/
 
-# ── Stage 4: runtime image ────────────────────────────────────────────────────
-# Base on node:20-bookworm-slim so we have node/npm/npx for:
+# ── Stage 4: mcp-server-node builder ─────────────────────────────────────────
+# Compile the TypeScript MCP bridge so the runtime image can install it
+# globally as `rustbrain-mcp` — no npm-registry access needed at session time.
+FROM node:20-bookworm-slim AS mcp-builder
+WORKDIR /mcp
+COPY packages/mcp-server-node/package.json packages/mcp-server-node/package-lock.json ./
+RUN npm ci
+COPY packages/mcp-server-node/src ./src
+COPY packages/mcp-server-node/tsconfig.json ./
+RUN npm run build
+
+# ── Stage 5: runtime image ────────────────────────────────────────────────────
+# Base on node:20-bookworm-slim so we have node/npm for:
 #   • @anthropic-ai/claude-code (CLI binary the ClaudeCode adapter spawns)
-#   • npx -y @rustbrain/mcp-server (MCP server invoked lazily from workspace
-#     .mcp.json — see services/agent-runner/src/adapters/mod.rs)
+#   • rustbrain-mcp (MCP bridge pre-installed from mcp-builder stage)
 FROM node:20-bookworm-slim AS runtime
 
 # Install git, ssh, and the C runtime deps the Rust binary links against.
@@ -76,6 +86,15 @@ RUN npm install --omit=dev --no-fund --no-audit -g \
         opencode-ai@${OPENCODE_VERSION} && \
     npm cache clean --force && \
     opencode --version
+
+# Pre-install the rust-brain MCP bridge from the compiled mcp-builder stage.
+# This makes `rustbrain-mcp` available on PATH inside every spawned session
+# without requiring npm-registry access or npx download at session start time.
+COPY --from=mcp-builder /mcp/package.json /opt/rustbrain/mcp-server/package.json
+COPY --from=mcp-builder /mcp/dist /opt/rustbrain/mcp-server/dist
+RUN npm install -g /opt/rustbrain/mcp-server --omit=dev --no-fund --no-audit && \
+    npm cache clean --force && \
+    which rustbrain-mcp
 
 # Pre-create the agent workspace mount point with nonroot ownership.
 # Docker named volumes inherit ownership/permissions from the image's directory
