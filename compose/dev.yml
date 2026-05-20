@@ -544,6 +544,7 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       RB_AGENT_WORKSPACE_BASE: /data/agent-workspaces
+      RUST_BRAIN_API_BASE: "http://control-api:8080"
       RB_CONTROL_API_BASE_URL: "http://control-api:8081"
       RB_INTERNAL_SECRET: "${RB_INTERNAL_SECRET:-dev-internal-secret-change-me}"
       # Runtime credentials forwarded to the spawned agent CLI. These are
