@@ -9,6 +9,8 @@ const STATUS_CELL_CLASS: Record<string, string> = {
   queued: "text-muted-foreground",
 };
 
+const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
+
 function RunStatusCell({ status }: { status: string }): JSX.Element {
   const cls = STATUS_CELL_CLASS[status] ?? "text-muted-foreground";
   return <span className={`text-xs font-medium capitalize ${cls}`}>{status}</span>;
@@ -105,7 +107,9 @@ export function RecentIngestionsTable({
                 {run.started_at ? formatTimestamp(run.started_at) : "—"}
               </td>
               <td className="px-4 py-2 text-xs text-muted-foreground">
-                {run.finished_at ? formatTimestamp(run.finished_at) : "—"}
+                {TERMINAL_STATUSES.has(run.status) && run.finished_at
+                  ? formatTimestamp(run.finished_at)
+                  : "—"}
               </td>
               <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
                 {run.trace_id ? `${run.trace_id.slice(0, 8)}…` : "—"}
