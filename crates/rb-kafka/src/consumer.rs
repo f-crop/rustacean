@@ -268,7 +268,24 @@ impl<E: ProstMessage + Default> Consumer<E> {
                         }
                         Ok(env)
                     }
-                    Err(e) => Err(e),
+                    Err(e) => {
+                        // Without a valid envelope we cannot nack_to_dlq, but we must
+                        // commit the raw offset so the consumer does not replay this
+                        // malformed message indefinitely.  Best-effort — losing the
+                        // commit here (e.g. broker hiccup) is preferable to stalling.
+                        let mut tpl = TopicPartitionList::new();
+                        if tpl
+                            .add_partition_offset(
+                                &topic,
+                                partition,
+                                rdkafka::Offset::Offset(offset + 1),
+                            )
+                            .is_ok()
+                        {
+                            let _ = self.inner.commit(&tpl, CommitMode::Async);
+                        }
+                        Err(e)
+                    }
                 };
 
                 match &result {
@@ -327,9 +344,11 @@ impl<E: ProstMessage + Default> Consumer<E> {
     /// currently assigned partitions.
     ///
     /// Uses `fetch_watermarks` (high watermark) minus the consumer's current
-    /// fetch position per partition.  Returns 0 when no partitions are assigned
-    /// or watermark fetches fail — the caller should treat 0 as "unknown/quiet"
-    /// and avoid spurious restarts.
+    /// fetch position per partition.  Falls back to the committed offset when the
+    /// fetch position is not yet valid (pre-first-fetch sentinel values such as
+    /// `Offset::Stored` (-1000) would otherwise produce falsely large lag numbers
+    /// and trigger spurious watchdog recreations on idle-but-caught-up topics).
+    /// Returns 0 when no partitions are assigned or watermark fetches fail.
     pub async fn assignment_lag_estimate(&self) -> u64 {
         let inner = self.inner.clone();
         tokio::task::spawn_blocking(move || {
@@ -340,14 +359,30 @@ impl<E: ProstMessage + Default> Consumer<E> {
             let Ok(position) = inner.position() else {
                 return 0u64;
             };
+            // Fetch committed offsets once; used as fallback when fetch position
+            // is still a sentinel (i.e. the consumer has not yet fetched from a
+            // partition after a fresh subscription or recreate).
+            let committed = inner
+                .committed(Duration::from_millis(500))
+                .unwrap_or_else(|_| assignment.clone());
             let mut total: u64 = 0;
             for elem in assignment.elements() {
                 let topic = elem.topic();
                 let part = elem.partition();
+                // rdkafka sentinels (Beginning=-2, End=-1, Stored=-1000,
+                // Invalid→None) are filtered so they are never used as a
+                // position baseline.  Committed offset is used instead.
                 let pos = position
                     .find_partition(topic, part)
                     .and_then(|e| e.offset().to_raw())
-                    .unwrap_or(0);
+                    .filter(|&p| p >= 0)
+                    .unwrap_or_else(|| {
+                        committed
+                            .find_partition(topic, part)
+                            .and_then(|e| e.offset().to_raw())
+                            .filter(|&p| p >= 0)
+                            .unwrap_or(0)
+                    });
                 if let Ok((_, high)) =
                     inner.fetch_watermarks(topic, part, Duration::from_millis(500))
                 {
