@@ -45,8 +45,8 @@ export function useIngestionStagesForRunningRuns(
         }
         return data;
       },
-      staleTime: 5_000,
-      refetchInterval: 8_000,
+      staleTime: 1_000,
+      refetchInterval: 1_500,
     })),
   });
 
