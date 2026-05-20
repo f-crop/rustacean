@@ -112,7 +112,7 @@ export function RecentIngestionsTable({
                 <td className="px-4 py-2">
                   <RunStatusCell status={run.status} />
                 </td>
-                <td className="px-4 py-2 text-xs text-muted-foreground">
+                <td className="px-4 py-2 text-xs text-muted-foreground" data-testid="stage-cell">
                   {stageLabel ?? "—"}
                 </td>
                 <td className="px-4 py-2 text-xs text-muted-foreground">

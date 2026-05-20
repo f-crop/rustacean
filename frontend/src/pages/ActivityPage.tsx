@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   BarChart,
   Bar,
@@ -77,7 +77,12 @@ function ActivityPageInner({ tenantId }: ActivityPageInnerProps): JSX.Element {
         .map((r) => r.id),
     [recentIngestions.data],
   );
+  const allRunIds = useMemo(
+    () => (recentIngestions.data?.runs ?? []).map((r) => r.id),
+    [recentIngestions.data],
+  );
   const currentStages = useIngestionStagesForRunningRuns(runningRunIds);
+  const effectiveStages = useStageLabelMemory(currentStages, allRunIds);
 
   const { events, readyState } = useEventStream(`${apiBase}/v1/ingest/events`, ["ingest.status"]);
 
@@ -178,7 +183,7 @@ function ActivityPageInner({ tenantId }: ActivityPageInnerProps): JSX.Element {
           isLoading={recentIngestions.isLoading}
           isError={recentIngestions.isError}
           error={recentIngestions.error}
-          currentStages={currentStages}
+          currentStages={effectiveStages}
         />
       </section>
 
@@ -276,6 +281,29 @@ function SummaryCards({
         </div>
       ))}
     </div>
+  );
+}
+
+// Retains the last-seen stage label per run so the cell never blanks between poll cycles.
+function useStageLabelMemory(
+  currentStages: Record<string, string>,
+  allRunIds: readonly string[],
+): Record<string, string> {
+  const cacheRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    Object.assign(cacheRef.current, currentStages);
+    const knownSet = new Set(allRunIds);
+    for (const id of Object.keys(cacheRef.current)) {
+      if (!knownSet.has(id)) {
+        delete cacheRef.current[id];
+      }
+    }
+  }, [currentStages, allRunIds]);
+
+  return useMemo(
+    () => ({ ...cacheRef.current, ...currentStages }),
+    [currentStages],
   );
 }
 
