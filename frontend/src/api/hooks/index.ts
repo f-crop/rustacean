@@ -3,6 +3,7 @@ export { useSignup } from "./useSignup";
 export { useLogin } from "./useLogin";
 export { useLogout } from "./useLogout";
 export { useVerifyEmail } from "./useVerifyEmail";
+export { useResendVerification } from "./useResendVerification";
 export { useForgotPassword } from "./useForgotPassword";
 export { useResetPassword } from "./useResetPassword";
 export { useSwitchTenant } from "./useSwitchTenant";

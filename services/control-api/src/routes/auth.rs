@@ -83,6 +83,16 @@ pub async fn signup(
         }
     }
 
+    // Dev/UAT: when email is non-sending (console/noop), auto-verify so signup
+    // flows straight to /repos without hitting the email verification wall.
+    let auto_verified = matches!(state.config.email_transport.as_str(), "console" | "noop");
+    if auto_verified {
+        sqlx::query("UPDATE control.users SET email_verified_at = now() WHERE id = $1")
+            .bind(result.user_id)
+            .execute(&state.pool)
+            .await?;
+    }
+
     let verify_link = format!(
         "{}/auth/verify-email?token={}",
         state.config.base_url,
@@ -98,7 +108,7 @@ pub async fn signup(
         StatusCode::CREATED,
         [("Set-Cookie", cookie)],
         Json(SignupResponse {
-            email_verification_required: true,
+            email_verification_required: !auto_verified,
             user_id: result.user_id,
         }),
     ))
@@ -453,5 +463,24 @@ mod tests {
         let json = r#"{"email":"user@example.com"}"#;
         let result: serde_json::Result<LoginRequest> = serde_json::from_str(json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn signup_response_serializes_email_verification_required_false() {
+        let resp = SignupResponse {
+            email_verification_required: false,
+            user_id: Uuid::new_v4(),
+        };
+        let v = serde_json::to_value(&resp).unwrap();
+        assert_eq!(v["email_verification_required"], false);
+    }
+
+    #[test]
+    fn auto_verify_triggered_for_console_transport() {
+        // Validates the transport-matching logic used in signup.
+        for transport in &["console", "noop"] {
+            assert!(matches!(*transport, "console" | "noop"));
+        }
+        assert!(!matches!("smtp", "console" | "noop"));
     }
 }

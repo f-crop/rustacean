@@ -9,7 +9,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { useMe, useVerifyEmail } from "@/api";
+import { useMe, useResendVerification, useVerifyEmail } from "@/api";
 import { AuthLayout } from "@/components/auth/AuthLayout";
 import { Field } from "@/components/ui/Field";
 import { SubmitButton } from "@/components/ui/SubmitButton";
@@ -27,6 +27,7 @@ export function VerifyEmailPage(): JSX.Element {
   const initialToken = search.token ?? "";
   const navigate = useNavigate();
   const verifyEmail = useVerifyEmail();
+  const resendVerification = useResendVerification();
   const autoSubmitRef = useRef(false);
 
   const me = useMe({
@@ -99,6 +100,25 @@ export function VerifyEmailPage(): JSX.Element {
           Verify email
         </SubmitButton>
       </form>
+      <button
+        type="button"
+        className="auth-link-button"
+        disabled={resendVerification.isPending || !me.data?.user.email}
+        onClick={async () => {
+          const email = me.data?.user.email;
+          if (!email) return;
+          try {
+            await resendVerification.mutateAsync({ email });
+            toast.success("Verification email resent — check your inbox.");
+          } catch {
+            toast.error("Couldn't resend the verification email. Try again.");
+          }
+        }}
+      >
+        {resendVerification.isPending
+          ? "Sending…"
+          : "Resend verification email"}
+      </button>
       <p className="auth-status">
         Waiting for verification… we check every 5 seconds.
       </p>

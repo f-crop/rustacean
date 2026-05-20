@@ -760,6 +760,34 @@
         }
       }
     },
+    "/v1/auth/resend-verification": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Resend a verification email.",
+        "description": "Invalidates any existing unused verify tokens for the address and issues a\nfresh one with a 1-hour expiry. Always returns 204 to avoid email\nenumeration — callers cannot distinguish a known-unverified address from\nan unknown or already-verified one. Rate-gated via the login rate limiter.",
+        "operationId": "resend_verification",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Verification email sent (or silently skipped)"
+          },
+          "429": {
+            "description": "Rate-limited (rate_limited)"
+          }
+        }
+      }
+    },
     "/v1/auth/reset-password": {
       "post": {
         "tags": [
@@ -3374,6 +3402,18 @@
           },
           "private": {
             "type": "boolean"
+          }
+        }
+      },
+      "ResendVerificationRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address of the account awaiting verification."
           }
         }
       },
