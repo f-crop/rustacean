@@ -173,10 +173,11 @@ pub(crate) async fn maybe_complete_run(pool: &PgPool, ingest_run_id: &str) -> Re
     .context("failed to count succeeded stages")?;
 
     if succeeded >= TOTAL_PIPELINE_STAGES {
-        // Transition to succeeded (no-op when already succeeded or failed).
+        // COALESCE backfills started_at when Processing events were lost or
+        // arrived after Done events on a fast pipeline.
         sqlx::query(
             "UPDATE control.ingestion_runs \
-             SET status = 'succeeded' \
+             SET status = 'succeeded', started_at = COALESCE(started_at, now()) \
              WHERE id = $1 AND status IN ('queued', 'running')",
         )
         .bind(run_id)
@@ -223,7 +224,10 @@ pub(crate) async fn fail_run(
 
     sqlx::query(
         "UPDATE control.ingestion_runs \
-         SET status = 'failed', finished_at = now(), error = $2 \
+         SET status = 'failed', \
+             started_at = COALESCE(started_at, now()), \
+             finished_at = now(), \
+             error = $2 \
          WHERE id = $1 AND status IN ('queued', 'running')",
     )
     .bind(run_id)
