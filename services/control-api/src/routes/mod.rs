@@ -35,7 +35,7 @@ use crate::routes::{
     auth::{login, signup},
     auth_logout::logout,
     auth_password_reset::{forgot_password, reset_password},
-    auth_verify::verify_email,
+    auth_verify::{resend_verification, verify_email},
     github::health::github_app_health,
     github::install::{github_callback, github_install_url},
     github::repos::list_available_repos,
@@ -72,6 +72,7 @@ pub fn build_public(state: AppState) -> Router {
         .route("/v1/auth/login", post(login))
         .route("/v1/auth/logout", post(logout))
         .route("/v1/auth/verify-email", post(verify_email))
+        .route("/v1/auth/resend-verification", post(resend_verification))
         .route("/v1/auth/forgot-password", post(forgot_password))
         .route("/v1/auth/reset-password", post(reset_password))
         .route("/v1/me", get(get_me))

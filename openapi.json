@@ -20,7 +20,7 @@
           "health"
         ],
         "summary": "Liveness probe with per-store connectivity status.",
-        "description": "Returns 200 in all cases (even when stores are degraded) so load-balancers\ndo not kill the process — callers inspect `status` for fine-grained health.\nPublic / unauthenticated.",
+        "description": "Returns 200 in all cases (even when stores are degraded) so load-balancers\ndo not kill the process \u2014 callers inspect `status` for fine-grained health.\nPublic / unauthenticated.",
         "operationId": "health_check",
         "responses": {
           "200": {
@@ -65,7 +65,7 @@
         "tags": [
           "health"
         ],
-        "summary": "Readiness probe — returns 200 when the service is ready to serve traffic.",
+        "summary": "Readiness probe \u2014 returns 200 when the service is ready to serve traffic.",
         "operationId": "ready_check",
         "responses": {
           "200": {
@@ -494,7 +494,7 @@
           "api-keys"
         ],
         "summary": "List all active (non-revoked) API keys for the current session's tenant.",
-        "description": "Plaintext keys are never returned — only metadata.\nRequires an active session.",
+        "description": "Plaintext keys are never returned \u2014 only metadata.\nRequires an active session.",
         "operationId": "list_api_keys",
         "responses": {
           "200": {
@@ -594,7 +594,7 @@
           {
             "name": "tenant_id",
             "in": "query",
-            "description": "Restrict to this tenant UUID.  For session callers this must match\n(or be absent) — the session tenant is used as the implicit default.",
+            "description": "Restrict to this tenant UUID.  For session callers this must match\n(or be absent) \u2014 the session tenant is used as the implicit default.",
             "required": false,
             "schema": {
               "type": [
@@ -645,7 +645,7 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum number of rows to return (1–500; default 100).",
+            "description": "Maximum number of rows to return (1\u2013500; default 100).",
             "required": false,
             "schema": {
               "type": [
@@ -682,7 +682,7 @@
           "auth"
         ],
         "summary": "Request a password-reset email.",
-        "description": "Always returns 200 OK regardless of whether the address is registered,\npreventing email enumeration. When found, a reset link with a 15-minute\nexpiry is emailed. When not found, a dummy argon2id hash is performed to\nkeep the response time within ±50ms of a real lookup.",
+        "description": "Always returns 200 OK regardless of whether the address is registered,\npreventing email enumeration. When found, a reset link with a 15-minute\nexpiry is emailed. When not found, a dummy argon2id hash is performed to\nkeep the response time within \u00b150ms of a real lookup.",
         "operationId": "forgot_password",
         "requestBody": {
           "content": {
@@ -748,7 +748,7 @@
           "auth"
         ],
         "summary": "Revoke the caller's current session and clear the `rb_session` cookie.",
-        "description": "Sets `revoked_at = now()` on the session row, writes a `logout` row to\n`control.auth_events` for audit, and returns `204 No Content` with a\n`Set-Cookie` header that overwrites `rb_session` with `Max-Age=0` so the\nbrowser drops it. Requires an authenticated session — anonymous and\nAPI-key callers receive `401 unauthorized`.",
+        "description": "Sets `revoked_at = now()` on the session row, writes a `logout` row to\n`control.auth_events` for audit, and returns `204 No Content` with a\n`Set-Cookie` header that overwrites `rb_session` with `Max-Age=0` so the\nbrowser drops it. Requires an authenticated session \u2014 anonymous and\nAPI-key callers receive `401 unauthorized`.",
         "operationId": "logout",
         "responses": {
           "204": {
@@ -1118,7 +1118,7 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum number of runs to return (1–100; default 50).",
+            "description": "Maximum number of runs to return (1\u2013100; default 50).",
             "required": false,
             "schema": {
               "type": [
@@ -1197,7 +1197,7 @@
         "tags": [
           "me"
         ],
-        "summary": "Return the authenticated user's profile, current tenant, and available\ntenants. As a side-effect, refreshes the session's `last_seen_at` and\nextends `expires_at` by `session_ttl_days` so the session is sliding\nrather than fixed-from-login. The refresh is fire-and-forget — failing\nto extend the session does not fail the request (see REQ-AU-06).",
+        "summary": "Return the authenticated user's profile, current tenant, and available\ntenants. As a side-effect, refreshes the session's `last_seen_at` and\nextends `expires_at` by `session_ttl_days` so the session is sliding\nrather than fixed-from-login. The refresh is fire-and-forget \u2014 failing\nto extend the session does not fail the request (see REQ-AU-06).",
         "operationId": "get_me",
         "responses": {
           "200": {
@@ -1450,7 +1450,7 @@
           "query"
         ],
         "summary": "Retrieve a code symbol by its fully-qualified name within a repository.",
-        "description": "`fqn_b64` must be the FQN encoded as URL-safe base64 without padding\n(`base64url` / RFC 4648 §5, no `=` padding). Returns the item's metadata\nand, when the stored source is ≤ 4 KiB, an inline `source_preview`.\nLarger items carry only a `blob_ref` URI pointing to the full AST JSON.\n\nCross-tenant requests are rejected: the repository must belong to the\ncaller's tenant (AC4). Returns 404 both when the repo is absent and when\nthe `(repo_id, fqn)` tuple is not found (AC2).",
+        "description": "`fqn_b64` must be the FQN encoded as URL-safe base64 without padding\n(`base64url` / RFC 4648 \u00a75, no `=` padding). Returns the item's metadata\nand, when the stored source is \u2264 4 KiB, an inline `source_preview`.\nLarger items carry only a `blob_ref` URI pointing to the full AST JSON.\n\nCross-tenant requests are rejected: the repository must belong to the\ncaller's tenant (AC4). Returns 404 both when the repo is absent and when\nthe `(repo_id, fqn)` tuple is not found (AC2).",
         "operationId": "get_item",
         "parameters": [
           {
@@ -1530,7 +1530,7 @@
           {
             "name": "depth",
             "in": "query",
-            "description": "BFS traversal depth (1–10, default 3).",
+            "description": "BFS traversal depth (1\u201310, default 3).",
             "required": false,
             "schema": {
               "type": "integer",
@@ -1541,7 +1541,7 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum edges to return per page (1–200, default 50).",
+            "description": "Maximum edges to return per page (1\u2013200, default 50).",
             "required": false,
             "schema": {
               "type": "integer",
@@ -1621,7 +1621,7 @@
           {
             "name": "depth",
             "in": "query",
-            "description": "BFS traversal depth (1–10, default 3).",
+            "description": "BFS traversal depth (1\u201310, default 3).",
             "required": false,
             "schema": {
               "type": "integer",
@@ -1632,7 +1632,7 @@
           {
             "name": "limit",
             "in": "query",
-            "description": "Maximum edges to return per page (1–200, default 50).",
+            "description": "Maximum edges to return per page (1\u2013200, default 50).",
             "required": false,
             "schema": {
               "type": "integer",
@@ -1745,7 +1745,7 @@
           "query"
         ],
         "summary": "List all usages of the type identified by `fqn_b64` within a repository.",
-        "description": "Returns two categories of usage combined in a flat list:\n- **Textual** (`usage_kind = \"textual\"`)  — items that reference the type\n  by name (`USES_TYPE` edge).\n- **Monomorphized** (`usage_kind = \"monomorphized\"`) — `TypeInstance` nodes\n  derived from this type via a `MONOMORPHIZED_FROM` edge.\n\n`fqn_b64` must be URL-safe base64 (no padding) of the type's FQN.\nRequires the graph to be configured (`RB_NEO4J_URI`); returns 503 otherwise.",
+        "description": "Returns two categories of usage combined in a flat list:\n- **Textual** (`usage_kind = \"textual\"`)  \u2014 items that reference the type\n  by name (`USES_TYPE` edge).\n- **Monomorphized** (`usage_kind = \"monomorphized\"`) \u2014 `TypeInstance` nodes\n  derived from this type via a `MONOMORPHIZED_FROM` edge.\n\n`fqn_b64` must be URL-safe base64 (no padding) of the type's FQN.\nRequires the graph to be configured (`RB_NEO4J_URI`); returns 503 otherwise.",
         "operationId": "get_type_usages",
         "parameters": [
           {
@@ -1890,7 +1890,7 @@
           "tenants"
         ],
         "summary": "Delete a tenant (owner-only, requires typed confirmation).",
-        "description": "Soft-deletes the tenant by setting `deleted_at` and transitioning its\nstatus to `deleting`, cancels all in-flight ingestion runs, then emits a\n`Tombstone` to `rb.tombstones.v1`. The tombstoner service performs the\nasync data-plane cleanup (`PostgreSQL` schema drop, `Neo4j` node removal,\n`Qdrant` point deletion).\n\n**Idempotent**: repeating the call on a tenant already in `deleting` or\n`deleted` state returns `204 No Content`.\n\n**Typed confirmation**: the `X-Confirm` header must match the tenant slug\nexactly (case-insensitive) to prevent accidental deletions.\n\nReturns `503` if the Kafka producer is not available — the request can be\nretried once the broker is reachable.",
+        "description": "Soft-deletes the tenant by setting `deleted_at` and transitioning its\nstatus to `deleting`, cancels all in-flight ingestion runs, then emits a\n`Tombstone` to `rb.tombstones.v1`. The tombstoner service performs the\nasync data-plane cleanup (`PostgreSQL` schema drop, `Neo4j` node removal,\n`Qdrant` point deletion).\n\n**Idempotent**: repeating the call on a tenant already in `deleting` or\n`deleted` state returns `204 No Content`.\n\n**Typed confirmation**: the `X-Confirm` header must match the tenant slug\nexactly (case-insensitive) to prevent accidental deletions.\n\nReturns `503` if the Kafka producer is not available \u2014 the request can be\nretried once the broker is reachable.",
         "operationId": "delete_tenant",
         "parameters": [
           {
@@ -1915,7 +1915,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Deletion queued — tombstone emitted",
+            "description": "Deletion queued \u2014 tombstone emitted",
             "content": {
               "application/json": {
                 "schema": {
@@ -1934,7 +1934,7 @@
             "description": "Not authenticated"
           },
           "403": {
-            "description": "Insufficient role — must be owner (insufficient_role)"
+            "description": "Insufficient role \u2014 must be owner (insufficient_role)"
           },
           "404": {
             "description": "Tenant not found"
@@ -2101,7 +2101,7 @@
           "tenants"
         ],
         "summary": "Change a member's role within a tenant.",
-        "description": "Requires: session with admin or owner role.\nCannot change the owner's role — use transfer-ownership for that.\nCannot set `owner` as the new role — use transfer-ownership.",
+        "description": "Requires: session with admin or owner role.\nCannot change the owner's role \u2014 use transfer-ownership for that.\nCannot set `owner` as the new role \u2014 use transfer-ownership.",
         "operationId": "update_member_role",
         "parameters": [
           {
@@ -2199,10 +2199,38 @@
             "description": "Not authenticated"
           },
           "403": {
-            "description": "Insufficient role — must be owner (insufficient_role)"
+            "description": "Insufficient role \u2014 must be owner (insufficient_role)"
           },
           "404": {
             "description": "Target user is not a member"
+          }
+        }
+      }
+    },
+    "/v1/auth/resend-verification": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Resend a verification email.",
+        "description": "Invalidates any existing unused verify tokens for the address and issues a\nfresh one with a 1-hour expiry. Always returns 204 to avoid email\nenumeration \u2014 callers cannot distinguish a known-unverified address from\nan unknown or already-verified one. Rate-gated via the login rate limiter.",
+        "operationId": "resend_verification",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Verification email sent (or silently skipped)"
+          },
+          "429": {
+            "description": "Rate-limited (rate_limited)"
           }
         }
       }
@@ -2254,7 +2282,7 @@
               "string",
               "null"
             ],
-            "description": "GitHub-facing App name — visible on the consent screen.",
+            "description": "GitHub-facing App name \u2014 visible on the consent screen.",
             "default": null
           }
         }
@@ -2268,7 +2296,7 @@
         "properties": {
           "redirect_url": {
             "type": "string",
-            "description": "`https://github.com/settings/apps/new?manifest=…&state=…` —\nplatform admin should be redirected here."
+            "description": "`https://github.com/settings/apps/new?manifest=\u2026&state=\u2026` \u2014\nplatform admin should be redirected here."
           },
           "state_token": {
             "type": "string",
@@ -2298,7 +2326,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Numeric GitHub App ID — present only when `configured == true`."
+            "description": "Numeric GitHub App ID \u2014 present only when `configured == true`."
           },
           "configured": {
             "type": "boolean",
@@ -2310,7 +2338,7 @@
               "null"
             ],
             "format": "date-time",
-            "description": "Install timestamp — present only for DB-sourced configurations."
+            "description": "Install timestamp \u2014 present only for DB-sourced configurations."
           },
           "installed_by": {
             "type": [
@@ -2318,14 +2346,14 @@
               "null"
             ],
             "format": "uuid",
-            "description": "Platform-admin user that installed the App — present only for\nDB-sourced configurations."
+            "description": "Platform-admin user that installed the App \u2014 present only for\nDB-sourced configurations."
           },
           "slug": {
             "type": [
               "string",
               "null"
             ],
-            "description": "GitHub App slug — present only for DB-sourced configurations."
+            "description": "GitHub App slug \u2014 present only for DB-sourced configurations."
           },
           "source": {
             "$ref": "#/components/schemas/AppSource",
@@ -2557,7 +2585,7 @@
           },
           "key": {
             "type": "string",
-            "description": "Plaintext key — shown exactly once. Store it securely; it cannot be retrieved later."
+            "description": "Plaintext key \u2014 shown exactly once. Store it securely; it cannot be retrieved later."
           },
           "name": {
             "type": "string"
@@ -2742,7 +2770,7 @@
           },
           "params": {
             "type": "object",
-            "description": "Named parameters bound into the query (`$key` → value).",
+            "description": "Named parameters bound into the query (`$key` \u2192 value).",
             "additionalProperties": {},
             "propertyNames": {
               "type": "string"
@@ -2976,7 +3004,7 @@
               "string",
               "null"
             ],
-            "description": "Inline source text — present when the item's source is ≤ 4 KiB.\nAbsent when `blob_ref` is populated (AC3)."
+            "description": "Inline source text \u2014 present when the item's source is \u2264 4 KiB.\nAbsent when `blob_ref` is populated (AC3)."
           }
         }
       },
@@ -3081,7 +3109,7 @@
         "properties": {
           "email_verification_required": {
             "type": "boolean",
-            "description": "`true` when `email_verified_at IS NULL` — caller should redirect to verification."
+            "description": "`true` when `email_verified_at IS NULL` \u2014 caller should redirect to verification."
           },
           "tenant_id": {
             "type": "string",
@@ -3179,7 +3207,7 @@
               },
               {
                 "$ref": "#/components/schemas/NodeSource",
-                "description": "Source location — absent for virtual/synthetic module nodes."
+                "description": "Source location \u2014 absent for virtual/synthetic module nodes."
               }
             ]
           }
@@ -3667,7 +3695,7 @@
         "properties": {
           "email_verification_required": {
             "type": "boolean",
-            "description": "Always `true` on signup — email verification required before tenant access."
+            "description": "Always `true` on signup \u2014 email verification required before tenant access."
           },
           "user_id": {
             "type": "string",
@@ -3756,7 +3784,7 @@
           },
           "status": {
             "type": "string",
-            "description": "`healthy` (<30 s), `degraded` (30–300 s), `stale` (>300 s or never)."
+            "description": "`healthy` (<30 s), `degraded` (30\u2013300 s), `stale` (>300 s or never)."
           }
         }
       },
@@ -4045,7 +4073,7 @@
           },
           "usage_kind": {
             "type": "string",
-            "description": "`\"textual\"` — item uses the type by name in its source.\n`\"monomorphized\"` — `TypeInstance` instantiated from this type's `TypeDef`."
+            "description": "`\"textual\"` \u2014 item uses the type by name in its source.\n`\"monomorphized\"` \u2014 `TypeInstance` instantiated from this type's `TypeDef`."
           }
         }
       },
@@ -4115,6 +4143,18 @@
           "token": {
             "type": "string",
             "description": "Plaintext verification token from the emailed link."
+          }
+        }
+      },
+      "ResendVerificationRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address of the account awaiting verification."
           }
         }
       }
