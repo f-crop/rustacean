@@ -35,6 +35,10 @@ export function useRecentIngestions(
 
 export function useInvalidateRecentIngestions() {
   const qc = useQueryClient();
-  return (tenantId: string) =>
-    qc.invalidateQueries({ queryKey: recentIngestionsQueryKey(tenantId) });
+  return (tenantId: string) => {
+    // Cancel any in-flight polling requests first so a stale "running" response
+    // cannot arrive after the fresh refetch and overwrite "succeeded" in cache.
+    void qc.cancelQueries({ queryKey: recentIngestionsQueryKey(tenantId) });
+    return qc.invalidateQueries({ queryKey: recentIngestionsQueryKey(tenantId) });
+  };
 }
