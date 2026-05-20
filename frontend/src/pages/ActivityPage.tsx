@@ -14,6 +14,7 @@ import {
   useAuditEvents,
   useRecentIngestions,
   useInvalidateRecentIngestions,
+  useIngestionStagesForRunningRuns,
 } from "@/api";
 import { PageContainer } from "@/components/repos/PageContainer";
 import { useEventStream } from "@/hooks/useEventStream";
@@ -68,6 +69,15 @@ function ActivityPageInner({ tenantId }: ActivityPageInnerProps): JSX.Element {
     },
   });
   const invalidateIngestions = useInvalidateRecentIngestions();
+
+  const runningRunIds = useMemo(
+    () =>
+      (recentIngestions.data?.runs ?? [])
+        .filter((r) => r.status === "running")
+        .map((r) => r.id),
+    [recentIngestions.data],
+  );
+  const currentStages = useIngestionStagesForRunningRuns(runningRunIds);
 
   const { events, readyState } = useEventStream(`${apiBase}/v1/ingest/events`, ["ingest.status"]);
 
@@ -168,6 +178,7 @@ function ActivityPageInner({ tenantId }: ActivityPageInnerProps): JSX.Element {
           isLoading={recentIngestions.isLoading}
           isError={recentIngestions.isError}
           error={recentIngestions.error}
+          currentStages={currentStages}
         />
       </section>
 

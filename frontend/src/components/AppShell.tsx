@@ -41,12 +41,6 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
               API keys
             </Link>
             <Link
-              to={routes.ingestion}
-              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground aria-[current=page]:bg-accent aria-[current=page]:text-foreground aria-[current=page]:font-medium"
-            >
-              Ingestion
-            </Link>
-            <Link
               to={routes.agentExecution}
               className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground aria-[current=page]:bg-accent aria-[current=page]:text-foreground aria-[current=page]:font-medium"
             >

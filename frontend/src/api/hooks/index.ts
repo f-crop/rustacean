@@ -72,6 +72,13 @@ export {
   type RecentIngestionsResponse,
 } from "./useRecentIngestions";
 export {
+  useIngestionStagesForRunningRuns,
+  ingestionStagesQueryKey,
+  currentStageLabel,
+  type StageRunItem,
+  type StageTimelineResponse,
+} from "./useIngestionStages";
+export {
   useAgentSessions,
   useCreateSession,
   useDeleteSession,

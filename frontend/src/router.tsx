@@ -16,7 +16,6 @@ import { AdminGithubPage } from "@/pages/AdminGithubPage";
 import { ApiKeysPage } from "@/pages/ApiKeysPage";
 import { CodeWorkspacePage } from "@/pages/CodeWorkspacePage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
-import { IngestionTheatre } from "@/pages/IngestionTheatre";
 import { LoginPage } from "@/pages/LoginPage";
 import { MembersPage } from "@/pages/MembersPage";
 import { ReposPage } from "@/pages/ReposPage";
@@ -119,7 +118,10 @@ const apiKeysRoute = createRoute({
 const ingestionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: routes.ingestion,
-  component: IngestionTheatre,
+  beforeLoad: () => {
+    throw redirect({ to: routes.activity, replace: true });
+  },
+  component: () => null,
 });
 
 const codeWorkspaceSearchSchema = z.object({
