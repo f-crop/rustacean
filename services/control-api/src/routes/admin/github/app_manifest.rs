@@ -111,6 +111,8 @@ pub fn build_manifest_payload(base_url: &str, name: &str) -> serde_json::Value {
             "url": format!("{base_url}/v1/github/webhook"),
         },
         "callback_urls": [format!("{base_url}/v1/github/callback")],
+        "setup_url": format!("{base_url}/v1/github/callback"),
+        "setup_on_update": true,
         "public": false,
         "default_permissions": {
             "contents": "read",
@@ -157,6 +159,8 @@ mod tests {
             m["hook_attributes"]["url"],
             "http://localhost:15173/v1/github/webhook"
         );
+        assert_eq!(m["setup_url"], "http://localhost:15173/v1/github/callback");
+        assert_eq!(m["setup_on_update"], true);
         assert_eq!(m["default_permissions"]["contents"], "read");
         assert!(
             m["default_events"]
