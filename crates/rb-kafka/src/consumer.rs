@@ -268,7 +268,24 @@ impl<E: ProstMessage + Default> Consumer<E> {
                         }
                         Ok(env)
                     }
-                    Err(e) => Err(e),
+                    Err(e) => {
+                        // Without a valid envelope we cannot nack_to_dlq, but we must
+                        // commit the raw offset so the consumer does not replay this
+                        // malformed message indefinitely.  Best-effort — losing the
+                        // commit here (e.g. broker hiccup) is preferable to stalling.
+                        let mut tpl = TopicPartitionList::new();
+                        if tpl
+                            .add_partition_offset(
+                                &topic,
+                                partition,
+                                rdkafka::Offset::Offset(offset + 1),
+                            )
+                            .is_ok()
+                        {
+                            let _ = self.inner.commit(&tpl, CommitMode::Async);
+                        }
+                        Err(e)
+                    }
                 };
 
                 match &result {
