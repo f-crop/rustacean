@@ -23,7 +23,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build};
+use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build_public};
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -257,7 +257,7 @@ async fn ac5_trigger_returns_503_when_broker_unreachable() {
         ..
     } = insert_ingest_fixtures(&pool).await;
 
-    let resp = build(state)
+    let resp = build_public(state)
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -310,7 +310,7 @@ async fn ac6_trigger_rolls_back_db_on_kafka_failure() {
         tenant_id,
     } = insert_ingest_fixtures(&pool).await;
 
-    let resp = build(state)
+    let resp = build_public(state)
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -378,6 +378,7 @@ async fn ac6_trigger_rolls_back_db_on_kafka_failure() {
 /// This test does NOT call Kafka; it exercises the DB queries directly to confirm
 /// the SQL semantics of the fix.
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn rusaa_1560_finished_at_equals_max_stage_finished_at() {
     let Some((_state, pool)) = real_db_state().await else {
         return; // skip: no DB

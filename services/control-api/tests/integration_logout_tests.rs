@@ -11,7 +11,7 @@ use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt as _;
 use uuid::Uuid;
 
-use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build};
+use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build_public};
 use rb_sse::{EventBus, SseConfig};
 
 async fn real_db_state() -> Option<(AppState, PgPool)> {
@@ -100,7 +100,7 @@ async fn integration_logout_full_flow() {
     let Some((state, pool)) = real_db_state().await else {
         return;
     };
-    let app = build(state);
+    let app = build_public(state);
     let email = format!("integ-logout-{}@test.example", Uuid::new_v4().simple());
     let password = "correct-horse-battery-staple";
 

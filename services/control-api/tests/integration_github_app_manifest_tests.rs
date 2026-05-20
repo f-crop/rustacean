@@ -269,6 +269,7 @@ fn init_tracing() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn manifest_flow_persists_and_hot_swaps_loader() {
     init_tracing();
     let Some(pool) = real_db_pool().await else {

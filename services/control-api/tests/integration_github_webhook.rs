@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build};
+use control_api::{AppState, Config, SessionCreateRateLimiter, TenantSessionCount, build_public};
 use hmac::{Hmac, Mac};
 use http_body_util::BodyExt as _;
 use jsonwebtoken::EncodingKey;
@@ -187,7 +187,7 @@ async fn body_is_empty(resp: axum::response::Response) -> bool {
 
 #[tokio::test]
 async fn webhook_returns_503_when_app_not_configured() {
-    let app = build(state_without_gh());
+    let app = build_public(state_without_gh());
     let req = webhook_request(
         b"{}".to_vec(),
         Some("sha256=00".into()),
@@ -201,7 +201,7 @@ async fn webhook_returns_503_when_app_not_configured() {
 
 #[tokio::test]
 async fn webhook_returns_401_for_missing_signature() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let req = webhook_request(b"{}".to_vec(), None, Some("d"), Some("ping"));
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -209,7 +209,7 @@ async fn webhook_returns_401_for_missing_signature() {
 
 #[tokio::test]
 async fn webhook_returns_400_for_missing_delivery() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = b"{}".to_vec();
     let sig = sign(&body, b"shh");
     let req = webhook_request(body, Some(sig), None, Some("ping"));
@@ -219,7 +219,7 @@ async fn webhook_returns_400_for_missing_delivery() {
 
 #[tokio::test]
 async fn webhook_returns_400_for_missing_event() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = b"{}".to_vec();
     let sig = sign(&body, b"shh");
     let req = webhook_request(body, Some(sig), Some("d"), None);
@@ -229,7 +229,7 @@ async fn webhook_returns_400_for_missing_event() {
 
 #[tokio::test]
 async fn webhook_returns_401_for_bad_signature_format() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let req = webhook_request(
         b"{}".to_vec(),
         Some("not-a-sig".into()),
@@ -242,7 +242,7 @@ async fn webhook_returns_401_for_bad_signature_format() {
 
 #[tokio::test]
 async fn webhook_returns_401_for_signature_mismatch() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = b"{}".to_vec();
     let sig = sign(&body, b"WRONG-SECRET");
     let req = webhook_request(body, Some(sig), Some("d"), Some("ping"));
@@ -254,7 +254,7 @@ async fn webhook_returns_401_for_signature_mismatch() {
 /// retrying.
 #[tokio::test]
 async fn webhook_returns_202_for_unmodelled_event() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = b"{}".to_vec();
     let sig = sign(&body, b"shh");
     let req = webhook_request(body, Some(sig), Some("d-ping"), Some("ping"));
@@ -266,7 +266,7 @@ async fn webhook_returns_202_for_unmodelled_event() {
 /// so it cannot be probed by an unauthenticated attacker.
 #[tokio::test]
 async fn webhook_returns_400_for_malformed_installation_body() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = br#"{"action":"created"}"#.to_vec(); // missing `installation`
     let sig = sign(&body, b"shh");
     let req = webhook_request(body, Some(sig), Some("d-bad"), Some("installation"));
@@ -279,7 +279,7 @@ async fn webhook_returns_400_for_malformed_installation_body() {
 /// here proves the replay short-circuit fired before the SQL dispatch.
 #[tokio::test]
 async fn webhook_returns_200_on_replay_without_sql_dispatch() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = b"{}".to_vec();
     let sig = sign(&body, b"shh");
     let delivery = "d-replay";
@@ -312,7 +312,7 @@ async fn webhook_returns_200_on_replay_without_sql_dispatch() {
 /// the no-op fast-path that GitHub may legitimately exercise.
 #[tokio::test]
 async fn webhook_returns_200_for_empty_removed_list() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = serde_json::to_vec(&serde_json::json!({
         "action": "removed",
         "installation": {
@@ -337,7 +337,7 @@ async fn webhook_returns_200_for_empty_removed_list() {
 /// dispatched, so the lazy pool is never touched and the response is 200.
 #[tokio::test]
 async fn webhook_returns_200_for_repos_added_no_auto_connect() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = serde_json::to_vec(&serde_json::json!({
         "action": "added",
         "installation": {
@@ -364,7 +364,7 @@ async fn webhook_returns_200_for_repos_added_no_auto_connect() {
 /// `new_permissions_accepted`) are accepted with 202 to stop GitHub retries.
 #[tokio::test]
 async fn webhook_returns_202_for_unmodelled_installation_action() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = serde_json::to_vec(&serde_json::json!({
         "action": "new_permissions_accepted",
         "installation": {
@@ -383,7 +383,7 @@ async fn webhook_returns_202_for_unmodelled_installation_action() {
 
 #[tokio::test]
 async fn callback_returns_503_when_app_not_configured() {
-    let app = build(state_without_gh());
+    let app = build_public(state_without_gh());
     let req = Request::builder()
         .method("GET")
         .uri("/v1/github/callback?installation_id=1&state=aabbcc")
@@ -395,7 +395,7 @@ async fn callback_returns_503_when_app_not_configured() {
 
 #[tokio::test]
 async fn callback_returns_400_for_invalid_hex_state() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let req = Request::builder()
         .method("GET")
         .uri("/v1/github/callback?installation_id=1&state=not-valid-hex!")
@@ -409,7 +409,7 @@ async fn callback_returns_400_for_invalid_hex_state() {
 /// future GitHub additions) returns 202.
 #[tokio::test]
 async fn webhook_returns_202_for_unmodelled_repos_action() {
-    let app = build(state_with_gh(b"shh"));
+    let app = build_public(state_with_gh(b"shh"));
     let body = serde_json::to_vec(&serde_json::json!({
         "action": "future_action",
         "installation": {

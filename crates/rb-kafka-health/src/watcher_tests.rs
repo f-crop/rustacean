@@ -71,7 +71,10 @@ impl<E: ProstMessage + Default + Send + Sync + 'static> ConsumerOps<E> for MockC
     }
 
     async fn assigned_partition_count(&self) -> usize {
-        self.assignment_count.load(Ordering::Relaxed) as usize
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            self.assignment_count.load(Ordering::Relaxed) as usize
+        }
     }
 }
 
@@ -80,6 +83,7 @@ fn dummy_cfg() -> ConsumerCfg {
     ConsumerCfg::new("test-group")
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn make_stream_error<E: ProstMessage + Default + Send + Sync + 'static>()
 -> Option<Result<EventEnvelope<E>, KafkaError>> {
     // Use a generic broker error to simulate any stream error (REQTMOUT cascade,
@@ -334,8 +338,7 @@ async fn error_cascade_at_threshold_triggers_recreate() {
 
     assert!(
         recreate_counter.load(Ordering::Relaxed) >= 1,
-        "factory must be called after {} consecutive error(s)",
-        threshold
+        "factory must be called after {threshold} consecutive error(s)"
     );
     assert!(
         healthy.recreate_count >= 1,
