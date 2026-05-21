@@ -1161,6 +1161,7 @@ dependencies = [
  "opentelemetry",
  "rand 0.9.4",
  "rb-auth",
+ "rb-build-info",
  "rb-email",
  "rb-github",
  "rb-kafka",
@@ -3895,6 +3896,13 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "rb-build-info"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

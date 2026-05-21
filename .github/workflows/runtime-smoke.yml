@@ -9,7 +9,9 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'crates/**/Cargo.toml'
+      - 'crates/rb-build-info/**'
       - 'services/**/Cargo.toml'
+      - 'services/**/build.rs'
       - 'docker/**'
       - 'compose/**'
 
@@ -32,6 +34,8 @@ jobs:
 
       # Build the release image from the PR's own Dockerfile.
       # cache-from/to reuse layer cache across runs for faster builds.
+      # GIT_SHA is passed so the binary has compile-time provenance baked in;
+      # the SHA-assertion step below verifies the bake succeeded.
       - name: Build control-api image
         uses: docker/build-push-action@v6
         with:
@@ -39,6 +43,8 @@ jobs:
           file: docker/control-api/Dockerfile
           load: true
           tags: control-api:smoke
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -76,3 +82,37 @@ jobs:
           fi
 
           echo "Smoke PASSED: $output"
+
+      # Build-provenance gate: assert the SHA baked into the binary matches
+      # the PR's HEAD commit.  Catches stale Docker layer-cache bugs where the
+      # binary silently ships with the wrong SHA.
+      - name: Assert build SHA == github.sha
+        run: |
+          set -euo pipefail
+
+          build_json=$(timeout 5s \
+            docker run --rm \
+              --entrypoint /usr/local/bin/control-api \
+              control-api:smoke \
+              build-info 2>&1) || {
+            rc=$?
+            echo "::error::control-api build-info exited $rc"
+            echo "$build_json"
+            exit 1
+          }
+
+          echo "build-info output: $build_json"
+
+          binary_sha=$(echo "$build_json" | python3 -c \
+            "import json,sys; print(json.load(sys.stdin)['sha'])")
+
+          expected="${{ github.sha }}"
+
+          if [[ "$binary_sha" != "$expected" ]]; then
+            echo "::error::SHA mismatch — binary=$binary_sha expected=$expected"
+            echo "The binary was compiled with a different SHA than the PR HEAD."
+            echo "This usually means the Docker layer cache served a stale build."
+            exit 1
+          fi
+
+          echo "SHA match confirmed: $binary_sha"

@@ -26,6 +26,27 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/health/build": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Compile-time build provenance — SHA, timestamp, and dirty flag.
+         * @description Public / unauthenticated. Returns commit SHA only (board decision 2026-05-21).
+         *     Used by CI smoke gate and the dev-stack watcher to detect stale images.
+         */
+        readonly get: operations["build_info"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/mcp": {
         readonly parameters: {
             readonly query?: never;
@@ -1138,6 +1159,17 @@ export interface components {
             /** Format: int64 */
             readonly total: number;
         };
+        readonly BuildInfoResponse: {
+            /** @description `"true"` when the working tree had uncommitted changes at build time. */
+            readonly dirty: string;
+            /**
+             * @description Compile-time git SHA baked into the binary.  `"unknown"` when built
+             *     without `RB_BUILD_SHA` in the environment (e.g. ad-hoc local builds).
+             */
+            readonly sha: string;
+            /** @description Commit timestamp captured at compile time (`RB_BUILD_TIMESTAMP`). */
+            readonly timestamp: string;
+        };
         readonly ConnectRepoRequest: {
             /** @description Default branch override. If omitted, the value is fetched from GitHub. */
             readonly default_branch?: string | null;
@@ -1763,6 +1795,26 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    readonly build_info: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Build provenance */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["BuildInfoResponse"];
                 };
             };
         };
