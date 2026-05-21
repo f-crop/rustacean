@@ -38,6 +38,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
+ARG GIT_SHA=unknown
+LABEL git_sha=${GIT_SHA}
+
 # git is required because ingest-clone shells out to git for repo cloning.
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
