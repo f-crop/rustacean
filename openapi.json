@@ -36,6 +36,28 @@
         }
       }
     },
+    "/health/build": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Compile-time build provenance — SHA, timestamp, and dirty flag.",
+        "description": "Public / unauthenticated. Returns commit SHA only (board decision 2026-05-21).\nUsed by CI smoke gate and the dev-stack watcher to detect stale images.",
+        "operationId": "build_info",
+        "responses": {
+          "200": {
+            "description": "Build provenance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildInfoResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/mcp": {
       "post": {
         "tags": [
@@ -2477,6 +2499,28 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "BuildInfoResponse": {
+        "type": "object",
+        "required": [
+          "sha",
+          "timestamp",
+          "dirty"
+        ],
+        "properties": {
+          "dirty": {
+            "type": "string",
+            "description": "`\"true\"` when the working tree had uncommitted changes at build time."
+          },
+          "sha": {
+            "type": "string",
+            "description": "Compile-time git SHA baked into the binary.  `\"unknown\"` when built\nwithout `RB_BUILD_SHA` in the environment (e.g. ad-hoc local builds)."
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Commit timestamp captured at compile time (`RB_BUILD_TIMESTAMP`)."
           }
         }
       },

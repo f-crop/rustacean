@@ -341,8 +341,7 @@ if [[ "${REBUILD_SERVICE[control-api]:-}" == "true" ]]; then
   fi
 
   # Build-provenance check: verify the running binary was compiled from NEW_SHA.
-  # A mismatch means Docker served a stale cached layer — the same class of bug
-  # that caused the 24h MCP outage (RUSAA-1630).
+  # A mismatch means Docker served a stale cached layer.
   BUILD_SHA_RESPONSE="$(curl -s --max-time 5 \
     "http://localhost:${PORT}/health/build" 2>/dev/null || true)"
   if [[ -n "$BUILD_SHA_RESPONSE" ]]; then

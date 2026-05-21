@@ -34,6 +34,7 @@ pub const DIRTY: &str = if let Some(s) = option_env!("RB_BUILD_DIRTY") {
 };
 
 /// Returns compile-time build provenance.
+#[must_use]
 pub fn get() -> BuildInfo {
     BuildInfo {
         sha: SHA,

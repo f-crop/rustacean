@@ -85,7 +85,7 @@ jobs:
 
       # Build-provenance gate: assert the SHA baked into the binary matches
       # the PR's HEAD commit.  Catches stale Docker layer-cache bugs where the
-      # binary silently ships with the wrong SHA (cf. 24h MCP outage RUSAA-1630).
+      # binary silently ships with the wrong SHA.
       - name: Assert build SHA == github.sha
         run: |
           set -euo pipefail
