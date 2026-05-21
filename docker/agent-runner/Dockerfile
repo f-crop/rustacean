@@ -29,10 +29,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo chef cook --release --recipe-path recipe.json -p agent-runner
 
 COPY . .
+
+# Declare AFTER the dep-cook step so that changing GIT_SHA only invalidates
+# the final binary build, not the dependency cache layer.
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release -p agent-runner && \
+    RB_BUILD_SHA="${GIT_SHA}" RB_BUILD_TIMESTAMP="${BUILT_AT}" cargo build --release -p agent-runner && \
     cp target/release/rb-agent-runner /usr/local/bin/
 
 # ── Stage 4: mcp-server-node builder ─────────────────────────────────────────
@@ -54,6 +59,7 @@ FROM node:20-bookworm-slim AS runtime
 
 ARG GIT_SHA=unknown
 LABEL git_sha=${GIT_SHA}
+ENV RB_BUILD_SHA=${GIT_SHA}
 
 # Install git, ssh, and the C runtime deps the Rust binary links against.
 # (Node base images already ship libssl3/zlib1g/libcurl4 but we install

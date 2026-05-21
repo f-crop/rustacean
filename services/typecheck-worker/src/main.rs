@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
+use clap::{Parser, Subcommand};
 use rb_blob::store_from_env;
 use rb_kafka::{Consumer, ConsumerCfg, Producer, ProducerCfg};
 use rb_kafka_health::{KafkaHealthWatcher, WatchdogConfig};
@@ -9,6 +10,19 @@ use rb_schemas::{IngestRequest, IngestStatusEvent, TypecheckedItemEvent};
 mod consumer;
 mod helpers;
 mod type_extractor;
+
+#[derive(Parser)]
+#[command(name = "typecheck-worker", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Print compile-time build provenance as JSON and exit.
+    BuildInfo,
+}
 
 fn validate_boot_env() -> Result<()> {
     let blob_store = std::env::var("RB_BLOB_STORE").unwrap_or_else(|_| "filesystem".to_owned());
@@ -23,6 +37,19 @@ fn validate_boot_env() -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if let Some(Command::BuildInfo) = Cli::parse().command {
+        let info = rb_build_info::get();
+        println!(
+            "{}",
+            serde_json::json!({
+                "sha": info.sha,
+                "timestamp": info.timestamp,
+                "dirty": info.dirty,
+            })
+        );
+        return Ok(());
+    }
+
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("typecheck-worker")?;

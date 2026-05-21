@@ -116,3 +116,113 @@ jobs:
           fi
 
           echo "SHA match confirmed: $binary_sha"
+
+  # ── Worker services: build-provenance smoke gate ──────────────────────────
+  # One job per service; each builds the image, probes binary start, and
+  # asserts that the SHA baked in at compile time matches github.sha.
+  worker-smoke:
+    name: worker-smoke (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: parse-worker
+            binary: parse-worker
+          - service: typecheck-worker
+            binary: typecheck-worker
+          - service: ingest-graph
+            binary: ingest-graph
+          - service: ingest-clone
+            binary: ingest-clone
+          - service: expand-worker
+            binary: expand-worker
+          - service: embed-worker
+            binary: embed-worker
+          - service: projector-pg
+            binary: projector-pg
+          - service: projector-neo4j
+            binary: projector-neo4j
+          - service: tombstoner
+            binary: tombstoner
+          - service: agent-runner
+            binary: rb-agent-runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/${{ matrix.service }}/Dockerfile
+          load: true
+          tags: ${{ matrix.service }}:smoke
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Probe binary start (5 s timeout)
+        run: |
+          set -euo pipefail
+
+          output=$(timeout 5s \
+            docker run --rm \
+              --entrypoint /usr/local/bin/${{ matrix.binary }} \
+              ${{ matrix.service }}:smoke \
+              --version 2>&1) || {
+            rc=$?
+            echo "::error::${{ matrix.service }} binary probe exited $rc (non-zero or timeout >5 s)"
+            echo "$output"
+            exit 1
+          }
+
+          echo "$output"
+
+          if echo "$output" | grep -qiE \
+              'error while loading shared libraries|GLIBC_[0-9]+\.[0-9]+ not found|libz\.so'; then
+            echo "::error::Runtime linker error detected in ${{ matrix.service }}"
+            exit 1
+          fi
+
+          if ! echo "$output" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::--version output did not contain a semver string: $output"
+            exit 1
+          fi
+
+          echo "Smoke PASSED: $output"
+
+      - name: Assert build SHA == github.sha
+        run: |
+          set -euo pipefail
+
+          build_json=$(timeout 5s \
+            docker run --rm \
+              --entrypoint /usr/local/bin/${{ matrix.binary }} \
+              ${{ matrix.service }}:smoke \
+              build-info 2>&1) || {
+            rc=$?
+            echo "::error::${{ matrix.service }} build-info exited $rc"
+            echo "$build_json"
+            exit 1
+          }
+
+          echo "build-info output: $build_json"
+
+          binary_sha=$(echo "$build_json" | python3 -c \
+            "import json,sys; print(json.load(sys.stdin)['sha'])")
+
+          expected="${{ github.sha }}"
+
+          if [[ "$binary_sha" != "$expected" ]]; then
+            echo "::error::SHA mismatch in ${{ matrix.service }} — binary=$binary_sha expected=$expected"
+            exit 1
+          fi
+
+          echo "SHA match confirmed: $binary_sha"

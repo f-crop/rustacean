@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
 use rb_kafka::{Consumer, ConsumerCfg};
 use rb_schemas::AgentSessionCommand;
 
@@ -8,6 +9,19 @@ mod adapters;
 mod consumer;
 mod session;
 mod workspace_gc;
+
+#[derive(Parser)]
+#[command(name = "rb-agent-runner", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Print compile-time build provenance as JSON and exit.
+    BuildInfo,
+}
 
 fn validate_boot_env() -> Result<PathBuf> {
     let workspace_base =
@@ -21,6 +35,19 @@ fn validate_boot_env() -> Result<PathBuf> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if let Some(Command::BuildInfo) = Cli::parse().command {
+        let info = rb_build_info::get();
+        println!(
+            "{}",
+            serde_json::json!({
+                "sha": info.sha,
+                "timestamp": info.timestamp,
+                "dirty": info.dirty,
+            })
+        );
+        return Ok(());
+    }
+
     let workspace_base = validate_boot_env()?;
     let _guard = rb_tracing::init("rb-agent-runner")?;
 

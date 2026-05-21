@@ -29,10 +29,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo chef cook --release --recipe-path recipe.json -p projector-neo4j
 
 COPY . .
+
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release -p projector-neo4j && \
+    RB_BUILD_SHA="${GIT_SHA}" RB_BUILD_TIMESTAMP="${BUILT_AT}" cargo build --release -p projector-neo4j && \
     cp target/release/projector-neo4j /usr/local/bin/
 
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
@@ -40,6 +43,7 @@ FROM debian:bookworm-slim AS runtime
 
 ARG GIT_SHA=unknown
 LABEL git_sha=${GIT_SHA}
+ENV RB_BUILD_SHA=${GIT_SHA}
 
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \

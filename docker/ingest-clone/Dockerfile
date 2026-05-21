@@ -29,10 +29,13 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo chef cook --release --recipe-path recipe.json -p ingest-clone
 
 COPY . .
+
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release -p ingest-clone && \
+    RB_BUILD_SHA="${GIT_SHA}" RB_BUILD_TIMESTAMP="${BUILT_AT}" cargo build --release -p ingest-clone && \
     cp target/release/ingest-clone /usr/local/bin/
 
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
@@ -40,6 +43,7 @@ FROM debian:bookworm-slim AS runtime
 
 ARG GIT_SHA=unknown
 LABEL git_sha=${GIT_SHA}
+ENV RB_BUILD_SHA=${GIT_SHA}
 
 # git is required because ingest-clone shells out to git for repo cloning.
 RUN apt-get update -qq && \
