@@ -229,6 +229,8 @@ else
         mark_rust_service projector-neo4j ;;
       services/tombstoner/*|docker/tombstoner/*)
         mark_rust_service tombstoner ;;
+      packages/mcp-server-node/*|packages/*)
+        mark_rust_service agent-runner ;;
       frontend/*|docker/frontend/*)
         REBUILD_FRONTEND=true ;;
       compose/dev.yml|compose/full.yml|compose/tailscale.yml|compose/tailscale.env|compose/scripts/*)
