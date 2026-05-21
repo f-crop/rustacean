@@ -59,6 +59,27 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/_version": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Build identity — SHA and timestamp baked in at image build time.
+         * @description Public / unauthenticated. Returns `"unknown"` for fields not set during
+         *     the docker build (e.g. local `docker build` without `--build-arg`).
+         */
+        readonly get: operations["version"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/admin/github/app-callback": {
         readonly parameters: {
             readonly query?: never;
@@ -1713,6 +1734,10 @@ export interface components {
             /** @description Plaintext verification token from the emailed link. */
             readonly token: string;
         };
+        readonly VersionResponse: {
+            readonly built_at: string;
+            readonly git_sha: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -1795,6 +1820,26 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    readonly version: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Build identity */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["VersionResponse"];
+                };
             };
         };
     };
