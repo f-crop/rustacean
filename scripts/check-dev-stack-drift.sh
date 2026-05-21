@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Reports whether all running dev-stack containers are current with origin/main.
-# Reads the git_sha LABEL baked into each image (RUSAA-1637) and compares
+# Reads the git_sha LABEL baked into each image by the Dockerfile build step and compares
 # against origin/main HEAD.
 #
 # Usage:
