@@ -38,6 +38,8 @@ pub struct SessionManager {
     control_api_base: String,
     http_client: reqwest::Client,
     relay_sender: agent_runner::EventSender,
+    /// SHA of the mcp-server-node bundle baked into the agent-runner image.
+    mcp_sha: String,
 }
 
 struct SessionHandle {
@@ -74,6 +76,7 @@ impl SessionManager {
         control_api_base: String,
         http_client: reqwest::Client,
         relay_sender: agent_runner::EventSender,
+        mcp_sha: String,
     ) -> Self {
         let seq_counters = Arc::new(Mutex::new(HashMap::new()));
         let seq_counter_timestamps: Arc<Mutex<HashMap<String, Instant>>> =
@@ -113,6 +116,7 @@ impl SessionManager {
             control_api_base,
             http_client,
             relay_sender,
+            mcp_sha,
         }
     }
 
@@ -260,6 +264,20 @@ impl SessionManager {
         )
         .await;
 
+        // Cross-runtime SHA pairing (warn-only per board decision in RUSAA-1644).
+        // Logs runner and MCP bundle SHAs so dashboards can detect cross-commit
+        // divergence without blocking session spawn.
+        let runner_sha = rb_build_info::SHA;
+        let mcp_sha = self.mcp_sha.as_str();
+        let mcp_sha_mismatch =
+            runner_sha != "unknown" && mcp_sha != "unknown" && runner_sha != mcp_sha;
+        tracing::info!(
+            session_id = %session_id,
+            runner_sha,
+            mcp_sha,
+            mcp_sha_mismatch,
+            "MCP session SHA pair"
+        );
         tracing::info!(session_id = %session_id, pid = pid, runtime = ?runtime, "Session started");
         Ok(())
     }
