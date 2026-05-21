@@ -51,6 +51,5 @@ fn working_tree_dirty() -> bool {
     std::process::Command::new("git")
         .args(["status", "--porcelain"])
         .output()
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false)
+        .is_ok_and(|o| o.status.success() && !o.stdout.is_empty())
 }
