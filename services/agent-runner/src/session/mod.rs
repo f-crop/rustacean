@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
-use crate::adapters::{adapter_for_runtime, AgentProcess, RuntimeAdapter, SessionCtx};
+use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runtime};
 
 mod natural_exit;
 mod seq;
