@@ -16,6 +16,9 @@ RUN npm run build
 # ── Stage 2: serve static files via nginx ─────────────────────────────────────
 FROM nginx:alpine AS runtime
 
+ARG GIT_SHA=unknown
+LABEL git_sha=${GIT_SHA}
+
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY docker/frontend/nginx.conf /etc/nginx/conf.d/default.conf
 

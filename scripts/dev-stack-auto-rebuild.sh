@@ -254,10 +254,12 @@ COMPOSE_CMD="${COMPOSE_CMD:-docker compose -f $REPO_ROOT/compose/dev.yml}"
 
 post_gh_status "pending" "Dev-stack rebuild in progress"
 
+BUILT_AT="$(git show -s --format=%cI "$NEW_SHA" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 for svc in "${ALL_RUST_SERVICES[@]}"; do
   [[ "${REBUILD_SERVICE[$svc]:-}" == "true" ]] || continue
   echo "[dev-stack-auto-rebuild] building $svc..."
-  if ! $COMPOSE_CMD build "$svc" 2>&1; then
+  if ! $COMPOSE_CMD build --build-arg "GIT_SHA=$NEW_SHA" --build-arg "BUILT_AT=$BUILT_AT" "$svc" 2>&1; then
     echo "[dev-stack-auto-rebuild] $svc build FAILED"
     log_record "build_failed" "" "[\"$svc\"]" "$svc build error"
     post_gh_status "failure" "$svc build failed"
@@ -268,7 +270,7 @@ done
 
 if [[ "$REBUILD_FRONTEND" == "true" ]]; then
   echo "[dev-stack-auto-rebuild] building frontend..."
-  if ! $COMPOSE_CMD build frontend 2>&1; then
+  if ! $COMPOSE_CMD build --build-arg "GIT_SHA=$NEW_SHA" frontend 2>&1; then
     echo "[dev-stack-auto-rebuild] frontend build FAILED"
     log_record "build_failed" "" '["frontend"]' "frontend build error"
     post_gh_status "failure" "frontend build failed"

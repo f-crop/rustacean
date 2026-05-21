@@ -39,6 +39,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
+ARG GIT_SHA=unknown
+LABEL git_sha=${GIT_SHA}
+
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libsasl2-2 zlib1g libcurl4 && \

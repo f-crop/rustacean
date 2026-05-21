@@ -1,5 +1,8 @@
 FROM node:20-bookworm-slim
 
+ARG GIT_SHA=unknown
+LABEL git_sha=${GIT_SHA}
+
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         openssh-server \

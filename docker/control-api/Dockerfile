@@ -39,6 +39,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # required by rdkafka at runtime (distroless/cc-debian12 lacks libz.so.1).
 FROM debian:bookworm-slim AS runtime
 
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
+LABEL git_sha=${GIT_SHA}
+ENV GIT_SHA=${GIT_SHA}
+ENV BUILT_AT=${BUILT_AT}
+
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         ca-certificates libssl3 libsasl2-2 zlib1g libcurl4 && \

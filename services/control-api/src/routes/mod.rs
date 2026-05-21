@@ -40,7 +40,7 @@ use crate::routes::{
     github::install::{github_callback, github_install_url},
     github::repos::list_available_repos,
     github::webhook::github_webhook,
-    health::{consistency_check, health_check, openapi_json, ready_check},
+    health::{consistency_check, health_check, openapi_json, ready_check, version},
     ingest::events_stream::events_stream,
     ingest::recent::list_recent_runs,
     ingest::stages::get_stage_timeline,
@@ -68,6 +68,7 @@ pub fn build_public(state: AppState) -> Router {
         .route("/health", get(health_check))
         .route("/ready", get(ready_check))
         .route("/openapi.json", get(openapi_json))
+        .route("/v1/_version", get(version))
         .route("/v1/auth/signup", post(signup))
         .route("/v1/auth/login", post(login))
         .route("/v1/auth/logout", post(logout))

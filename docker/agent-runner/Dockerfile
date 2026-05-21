@@ -52,6 +52,9 @@ RUN npm run build
 #   • rustbrain-mcp (MCP bridge pre-installed from mcp-builder stage)
 FROM node:20-bookworm-slim AS runtime
 
+ARG GIT_SHA=unknown
+LABEL git_sha=${GIT_SHA}
+
 # Install git, ssh, and the C runtime deps the Rust binary links against.
 # (Node base images already ship libssl3/zlib1g/libcurl4 but we install
 # explicitly so the contract is obvious and survives base bumps.)

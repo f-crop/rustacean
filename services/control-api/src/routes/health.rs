@@ -6,6 +6,35 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use utoipa::{OpenApi as _, ToSchema};
 
+// ---------------------------------------------------------------------------
+// GET /v1/_version — build identity
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct VersionResponse {
+    pub git_sha: String,
+    pub built_at: String,
+}
+
+/// Build identity — SHA and timestamp baked in at image build time.
+///
+/// Public / unauthenticated. Returns `"unknown"` for fields not set during
+/// the docker build (e.g. local `docker build` without `--build-arg`).
+#[utoipa::path(
+    get,
+    path = "/v1/_version",
+    responses(
+        (status = 200, description = "Build identity", body = VersionResponse)
+    ),
+    tag = "health"
+)]
+pub async fn version() -> Json<VersionResponse> {
+    Json(VersionResponse {
+        git_sha: std::env::var("GIT_SHA").unwrap_or_else(|_| "unknown".to_string()),
+        built_at: std::env::var("BUILT_AT").unwrap_or_else(|_| "unknown".to_string()),
+    })
+}
+
 use crate::{
     error::AppError,
     middleware::auth::{AuthContext, Scope, require_verified_session},

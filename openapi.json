@@ -84,6 +84,28 @@
         }
       }
     },
+    "/v1/_version": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Build identity — SHA and timestamp baked in at image build time.",
+        "description": "Public / unauthenticated. Returns `\"unknown\"` for fields not set during\nthe docker build (e.g. local `docker build` without `--build-arg`).",
+        "operationId": "version",
+        "responses": {
+          "200": {
+            "description": "Build identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/github/app-callback": {
       "get": {
         "tags": [
@@ -4155,6 +4177,21 @@
           "token": {
             "type": "string",
             "description": "Plaintext verification token from the emailed link."
+          }
+        }
+      },
+      "VersionResponse": {
+        "type": "object",
+        "required": [
+          "git_sha",
+          "built_at"
+        ],
+        "properties": {
+          "built_at": {
+            "type": "string"
+          },
+          "git_sha": {
+            "type": "string"
           }
         }
       }
