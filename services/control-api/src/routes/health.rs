@@ -7,6 +7,42 @@ use serde::Serialize;
 use utoipa::{OpenApi as _, ToSchema};
 
 // ---------------------------------------------------------------------------
+// GET /health/build — compile-time build provenance
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BuildInfoResponse {
+    /// Compile-time git SHA baked into the binary.  `"unknown"` when built
+    /// without `RB_BUILD_SHA` in the environment (e.g. ad-hoc local builds).
+    pub sha: &'static str,
+    /// Commit timestamp captured at compile time (`RB_BUILD_TIMESTAMP`).
+    pub timestamp: &'static str,
+    /// `"true"` when the working tree had uncommitted changes at build time.
+    pub dirty: &'static str,
+}
+
+/// Compile-time build provenance — SHA, timestamp, and dirty flag.
+///
+/// Public / unauthenticated. Returns commit SHA only (board decision 2026-05-21).
+/// Used by CI smoke gate and the dev-stack watcher to detect stale images.
+#[utoipa::path(
+    get,
+    path = "/health/build",
+    responses(
+        (status = 200, description = "Build provenance", body = BuildInfoResponse)
+    ),
+    tag = "health"
+)]
+pub async fn build_info() -> Json<BuildInfoResponse> {
+    let info = rb_build_info::get();
+    Json(BuildInfoResponse {
+        sha: info.sha,
+        timestamp: info.timestamp,
+        dirty: info.dirty,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // GET /v1/_version — build identity
 // ---------------------------------------------------------------------------
 

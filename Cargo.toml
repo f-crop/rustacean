@@ -34,6 +34,7 @@ members = [
     "services/agent-runner",
     "crates/rb-mcp",
     "crates/rb-kafka-health",
+    "crates/rb-build-info",
 ]
 
 [workspace.package]

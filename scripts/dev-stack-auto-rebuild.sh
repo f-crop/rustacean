@@ -339,6 +339,30 @@ if [[ "${REBUILD_SERVICE[control-api]:-}" == "true" ]]; then
     HEALTH_DETAIL="${HEALTH_DETAIL}control-api=FAIL(${HTTP_CODE}) "
     echo "[dev-stack-auto-rebuild] control-api health check failed: HTTP $HTTP_CODE"
   fi
+
+  # Build-provenance check: verify the running binary was compiled from NEW_SHA.
+  # A mismatch means Docker served a stale cached layer — the same class of bug
+  # that caused the 24h MCP outage (RUSAA-1630).
+  BUILD_SHA_RESPONSE="$(curl -s --max-time 5 \
+    "http://localhost:${PORT}/health/build" 2>/dev/null || true)"
+  if [[ -n "$BUILD_SHA_RESPONSE" ]]; then
+    BINARY_SHA="$(echo "$BUILD_SHA_RESPONSE" | python3 -c \
+      "import json,sys; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || true)"
+    if [[ -n "$BINARY_SHA" && "$BINARY_SHA" != "unknown" ]]; then
+      if [[ "$BINARY_SHA" == "$NEW_SHA" ]]; then
+        echo "[dev-stack-auto-rebuild] build_info_sha_match=true ($BINARY_SHA)"
+        HEALTH_DETAIL="${HEALTH_DETAIL}build_info_sha_match=true "
+      else
+        HEALTH_OK=false
+        echo "[dev-stack-auto-rebuild] build_info_sha_match=false binary=$BINARY_SHA expected=$NEW_SHA"
+        HEALTH_DETAIL="${HEALTH_DETAIL}build_info_sha_match=false "
+      fi
+    else
+      echo "[dev-stack-auto-rebuild] build_info SHA is '$BINARY_SHA' — skipping SHA match check"
+    fi
+  else
+    echo "[dev-stack-auto-rebuild] /health/build unreachable — skipping SHA match check"
+  fi
 fi
 
 if [[ "$REBUILD_FRONTEND" == "true" ]]; then

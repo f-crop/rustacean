@@ -28,10 +28,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo chef cook --release --recipe-path recipe.json -p control-api
 
 COPY . .
+
+# Declare AFTER the dep-cook step so that changing GIT_SHA only invalidates
+# the final binary build, not the dependency cache layer.
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release -p control-api && \
+    RB_BUILD_SHA="${GIT_SHA}" RB_BUILD_TIMESTAMP="${BUILT_AT}" cargo build --release -p control-api && \
     cp target/release/control-api target/release/rb-test-producer /usr/local/bin/
 
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────

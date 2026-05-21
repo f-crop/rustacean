@@ -20,6 +20,7 @@ path = "src/lib.rs"
 
 [dependencies]
 rb-auth = { path = "../../crates/rb-auth", version = "0.1.0" }
+rb-build-info = { path = "../../crates/rb-build-info", version = "0.1.0" }
 migrate = { path = "../migrate", version = "0.1.0" }
 rb-email = { path = "../../crates/rb-email", version = "0.1.0" }
 rb-kafka = { path = "../../crates/rb-kafka", version = "0.1.0" }
