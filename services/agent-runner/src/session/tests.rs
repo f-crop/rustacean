@@ -417,7 +417,7 @@ async fn natural_exit_noop_when_session_already_removed() {
 }
 
 // ---------------------------------------------------------------------
-// RUSAA-1644: MCP SHA pairing — mismatch detection logic, warn-only
+// MCP SHA pairing — mismatch detection logic, warn-only
 // ---------------------------------------------------------------------
 
 #[test]

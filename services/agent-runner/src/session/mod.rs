@@ -15,16 +15,14 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
-use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runtime};
+use crate::adapters::{adapter_for_runtime, AgentProcess, RuntimeAdapter, SessionCtx};
 
 mod natural_exit;
+mod seq;
 
 const PROCESS_TERMINATE_TIMEOUT_SECS: u64 = 30;
 const MAX_INITIAL_PROMPT_LEN: usize = 100_000;
 const MAX_TRACKED_SESSIONS: usize = 100_000;
-
-const SEQ_COUNTER_GC_INTERVAL_SECS: u64 = 300;
-const SEQ_COUNTER_MAX_AGE_SECS: u64 = 600;
 
 /// Sentinel seq value for Terminated / natural-exit lifecycle events.
 /// Must match `lifecycle_event_seq("terminated")` in control-api/src/routes/agents/sessions.rs.
@@ -82,31 +80,10 @@ impl SessionManager {
         let seq_counter_timestamps: Arc<Mutex<HashMap<String, Instant>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        let seq_counters_gc = Arc::clone(&seq_counters);
-        let timestamps_gc = Arc::clone(&seq_counter_timestamps);
-        tokio::spawn(async move {
-            let mut interval =
-                tokio::time::interval(Duration::from_secs(SEQ_COUNTER_GC_INTERVAL_SECS));
-            let max_age = Duration::from_secs(SEQ_COUNTER_MAX_AGE_SECS);
-            loop {
-                interval.tick().await;
-                let now = Instant::now();
-                let mut counters = seq_counters_gc.lock().await;
-                let mut timestamps = timestamps_gc.lock().await;
-                let before = counters.len();
-                timestamps.retain(|session_id, ts| {
-                    let retain = now.duration_since(*ts) < max_age;
-                    if !retain {
-                        counters.remove(session_id);
-                    }
-                    retain
-                });
-                let removed = before - counters.len();
-                if removed > 0 {
-                    tracing::debug!("GC: removed {} stale seq counter entries", removed);
-                }
-            }
-        });
+        seq::spawn_gc(
+            Arc::clone(&seq_counters),
+            Arc::clone(&seq_counter_timestamps),
+        );
 
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -264,9 +241,6 @@ impl SessionManager {
         )
         .await;
 
-        // Cross-runtime SHA pairing (warn-only per board decision in RUSAA-1644).
-        // Logs runner and MCP bundle SHAs so dashboards can detect cross-commit
-        // divergence without blocking session spawn.
         let runner_sha = rb_build_info::SHA;
         let mcp_sha = self.mcp_sha.as_str();
         let mcp_sha_mismatch =
@@ -473,19 +447,7 @@ impl SessionManager {
                     let reader = BufReader::new(stdout);
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
-                        let seq = {
-                            let mut c = seq_counters.lock().await;
-                            let mut ts = seq_timestamps.lock().await;
-                            let n = c.entry(sid_stdout.clone()).or_insert(0);
-                            if *n >= i64::MAX - 1 {
-                                tracing::warn!(session_id = %sid_stdout, "Seq counter approaching overflow, wrapping to 1");
-                                *n = 1;
-                            } else {
-                                *n += 1;
-                            }
-                            ts.insert(sid_stdout.clone(), Instant::now());
-                            *n
-                        };
+                        let seq = seq::next_seq(&seq_counters, &seq_timestamps, &sid_stdout).await;
                         if let Some(parsed) = adapter.parse_stdout_line(&line) {
                             let event = AgentEvent {
                                 tenant_id: tenant_id.to_string(),
@@ -516,19 +478,7 @@ impl SessionManager {
                 let reader = BufReader::new(stderr);
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let seq = {
-                        let mut c = seq_counters2.lock().await;
-                        let mut ts = seq_timestamps2.lock().await;
-                        let n = c.entry(sid_err.clone()).or_insert(0);
-                        if *n >= i64::MAX - 1 {
-                            tracing::warn!(session_id = %sid_err, "Seq counter approaching overflow, wrapping to 1");
-                            *n = 1;
-                        } else {
-                            *n += 1;
-                        }
-                        ts.insert(sid_err.clone(), Instant::now());
-                        *n
-                    };
+                    let seq = seq::next_seq(&seq_counters2, &seq_timestamps2, &sid_err).await;
                     let event = AgentEvent {
                         tenant_id: tenant_id.to_string(),
                         session_id: sid_err.clone(),
