@@ -2,6 +2,10 @@
 Description=Rustbrain dev-stack auto-rebuild watcher
 After=network-online.target
 Wants=network-online.target
+# Refuse to start when compose/active-env is absent or empty. The watcher script
+# enforces the same check at runtime, but the systemd condition prevents a failed-start
+# restart cycle before the file is created.
+ConditionPathNotEmpty=%h/projects/rustacean/compose/active-env
 
 [Service]
 Type=simple

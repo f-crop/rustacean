@@ -27,6 +27,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${RB_REPO_PATH:-"$(cd "$SCRIPT_DIR/.." && pwd)"}"
+
+# Guard: refuse to run when the script or REPO_ROOT resolves under /tmp/.
+# Bind-mount paths like ../migrations:/migrations:ro are resolved relative to the
+# compose project.working_dir label stored on each container. If that label points
+# into /tmp/ and the directory is later cleaned up, the bind fails at container
+# start with "migrations directory not found".
+if [[ "$SCRIPT_DIR" == /tmp/* || "$REPO_ROOT" == /tmp/* ]]; then
+  echo "[dev-stack-auto-rebuild] FATAL: refusing to run from a /tmp/ path" >&2
+  echo "[dev-stack-auto-rebuild]   SCRIPT_DIR=$SCRIPT_DIR" >&2
+  echo "[dev-stack-auto-rebuild]   REPO_ROOT=$REPO_ROOT" >&2
+  echo "[dev-stack-auto-rebuild]   Invoke from the canonical repo: ~/projects/rustacean/scripts/dev-stack-auto-rebuild.sh" >&2
+  exit 1
+fi
+
 LOG_DIR="${RB_LOG_DIR:-"$HOME/.local/state/rustbrain"}"
 LOG_FILE="$LOG_DIR/dev-stack-rebuilds.ndjson"
 BYPASS_FILE="$REPO_ROOT/compose/.no-auto-rebuild"
