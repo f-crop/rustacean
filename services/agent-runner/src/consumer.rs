@@ -13,6 +13,34 @@ use tokio::task::JoinHandle;
 
 use crate::session::{SessionManager, spawn_workspace_gc};
 
+/// Returns the SHA baked into the installed `rustbrain-mcp` bundle.
+///
+/// Resolution order:
+///   1. `MCP_BUILD_SHA` env var (set by the agent-runner Docker image via ARG→ENV)
+///   2. `MCP_SHA_FILE` sidecar path (default `/opt/rustbrain/mcp-build-sha.txt`)
+///   3. `"unknown"` fallback (local dev without the sidecar file)
+fn read_mcp_sha() -> String {
+    if let Ok(sha) = std::env::var("MCP_BUILD_SHA") {
+        let sha = sha.trim().to_string();
+        if !sha.is_empty() && sha != "unknown" {
+            return sha;
+        }
+    }
+    let file_path = std::env::var("MCP_SHA_FILE")
+        .unwrap_or_else(|_| "/opt/rustbrain/mcp-build-sha.txt".to_string());
+    match std::fs::read_to_string(&file_path) {
+        Ok(content) => {
+            let sha = content.trim().to_string();
+            if sha.is_empty() {
+                "unknown".to_string()
+            } else {
+                sha
+            }
+        }
+        Err(_) => "unknown".to_string(),
+    }
+}
+
 pub struct ConsumerHandle {
     pub handle: JoinHandle<()>,
     pub session_manager: Arc<SessionManager>,
@@ -40,11 +68,14 @@ pub fn spawn(
         http_client: http_client.clone(),
     });
 
+    let mcp_sha = read_mcp_sha();
+
     let session_manager = Arc::new(SessionManager::new(
         workspace_base.clone(),
         control_api_base,
         http_client,
         relay_sender,
+        mcp_sha,
     ));
     let producer = Arc::new(Producer::<AgentEvent>::new(&ProducerCfg::default())?);
 

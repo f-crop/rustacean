@@ -9,6 +9,7 @@
   "bin": { "rustbrain-mcp": "dist/src/cli.js" },
   "scripts": {
     "build": "tsc",
+    "postbuild": "node scripts/write-build-sha.cjs",
     "test": "tsc && node --test dist/test/*.test.js",
     "prepublishOnly": "npm run test"
   },
@@ -18,6 +19,7 @@
   },
   "files": [
     "dist/src/",
+    "dist/build-sha.txt",
     "README.md"
   ],
   "publishConfig": {

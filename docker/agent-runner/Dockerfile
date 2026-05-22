@@ -49,7 +49,9 @@ COPY packages/mcp-server-node/package.json packages/mcp-server-node/package-lock
 RUN npm ci
 COPY packages/mcp-server-node/src ./src
 COPY packages/mcp-server-node/tsconfig.json ./
-RUN npm run build
+COPY packages/mcp-server-node/scripts ./scripts
+ARG MCP_BUILD_SHA=unknown
+RUN BUILD_SHA=${MCP_BUILD_SHA} npm run build
 
 # ── Stage 5: runtime image ────────────────────────────────────────────────────
 # Base on node:20-bookworm-slim so we have node/npm for:
@@ -60,6 +62,9 @@ FROM node:20-bookworm-slim AS runtime
 ARG GIT_SHA=unknown
 LABEL git_sha=${GIT_SHA}
 ENV RB_BUILD_SHA=${GIT_SHA}
+
+ARG MCP_BUILD_SHA=unknown
+ENV MCP_BUILD_SHA=${MCP_BUILD_SHA}
 
 # Install git, ssh, and the C runtime deps the Rust binary links against.
 # (Node base images already ship libssl3/zlib1g/libcurl4 but we install
@@ -104,6 +109,7 @@ COPY --from=mcp-builder /mcp/dist /opt/rustbrain/mcp-server/dist
 RUN npm install -g /opt/rustbrain/mcp-server --omit=dev --no-fund --no-audit && \
     npm cache clean --force && \
     which rustbrain-mcp
+COPY --from=mcp-builder /mcp/dist/build-sha.txt /opt/rustbrain/mcp-build-sha.txt
 
 # Pre-create the agent workspace mount point with nonroot ownership.
 # Docker named volumes inherit ownership/permissions from the image's directory

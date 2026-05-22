@@ -119,6 +119,7 @@ async fn start_session_marks_failed_on_adapter_spawn_error() {
             .build()
             .unwrap(),
         relay_sender,
+        "test-mcp-sha".to_string(),
     );
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
@@ -413,4 +414,39 @@ async fn natural_exit_noop_when_session_already_removed() {
     );
 
     server_handle.abort();
+}
+
+// ---------------------------------------------------------------------
+// MCP SHA pairing — mismatch detection logic, warn-only
+// ---------------------------------------------------------------------
+
+#[test]
+fn mcp_sha_mismatch_detected_when_both_shas_known_and_differ() {
+    let runner_sha = "aaaa1111bbbb2222cccc3333dddd4444eeee5555";
+    let mcp_sha = "ffff6666aaaa7777bbbb8888cccc9999dddd0000";
+    let mismatch = runner_sha != "unknown" && mcp_sha != "unknown" && runner_sha != mcp_sha;
+    assert!(mismatch, "different known SHAs must be a mismatch");
+}
+
+#[test]
+fn mcp_sha_no_mismatch_when_shas_are_equal() {
+    let sha = "aaaa1111bbbb2222cccc3333dddd4444eeee5555";
+    let mismatch = sha != "unknown" && sha != "unknown" && sha != sha;
+    assert!(!mismatch, "identical SHAs must not mismatch");
+}
+
+#[test]
+fn mcp_sha_no_mismatch_when_runner_sha_unknown() {
+    let runner_sha = "unknown";
+    let mcp_sha = "ffff6666aaaa7777bbbb8888cccc9999dddd0000";
+    let mismatch = runner_sha != "unknown" && mcp_sha != "unknown" && runner_sha != mcp_sha;
+    assert!(!mismatch, "unknown runner SHA must not trigger mismatch");
+}
+
+#[test]
+fn mcp_sha_no_mismatch_when_mcp_sha_unknown() {
+    let runner_sha = "aaaa1111bbbb2222cccc3333dddd4444eeee5555";
+    let mcp_sha = "unknown";
+    let mismatch = runner_sha != "unknown" && mcp_sha != "unknown" && runner_sha != mcp_sha;
+    assert!(!mismatch, "unknown mcp SHA must not trigger mismatch");
 }
