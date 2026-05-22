@@ -382,6 +382,28 @@ for svc in "${SERVICES_REBUILT[@]}"; do
   RUNNING="$(docker inspect --format '{{.State.Running}}' "rustbrain-dev-${svc}-1" 2>/dev/null || echo "false")"
   if [[ "$RUNNING" == "true" ]]; then
     HEALTH_DETAIL="${HEALTH_DETAIL}${svc}=ok "
+    # SHA-match check: run build-info subcommand in the running container.
+    # Uses docker exec so no extra image pull is needed.
+    if [[ -n "$NEW_SHA" ]]; then
+      # agent-runner ships as rb-agent-runner; all others match the service name.
+      BIN_NAME="${svc}"
+      [[ "$svc" == "agent-runner" ]] && BIN_NAME="rb-agent-runner"
+      BUILD_INFO="$(docker exec "rustbrain-dev-${svc}-1" \
+        "/usr/local/bin/${BIN_NAME}" build-info 2>/dev/null || true)"
+      if [[ -n "$BUILD_INFO" ]]; then
+        BINARY_SHA="$(echo "$BUILD_INFO" | python3 -c \
+          "import json,sys; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || true)"
+        if [[ -n "$BINARY_SHA" && "$BINARY_SHA" != "unknown" ]]; then
+          if [[ "$BINARY_SHA" == "$NEW_SHA" ]]; then
+            echo "[dev-stack-auto-rebuild] ${svc} build_info_sha_match=true ($BINARY_SHA)"
+          else
+            HEALTH_OK=false
+            echo "[dev-stack-auto-rebuild] ${svc} build_info_sha_match=false binary=$BINARY_SHA expected=$NEW_SHA"
+            HEALTH_DETAIL="${HEALTH_DETAIL}${svc}_sha=MISMATCH "
+          fi
+        fi
+      fi
+    fi
   else
     HEALTH_OK=false
     HEALTH_DETAIL="${HEALTH_DETAIL}${svc}=FAIL(not-running) "
