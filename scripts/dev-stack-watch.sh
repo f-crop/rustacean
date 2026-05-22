@@ -23,6 +23,29 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${1:-"$(cd "$SCRIPT_DIR/.." && pwd)"}"
+
+# Guard: refuse to start when the script or REPO_ROOT resolves under /tmp/.
+# Running the watcher from a /tmp/ working directory brands every container with
+# a stale project.working_dir label; bind-mounts like ../migrations:/migrations:ro
+# break the moment that directory is cleaned up.
+if [[ "$SCRIPT_DIR" == /tmp/* || "$REPO_ROOT" == /tmp/* ]]; then
+  echo "[dev-stack-watch] FATAL: refusing to run from a /tmp/ path" >&2
+  echo "[dev-stack-watch]   SCRIPT_DIR=$SCRIPT_DIR" >&2
+  echo "[dev-stack-watch]   REPO_ROOT=$REPO_ROOT" >&2
+  echo "[dev-stack-watch]   Run from the canonical repo: ~/projects/rustacean/scripts/dev-stack-watch.sh" >&2
+  exit 1
+fi
+
+# Guard: compose/active-env must exist and be non-empty. Systemd's ConditionPathNotEmpty
+# enforces the same check at unit-start time, but an in-script check ensures the watcher
+# also fails fast when launched manually without the systemd precondition.
+ACTIVE_ENV_FILE="$REPO_ROOT/compose/active-env"
+if [[ ! -f "$ACTIVE_ENV_FILE" || ! -s "$ACTIVE_ENV_FILE" ]]; then
+  echo "[dev-stack-watch] FATAL: $ACTIVE_ENV_FILE is missing or empty — refusing to start" >&2
+  echo "[dev-stack-watch]   Create it before starting. Example: echo tailscale > compose/active-env" >&2
+  exit 1
+fi
+
 POLL_INTERVAL="${POLL_INTERVAL:-60}"
 REMOTE="${REMOTE:-origin}"
 BRANCH="${BRANCH:-main}"

@@ -232,6 +232,39 @@ scripts/dev-stack-auto-rebuild.sh --cold-start <prev_sha> <new_sha>  # with expl
 
 The watcher (`dev-stack-watch.sh`) automatically detects a stopped stack at startup and on each new-commit cycle, and passes `--cold-start` to the rebuild script when needed. The `COMPOSE_CMD` environment variable must be set (or accept the default) for cold-start detection to work correctly.
 
+## Reconciling working_dir drift
+
+Each `rustbrain-dev-*` container stores the compose project working directory as a label
+(`com.docker.compose.project.working_dir`). Bind-mount paths like `../migrations:/migrations:ro`
+resolve **relative to that label**. If the label ever points to a non-canonical path (e.g.
+`/tmp/phase2-deploy/compose`) the bind fails when that directory is cleaned up.
+
+**Detect drift:**
+
+```bash
+scripts/check-compose-working-dir.sh
+```
+
+Prints a per-container `OK` / `DRIFT` report and exits non-zero when any container has a
+working_dir label that diverges from `<repo>/compose/`.
+
+**Fix drift (force-recreate):**
+
+```bash
+# On mars — use the full tailscale COMPOSE_CMD so ports are correct
+COMPOSE_CMD="docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/tailscale.yml" \
+  scripts/check-compose-working-dir.sh --fix
+```
+
+`--fix` runs `docker compose up -d --force-recreate`, which re-creates every container and
+re-stamps the correct label. Health checks in the rebuild log confirm recovery.
+
+**Automatic prevention:** `dev-stack-watch.sh` and `dev-stack-auto-rebuild.sh` now refuse to
+run when their own directory or `REPO_ROOT` resolves under `/tmp/`; the watcher exits with a
+non-zero code and a fatal journal entry, which triggers the `Restart=on-failure` cycle in
+systemd. The systemd unit also carries `ConditionPathNotEmpty=…/compose/active-env` so it will
+not start at all if that sentinel file is missing or empty.
+
 ## Troubleshooting
 
 **Rebuild never triggers**
