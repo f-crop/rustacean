@@ -1,0 +1,130 @@
+name: rustbrain-board-smoke
+
+# Minimal stack for the board happy-path CI smoke test (RUSAA-1669).
+#
+# Tests: signup → login → MCP tools → agent session → NDJSON streaming
+#
+# Intentionally excludes Neo4j, Qdrant, Ollama, and all pipeline workers —
+# those services are covered by the pipeline-e2e.yml / e2e-smoke-test.sh.
+# This compose starts in ~60 s and requires no GitHub App credentials.
+#
+# Required env vars: none (all hardcoded for smoke use)
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: rustbrain
+      POSTGRES_PASSWORD: rustbrain
+      POSTGRES_DB: rustbrain
+    networks: [rb-board-smoke-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rustbrain"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  kafka:
+    image: apache/kafka:3.8.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: VGVzdENsdXN0ZXJJZEtleQ
+      KAFKA_METADATA_LOG_MAX_SNAPSHOT_INTERVAL_MS: "300000"
+      KAFKA_METADATA_LOG_SEGMENT_BYTES: "10485760"
+      KAFKA_BROKER_HEARTBEAT_INTERVAL_MS: "2000"
+      KAFKA_BROKER_SESSION_TIMEOUT_MS: "9000"
+    networks: [rb-board-smoke-net]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  kafka-init:
+    image: apache/kafka:3.8.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    networks: [rb-board-smoke-net]
+    # Only the agent command topic is required; pipeline topics are omitted
+    # since no ingestion workers run in this minimal stack.
+    command: >
+      bash -c "
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.commands --partitions 1 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.events   --partitions 1 --replication-factor 1 &&
+        echo 'kafka-init: board-smoke topics created'
+      "
+
+  # ── Database migrations ─────────────────────────────────────────────────────
+
+  rb-migrations:
+    image: pgvector/pgvector:pg16
+    environment:
+      DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
+    volumes:
+      - ../migrations:/migrations:ro
+      - ./scripts/migrate-control.sh:/usr/local/bin/migrate-control.sh:ro
+      - ./scripts/migrate-tenant.sh:/usr/local/bin/migrate-tenant.sh:ro
+    command: ["sh", "-c", "sh /usr/local/bin/migrate-control.sh && sh /usr/local/bin/migrate-tenant.sh"]
+    restart: "no"
+    networks: [rb-board-smoke-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Control plane API ───────────────────────────────────────────────────────
+
+  control-api:
+    build:
+      context: ..
+      dockerfile: docker/control-api/Dockerfile
+    image: ghcr.io/jarnura/rustacean/control-api:board-smoke
+    environment:
+      RB_DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
+      RB_LISTEN_ADDR: "0.0.0.0:8080"
+      RB_CORS_ORIGINS: "http://localhost:8080"
+      # Must point at a non-:8080 URL to pass config validation (RB_BASE_URL is
+      # used only for email links and OAuth redirects; not exercised by this test).
+      RB_BASE_URL: "http://localhost:15173"
+      RB_EMAIL_TRANSPORT: console
+      RB_SECURE_COOKIES: "false"
+      RB_MIGRATIONS_ROOT: /migrations
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      # Internal secret required by config validation (RB_INTERNAL_SECRET).
+      RB_INTERNAL_SECRET: "board-smoke-internal-secret"
+      RUST_LOG: "info,control_api=debug"
+    volumes:
+      - ../migrations:/migrations:ro
+    ports:
+      - "18081:8080"
+    networks: [rb-board-smoke-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rb-migrations:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+networks:
+  rb-board-smoke-net:
+    driver: bridge
