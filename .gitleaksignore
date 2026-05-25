@@ -17,6 +17,8 @@ f4b74704ded45b8ac5933633e1416a6418a4e2eb:compose/tailscale.env:generic-api-key:7
 # Test-only RB_INTERNAL_SECRET value in compose/e2e.yml; not a real credential.
 # Required by control-api config validation in the pipeline E2E smoke environment.
 5f9515b1a75a607a5abcde8736a228bef1b1939a:compose/e2e.yml:generic-api-key:169
+# Same value re-introduced in f2766fe (board-smoke-suite branch adds e2e.yml RB_INTERNAL_SECRET).
+f2766fe82358b064039f904c216db236050c6e5a:compose/e2e.yml:generic-api-key:169
 # Test-only RB_INTERNAL_SECRET value in compose/board-smoke.yml; not a real credential.
 # Required by control-api config validation in the board smoke CI environment.
 f2766fe82358b064039f904c216db236050c6e5a:compose/board-smoke.yml:generic-api-key:111
