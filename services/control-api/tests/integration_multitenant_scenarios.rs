@@ -1,11 +1,9 @@
-//! Multi-tenant CI scenarios: install conflict redirect URL, cross-tenant repo
-//! connect (allowed), and same-tenant duplicate repo (blocked).
+//! Multi-tenant CI scenarios: duplicate email signup, install conflict redirect,
+//! cross-tenant repo connect (allowed), and same-tenant duplicate repo (blocked).
 //!
 //! These tests complement `integration_github_install_conflict.rs` (which covers
-//! the install reclaim SQL path) and `integration_tests.rs` (which covers the
-//! duplicate-email signup HTTP path).  Together the three files give full PR
-//! coverage for the three conflict scenarios raised in the Wave 7 retrospective
-//! (RUSAA-1670):
+//! the install reclaim SQL path) and together give full PR coverage for all
+//! three conflict scenarios raised in the Wave 7 retrospective (RUSAA-1670):
 //!
 //! 1. Two tenants installing the same GitHub App installation
 //! 2. Two tenants signing up with the same primary email
@@ -13,7 +11,19 @@
 //!
 //! DB-backed tests are skipped automatically when `RB_DATABASE_URL` is not set.
 
+use std::sync::Arc;
+
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
+use control_api::{AppState, Config, build_public};
+use http_body_util::BodyExt as _;
+use rb_auth::{LoginRateLimiter, PasswordHasher};
+use rb_email::from_transport;
+use rb_sse::{EventBus, SseConfig};
 use sqlx::postgres::PgPoolOptions;
+use tower::ServiceExt as _;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -31,6 +41,92 @@ async fn connect() -> Option<sqlx::PgPool> {
             .await
             .expect("connect to test database"),
     )
+}
+
+async fn real_db_state() -> Option<(AppState, sqlx::PgPool)> {
+    let db_url = std::env::var("RB_DATABASE_URL").ok()?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .ok()?;
+    let smtp = rb_email::SmtpConfig {
+        host: String::new(),
+        port: 587,
+        username: String::new(),
+        password: String::new(),
+        from_address: "test@example.com".to_owned(),
+    };
+    let email_sender = from_transport("noop", &smtp).ok()?;
+    let hasher = PasswordHasher::from_config(64, 1, 1).ok()?;
+    let config = Config {
+        listen_addr: "127.0.0.1:0".to_owned(),
+        database_url: db_url,
+        cors_origins: vec![],
+        base_url: "http://localhost:8080".to_owned(),
+        session_ttl_days: 30,
+        argon2_memory_kb: 64,
+        argon2_time_cost: 1,
+        argon2_parallelism: 1,
+        email_transport: "noop".to_owned(),
+        service_name: "control-api-test".to_owned(),
+        secure_cookies: true,
+        gh_app_id: None,
+        gh_app_private_key_b64: None,
+        gh_app_webhook_secret: None,
+        gh_app_enc_key_b64: None,
+        gh_api_base: rb_github::DEFAULT_GITHUB_API_BASE.to_owned(),
+        neo4j_uri: None,
+        neo4j_user: "neo4j".to_owned(),
+        neo4j_password: None,
+        kafka_bootstrap_servers: "localhost:9092".to_owned(),
+        dev_test_routes: false,
+        migrations_root: None,
+        qdrant_url: None,
+        ollama_url: None,
+        embedding_model: "nomic-embed-text".to_owned(),
+        internal_secret: Some("test-internal-secret".to_owned()),
+        internal_listen_addr: "127.0.0.1:0".to_owned(),
+        session_create_rate_limit: 10,
+        session_create_window_secs: 60,
+        tenant_session_cap: 100,
+    };
+    let state = AppState {
+        pool: pool.clone(),
+        email_sender: Arc::from(email_sender),
+        hasher: Arc::new(hasher),
+        login_rate_limiter: Arc::new(LoginRateLimiter::new()),
+        config: Arc::new(config),
+        gh_loader: std::sync::Arc::new(rb_github::GhAppLoader::new(None)),
+        sse_bus: Arc::new(EventBus::new(SseConfig::default())),
+        ingest_producer: None,
+        tombstone_producer: None,
+        module_tree_cache: rb_query::new_module_tree_cache(),
+        graph: None,
+        qdrant: None,
+        http_client: reqwest::Client::new(),
+        neo4j_uri: None,
+        kafka_consistency: Arc::new(control_api::KafkaConsistencyState::new()),
+        mcp_sessions: control_api::McpSessionStore::new(),
+        agent_registry: control_api::AgentRegistry::new(),
+        agent_commands_producer: None,
+        internal_secret: "test-internal-secret".to_owned(),
+        session_create_rate_limiter: Arc::new(control_api::SessionCreateRateLimiter::new(10, 60)),
+        tenant_session_count: Arc::new(control_api::TenantSessionCount::new()),
+    };
+    Some((state, pool))
+}
+
+fn json_body(v: &serde_json::Value) -> Body {
+    Body::from(serde_json::to_vec(v).expect("serialise JSON"))
+}
+
+async fn collect_body(body: Body) -> Vec<u8> {
+    body.collect()
+        .await
+        .expect("collect body")
+        .to_bytes()
+        .to_vec()
 }
 
 fn random_id_in_range(base: i64) -> i64 {
@@ -127,6 +223,79 @@ fn install_redirect_url_contracts_are_correct() {
     assert!(
         !success.contains("install=conflict"),
         "success redirect must not claim conflict"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 2: Two tenants signing up with the same primary email
+// ---------------------------------------------------------------------------
+
+/// Second signup with a previously-registered email must be rejected with
+/// 409 Conflict and error code `email_taken`.
+///
+/// Multi-tenant scenario: two separate users attempt to create accounts using
+/// the same primary email address — only the first succeeds.
+///
+/// Skipped automatically when `RB_DATABASE_URL` is not set.
+#[tokio::test]
+async fn duplicate_email_signup_returns_conflict() {
+    let Some((state, _pool)) = real_db_state().await else {
+        return;
+    };
+    let app = build_public(state);
+    let email = format!("mt-dup-{}@test.example", Uuid::new_v4().simple());
+
+    // First signup — must succeed.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/auth/signup")
+                .header("content-type", "application/json")
+                .body(json_body(&serde_json::json!({
+                    "email": email,
+                    "password": "correct-horse-battery-staple",
+                    "tenant_name": "First Tenant",
+                })))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "first signup must return 201"
+    );
+
+    // Second signup with the same email — must be rejected with 409.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/auth/signup")
+                .header("content-type", "application/json")
+                .body(json_body(&serde_json::json!({
+                    "email": email,
+                    "password": "correct-horse-battery-staple",
+                    "tenant_name": "Second Tenant",
+                })))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "duplicate email signup must return 409 Conflict"
+    );
+
+    let raw = collect_body(resp.into_body()).await;
+    let body: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+    assert_eq!(
+        body["error"], "email_taken",
+        "error code must be 'email_taken'"
     );
 }
 
