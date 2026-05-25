@@ -76,11 +76,13 @@ sha2.workspace = true
 hex.workspace = true
 # Construct rdkafka error variants in unit tests (e.g. AllBrokersDown → 503).
 rdkafka.workspace = true
-# HTTP mocking for the manifest-exchange integration test.
+# HTTP mocking for the manifest-exchange integration test and regression-defence suite.
 wiremock.workspace = true
 tracing-subscriber.workspace = true
 # test-util exposes raw_subscribe for SSE fan-out integration tests.
 rb-sse = { path = "../../crates/rb-sse", version = "0.1.0", features = ["test-util"] }
+# test-helpers enables GhApp::new_with_api_base for the orphan-install smoke tests.
+rb-github = { path = "../../crates/rb-github", version = "0.1.0", features = ["test-helpers"] }
 
 [lints]
 workspace = true

@@ -33,6 +33,26 @@ impl GitHubTokenMinter {
             base_url: DEFAULT_BASE_URL.to_owned(),
         }
     }
+
+    /// Create a minter that targets a custom API base URL.
+    ///
+    /// Intended for integration tests that stub the GitHub token endpoint with
+    /// a local server (e.g. wiremock).  Gated behind the `test-helpers` feature
+    /// so production builds are unaffected.
+    #[cfg(feature = "test-helpers")]
+    pub(crate) fn new_with_base_url(
+        app_id: i64,
+        encoding_key: EncodingKey,
+        http: Client,
+        base_url: String,
+    ) -> Self {
+        Self {
+            app_id,
+            encoding_key,
+            http,
+            base_url,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

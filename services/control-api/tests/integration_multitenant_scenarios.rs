@@ -417,8 +417,7 @@ async fn same_tenant_duplicate_repo_blocked_by_unique_constraint() {
     let tenant_id = seed_tenant(&pool).await;
     let user_id = seed_user(&pool).await;
     let github_repo_id = random_id_in_range(9_000_000);
-    let install_id =
-        seed_installation(&pool, tenant_id, random_id_in_range(10_000_000)).await;
+    let install_id = seed_installation(&pool, tenant_id, random_id_in_range(10_000_000)).await;
 
     let repo_first = Uuid::new_v4();
     let repo_second = Uuid::new_v4();
