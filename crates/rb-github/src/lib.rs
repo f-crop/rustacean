@@ -92,6 +92,46 @@ impl GhApp {
         }
     }
 
+    /// Create a `GhApp` that points all token-mint calls at a custom API base.
+    ///
+    /// Intended for integration tests that stub the GitHub API with a local
+    /// server (e.g. wiremock).  Gated behind the `test-helpers` Cargo feature
+    /// so production builds are unaffected.
+    #[cfg(feature = "test-helpers")]
+    #[must_use]
+    pub fn new_with_api_base(
+        app_id: i64,
+        encoding_key: EncodingKey,
+        webhook_secret: Secret<Vec<u8>>,
+        api_base: &str,
+    ) -> Self {
+        let http = Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("reqwest client init is infallible with valid config");
+        let identity_cache = Cache::builder()
+            .max_capacity(1)
+            .time_to_live(Duration::from_secs(60))
+            .build();
+        let minter: Arc<dyn TokenMinter> =
+            Arc::new(installation_token::GitHubTokenMinter::new_with_base_url(
+                app_id,
+                encoding_key.clone(),
+                http.clone(),
+                api_base.to_owned(),
+            ));
+        let token_cache = TokenCache::new(minter);
+        Self {
+            app_id,
+            encoding_key,
+            webhook_secret,
+            replay_cache: ReplayCache::new(),
+            identity_cache: Arc::new(identity_cache),
+            token_cache,
+            http,
+        }
+    }
+
     /// Verifies a GitHub webhook signature header against the raw body.
     ///
     /// # Errors

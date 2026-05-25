@@ -31,6 +31,11 @@ uuid.workspace = true
 arc-swap.workspace = true
 urlencoding = "2"
 
+[features]
+# Expose constructors that accept a custom GitHub API base URL so integration
+# tests can point the token-mint endpoint at a wiremock stub.
+test-helpers = []
+
 [dev-dependencies]
 tokio = { workspace = true }
 
