@@ -50,9 +50,9 @@ services:
       KAFKA_BROKER_SESSION_TIMEOUT_MS: "9000"
     networks: [rb-board-smoke-net]
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 15
       start_period: 30s
 
