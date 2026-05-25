@@ -33,6 +33,7 @@ docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/ta
 | 10443 | 443 | caddy | HTTPS | Reverse proxy HTTPS |
 | 18081 | 8081 | pgweb | HTTP | pgweb DB browser (read-only) |
 | 18082 | 8082 | kafka-ui | HTTP | Kafka UI |
+| ${CLAUDE_SSH_HOST_PORT:-12222} | 22 | claude-login | SSH | Claude OAuth login sidecar — shares `claude-credentials` volume with agent-runner |
 
 ### Quick access via Tailscale
 
