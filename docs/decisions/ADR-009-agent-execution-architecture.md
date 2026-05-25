@@ -1,5 +1,7 @@
 # ADR-009: Agent Execution Architecture (Wave 7 — Phase 6)
 
+**Revision:** rev 6 (2026-05-25) — Status promotion to `Accepted` — shipped behaviour verified against `main` HEAD on mars.
+
 **Revision:** rev 5 (2026-05-13) — incorporates the approved design from [RUSAA-1269](/RUSAA/issues/RUSAA-1269#document-plan) (Slice 1 [RUSAA-1273](/RUSAA/issues/RUSAA-1273) merged in PR #401, commit `425d003`):
 1. §1 — new substrate-gap entries for the `claude-login` SSH sidecar (compose service + `claude-credentials` named volume); LiteLLM bullet qualified — v1 operative mode is **external (mars-hosted)**, in-cluster Deployment remains the long-term target.
 2. §3.4 — amended to acknowledge v1 ships against an **external LiteLLM** reached over the rb-net by URL + virtual key; the in-cluster shared-service shape stays the long-term target. Cross-links [RUSAA-1269](/RUSAA/issues/RUSAA-1269#document-plan) §3.1 for the three-mode adapter selector (`LiteLLM` / `OpenAI-compatible` / `Direct provider`).
@@ -22,7 +24,13 @@ Rev 2 (2026-05-07) — closes three non-blocking items from CTO technical review
 
 Rev 1 (2026-05-07) — initial draft for Gate-1 review.
 
-**Status:** Proposed (awaiting board sign-off on rev 3; CTO technical review **APPROVE** rev 1, 2026-05-06; rev 3 supersedes the rev 1/2 single-provider working assumption per board directive 2026-05-06)
+**Shipped artifacts (rev 6):** Wave 7 shipped the decisions this ADR ratifies; status flipped to Accepted on the basis of merged code on `main` HEAD, verified on mars.
+
+- **REQ-MC-01** — `rb-mcp` crate + `/mcp` route + Streamable HTTP transport. Most recent: PR [#548](https://github.com/f-crop/rustacean/pull/548) (`fix(mcp): accept agent-scoped API keys on /mcp`).
+- **REQ-MC-02** — `agent_sessions` / `agent_events` tables + `/v1/agents/*` REST + SSE. Most recent: PR [#349](https://github.com/f-crop/rustacean/pull/349) (rate limiting); foundational: PR [#319](https://github.com/f-crop/rustacean/pull/319) (`rb-agent-runner`).
+- **REQ-FE-06** — frontend execution viewer route pair. Most recent: PR [#401](https://github.com/f-crop/rustacean/pull/401) (claude-login sidecar slice).
+
+**Status:** Accepted (rev 6 promotion 2026-05-25 — shipped behaviour verified against `main` HEAD on mars; rev 3 board sign-off carried forward; CTO technical review **APPROVE** rev 1, 2026-05-06; rev 3 supersedes the rev 1/2 single-provider working assumption per board directive 2026-05-06)
 **Wave:** 7 (Phase 6 — Agent Execution)
 **Author:** Architect ([RUSAA-719](/RUSAA/issues/RUSAA-719))
 **Covers requirements:** REQ-MC-01 (RUSAA-83), REQ-MC-02 (RUSAA-84), REQ-FE-06 (RUSAA-85)
