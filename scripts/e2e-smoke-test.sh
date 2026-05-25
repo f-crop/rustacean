@@ -346,6 +346,89 @@ log "  stores.neo4j=${neo4j_status}  stores.qdrant=${qdrant_status}"
   || fail "expected stores.qdrant=ok, got '${qdrant_status}'"
 log "Health assertion PASSED (neo4j=${neo4j_status}, qdrant=${qdrant_status})."
 
+# ── Board happy-path assertions (RUSAA-1669) ──────────────────────────────────
+# These run after the full pipeline succeeds and validate the board-level UX
+# flows: MCP tools, agent session creation, and NDJSON log streaming.
+# The pipeline steps above already prove signup → install → repo → ingestion.
+
+E2E_HEADERS_FILE="/tmp/smoke-mcp-headers-$$.txt"
+trap 'rm -f "$E2E_HEADERS_FILE"' RETURN 2>/dev/null || true
+
+# ── Board step B1: MCP initialize ────────────────────────────────────────────
+log "Board B1: MCP initialize (POST ${API}/mcp)..."
+mcp_init_body=$(curl -sf -X POST "${API}/mcp" \
+  -H "Content-Type: application/json" \
+  -D "${E2E_HEADERS_FILE}" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"e2e-smoke","version":"1.0.0"}}}' \
+  -b "${COOKIE_JAR}") || fail "MCP initialize request failed"
+
+mcp_session_id=$(grep -i "^mcp-session-id:" "${E2E_HEADERS_FILE}" \
+  | awk '{print $2}' | tr -d '[:space:]\r')
+[ -n "${mcp_session_id}" ] \
+  || fail "MCP initialize did not return Mcp-Session-Id header (body: ${mcp_init_body})"
+log "  mcp_session_id=${mcp_session_id}"
+
+# ── Board step B2: MCP tools/list ────────────────────────────────────────────
+log "Board B2: MCP tools/list (POST ${API}/mcp)..."
+tools_resp=$(curl -sf -X POST "${API}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "Mcp-Session-Id: ${mcp_session_id}" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  -b "${COOKIE_JAR}") || fail "MCP tools/list request failed"
+
+tool_count=$(echo "${tools_resp}" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('result',{}).get('tools',[])))" 2>/dev/null || true)
+log "  tool count=${tool_count}"
+[[ "${tool_count}" =~ ^[0-9]+$ ]] \
+  || fail "non-numeric tool_count from MCP tools/list: '${tool_count}'"
+(( tool_count >= 2 )) \
+  || fail "expected ≥ 2 MCP tools, got ${tool_count}"
+log "MCP tools/list PASSED (${tool_count} tools)."
+
+# ── Board step B3: Agent session creation ────────────────────────────────────
+log "Board B3: Creating agent session (POST ${API}/v1/agents/sessions)..."
+session_resp=$(curl -sf -X POST "${API}/v1/agents/sessions" \
+  -H "Content-Type: application/json" \
+  -d '{"runtime":"claude_code","initial_prompt":"e2e smoke board happy-path"}' \
+  -b "${COOKIE_JAR}" \
+  -w "\n%{http_code}") || fail "agent session create request failed"
+
+session_http_status=$(echo "${session_resp}" | tail -1)
+session_body=$(echo "${session_resp}" | head -n -1)
+[ "${session_http_status}" -eq 202 ] \
+  || fail "create session returned HTTP ${session_http_status}, expected 202 (body: ${session_body})"
+
+session_id=$(echo "${session_body}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['session_id'])" 2>/dev/null || true)
+[ -n "${session_id}" ] \
+  || fail "create session response missing session_id (body: ${session_body})"
+
+db_session_status=$(psql_q \
+  "SELECT status FROM agents.agent_sessions WHERE id = '${session_id}';" | tr -d '[:space:]')
+[ "${db_session_status}" = "pending" ] \
+  || fail "expected agents.agent_sessions.status=pending, got '${db_session_status}'"
+log "Agent session PASSED: session_id=${session_id} status=${db_session_status}."
+
+# ── Board step B4: Seed events + NDJSON streaming ────────────────────────────
+log "Board B4: Seeding agent events for NDJSON streaming test..."
+psql_q "INSERT INTO agents.agent_events
+        (id, session_id, tenant_id, event_type, sequence, payload, created_at)
+        VALUES
+          (gen_random_uuid(), '${session_id}', '${tenant_id}', 'session.created', 1, '{\"status\":\"created\"}'::jsonb, now()),
+          (gen_random_uuid(), '${session_id}', '${tenant_id}', 'session.message', 2, '{\"text\":\"e2e smoke hello\"}'::jsonb, now());"
+
+log "Board B4: NDJSON log streaming (GET ${API}/v1/agents/sessions/${session_id}/log.ndjson)..."
+ndjson_resp=$(curl -sf -b "${COOKIE_JAR}" \
+  "${API}/v1/agents/sessions/${session_id}/log.ndjson") || fail "NDJSON log request failed"
+
+ndjson_lines=$(echo "${ndjson_resp}" | grep -c '^{' || true)
+log "  NDJSON line count=${ndjson_lines}"
+(( ndjson_lines >= 2 )) \
+  || fail "expected ≥ 2 NDJSON lines, got ${ndjson_lines}"
+log "NDJSON streaming PASSED (${ndjson_lines} lines)."
+
+rm -f "${E2E_HEADERS_FILE}"
+
 # ── Collect UAT fingerprint (RUSAA-696 — Pillar C) ───────────────────────────
 # Must run before the stack tears down (cleanup trap fires on EXIT).
 # Scopes fingerprint to this ingest run + the tenant resolved above.

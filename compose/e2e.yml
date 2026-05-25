@@ -110,6 +110,8 @@ services:
         kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.projector.events          --partitions 1 --replication-factor 1 &&
         kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.audit.events              --partitions 1 --replication-factor 1 &&
         kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.tombstones.v1             --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.commands            --partitions 1 --replication-factor 1 &&
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.events              --partitions 1 --replication-factor 1 &&
         echo 'kafka-init: all topics created'
       "
 
@@ -155,13 +157,16 @@ services:
       RB_DATABASE_URL: postgres://rustbrain:rustbrain@postgres:5432/rustbrain
       RB_LISTEN_ADDR: "0.0.0.0:8080"
       RB_CORS_ORIGINS: "http://localhost:8080"
-      RB_BASE_URL: "http://control-api:8080"
+      # Must not be :8080 to pass config validation (base_url feeds email/OAuth links only).
+      RB_BASE_URL: "http://localhost:15173"
       RB_EMAIL_TRANSPORT: console
       RB_SECURE_COOKIES: "false"
       RB_MIGRATIONS_ROOT: /migrations
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       RB_NEO4J_URI: "bolt://neo4j:7687"
       RB_NEO4J_PASSWORD: rustbrain123
+      # Required by config validation (used by agent-runner callback routes).
+      RB_INTERNAL_SECRET: "e2e-smoke-internal-secret"
       RUST_LOG: "info,control_api=debug"
     volumes:
       - ../migrations:/migrations:ro

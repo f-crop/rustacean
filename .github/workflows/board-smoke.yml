@@ -1,0 +1,53 @@
+name: Board Smoke
+
+# Pre-UAT integration smoke suite exercising the board-level happy path
+# (RUSAA-1669 Recommendation R1).
+#
+# Steps: signup → login → MCP tools/list → agent session → NDJSON streaming
+#
+# Runs on every PR — no GitHub App secrets required.
+# Failure blocks PR merge.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Job name IS the required-check name registered in branch protection.
+  board-smoke-required:
+    name: board-smoke-required
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build control-api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/control-api/Dockerfile
+          load: true
+          tags: ghcr.io/jarnura/rustacean/control-api:board-smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run board happy-path smoke test
+        run: bash scripts/board-smoke.sh
+
+      - name: Upload compose logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: board-smoke-compose-logs-${{ github.run_id }}
+          path: /tmp/board-smoke-compose-logs/
+          retention-days: 7
