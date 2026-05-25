@@ -14,3 +14,6 @@ ed45745ba598f205130a4cba0ddd2bb1b0fa79af:crates/rb-github/tests/fixtures/test_rs
 # Dev AES-256-GCM key first introduced in f4b74704 without gitleaks:allow annotation.
 # Annotated in 9cd3bcf4; historical diff still trips the scanner. Dev fixture only.
 f4b74704ded45b8ac5933633e1416a6418a4e2eb:compose/tailscale.env:generic-api-key:74
+# Test-only RB_INTERNAL_SECRET value in compose/e2e.yml; not a real credential.
+# Required by control-api config validation in the pipeline E2E smoke environment.
+5f9515b1a75a607a5abcde8736a228bef1b1939a:compose/e2e.yml:generic-api-key:169
