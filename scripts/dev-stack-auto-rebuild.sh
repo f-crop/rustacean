@@ -43,6 +43,7 @@ fi
 
 LOG_DIR="${RB_LOG_DIR:-"$HOME/.local/state/rustbrain"}"
 LOG_FILE="$LOG_DIR/dev-stack-rebuilds.ndjson"
+EFFECTIVE_SHA_FILE="$LOG_DIR/service-effective-shas.json"
 BYPASS_FILE="$REPO_ROOT/compose/.no-auto-rebuild"
 
 # -- Helpers -----------------------------------------------------------------
@@ -66,6 +67,22 @@ print(json.dumps({
   'elapsed_s':  int(sys.argv[8]),
 }))
 " "$START_TS" "$PREV_SHA" "$NEW_SHA" "$result" "$health" "$rebuilt_json" "$reason" "$elapsed" >> "$LOG_FILE"
+}
+
+# Writes service-effective-shas.json, recording that all managed services are
+# code-equivalent to SHA.  Called on every successful exit (including "skipped —
+# no paths changed") so the drift gate can distinguish a label-divergent-but-
+# code-current service (squash-merge false-positive) from a genuinely stale one.
+# The file is NOT updated on error exits, keeping the last known-good SHA intact.
+write_effective_shas() {
+  local sha="$1"
+  python3 -c "
+import json, sys
+sha = sys.argv[1]
+ts  = sys.argv[2]
+services = sys.argv[3].split()
+print(json.dumps({'updated_at': ts, 'services': {svc: sha for svc in services}}, indent=2))
+" "$sha" "$(ts)" "${ALL_RUST_SERVICES[*]} frontend" > "$EFFECTIVE_SHA_FILE"
 }
 
 # -- Early init: must precede COMPOSE_ENV_FILE sourcing so the EXIT trap can
@@ -211,6 +228,7 @@ else
 
   if [[ -z "$CHANGED_FILES" ]]; then
     echo "[dev-stack-auto-rebuild] no changed files — nothing to do"
+    write_effective_shas "$NEW_SHA"
     log_record "skipped" "" "[]" "no changed files"
     exit 0
   fi
@@ -255,6 +273,7 @@ else
 
   if [[ "${#REBUILD_SERVICE[@]}" -eq 0 && "$REBUILD_FRONTEND" == "false" ]]; then
     echo "[dev-stack-auto-rebuild] no service paths changed — skipping"
+    write_effective_shas "$NEW_SHA"
     log_record "skipped" "" "[]" "no service paths changed"
     exit 0
   fi
@@ -429,6 +448,7 @@ HEALTH_DETAIL="${HEALTH_DETAIL% }"  # trim trailing space
 
 if [[ "$HEALTH_OK" == "true" ]]; then
   echo "[dev-stack-auto-rebuild] all healthy: $HEALTH_DETAIL"
+  write_effective_shas "$NEW_SHA"
   log_record "ok" "$HEALTH_DETAIL" "$REBUILT_JSON" ""
   post_gh_status "success" "Dev-stack healthy after rebuild: $HEALTH_DETAIL"
 else

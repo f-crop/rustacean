@@ -328,6 +328,27 @@ scripts/test-drift-exit-codes.sh
 Covers: stack fully down (exit 0), all current (exit 0), one drifted (exit 1),
 no-label image (exit 1), mixed absent+drifted (exit 1).
 
+## Effective-SHA state file (squash-merge false-positive fix)
+
+`dev-stack-auto-rebuild.sh` writes `~/.local/state/rustbrain/service-effective-shas.json` on every successful exit — including the "no paths changed" skip path. The file records the HEAD SHA that all managed services are certified against. The drift gate (`check-dev-stack-drift.sh`) reads this file so that services whose container label carries a pre-squash branch SHA (not an ancestor of `main`) are correctly reported as current rather than BLOCKed.
+
+**Normal operation:** the file is maintained automatically. No operator action is needed.
+
+**If the file ever gets corrupt or contains a wrong SHA** (e.g. after a manual partial rebuild), delete it to reset to label-only mode:
+
+```bash
+rm ~/.local/state/rustbrain/service-effective-shas.json
+```
+
+The drift gate falls back to the git ancestry check when the file is absent. Run a full `--cold-start` or wait for the next `main` commit to trigger a rebuild, which will rewrite the file with the correct HEAD SHA.
+
+**Inspect the current file:**
+
+```bash
+cat ~/.local/state/rustbrain/service-effective-shas.json | python3 -m json.tool
+```
+
+
 ## Troubleshooting
 
 **Rebuild never triggers**
