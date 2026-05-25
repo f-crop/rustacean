@@ -186,6 +186,6 @@ Detect orphan-installation rows in a background job (e.g. nightly sweep), proact
 
 ## 5. Open follow-ups (not part of this ADR's acceptance)
 
-- **C4** — operator runbook for the manual rebind path on `reason=active` collisions (separate Wave-7 docs subtask under [RUSAA-1664](/RUSAA/issues/RUSAA-1664)).
+- **C4** — operator runbook for the manual rebind path on `reason=active` collisions: [`docs/runbooks/github-install-rebind.md`](../runbooks/github-install-rebind.md) (Wave-7 docs subtask under [RUSAA-1664](/RUSAA/issues/RUSAA-1664)).
 - **C5** — `docs/architecture.md` does not currently have a dedicated GitHub-integration section. The architecture-doc refresh under C5 is the right surface to add the cross-link to this ADR; doing it here would create a one-line section with no surrounding context. Deferred per the issue's acceptance-criteria escape clause.
 - **Persistent reclaim audit table** — see §3. Out of scope for Wave 7; revisit when/if compliance requirements name a queryable surface.
