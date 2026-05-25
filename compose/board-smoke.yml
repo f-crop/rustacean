@@ -67,8 +67,8 @@ services:
     # since no ingestion workers run in this minimal stack.
     command: >
       bash -c "
-        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.commands --partitions 1 --replication-factor 1 &&
-        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.events   --partitions 1 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.commands --partitions 1 --replication-factor 1 &&
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic rb.agent.events   --partitions 1 --replication-factor 1 &&
         echo 'kafka-init: board-smoke topics created'
       "
 
