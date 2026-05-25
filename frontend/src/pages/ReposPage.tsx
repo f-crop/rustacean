@@ -117,8 +117,11 @@ function ReposPageInner({ tenantId }: ReposPageInnerProps): JSX.Element {
     } else if (!installHandledRef.current && search.install === "conflict") {
       installHandledRef.current = true;
       toast.error(
-        "This GitHub account is already installed by another workspace. " +
-        "Please contact your administrator or re-install the GitHub App on a different account.",
+        search.reason === "active"
+          ? "This GitHub account is actively connected to another workspace. " +
+            "Contact your administrator to transfer it, or install the GitHub App on a different account."
+          : "This GitHub account is already connected to another workspace. " +
+            "Please contact your administrator or install the GitHub App on a different account.",
       );
       window.history.replaceState(null, "", routes.repos);
     }
