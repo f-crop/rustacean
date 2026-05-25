@@ -1,0 +1,176 @@
+name: Dev-stack Drift Check
+
+# Runs every 15 minutes against mars.  On detected drift the job fails
+# (honoring check-dev-stack-drift.sh exit 1) and opens / updates a GitHub
+# issue tagged dev-stack-drift to page Platform.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      no_fetch:
+        description: 'Pass --no-fetch to skip git fetch on mars'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: dev-stack-drift-check
+  cancel-in-progress: true
+
+jobs:
+  drift-check:
+    name: drift-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # ── SSH to mars, run the drift detector ───────────────────────────────
+      - name: Run drift check on mars
+        id: drift
+        env:
+          MARS_SSH_KEY:  ${{ secrets.MARS_SSH_KEY }}
+          MARS_SSH_HOST: ${{ secrets.MARS_SSH_HOST }}
+          MARS_SSH_USER: ${{ secrets.MARS_SSH_USER }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${MARS_SSH_KEY:-}" || -z "${MARS_SSH_HOST:-}" || -z "${MARS_SSH_USER:-}" ]]; then
+            echo "::error::Required secrets not configured: MARS_SSH_KEY, MARS_SSH_HOST, MARS_SSH_USER"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$MARS_SSH_KEY" > ~/.ssh/mars_key
+          chmod 600 ~/.ssh/mars_key
+
+          # StrictHostKeyChecking=no — acceptable for a dev-stack monitor.
+          # Rotate MARS_SSH_KEY if the mars host key changes.
+          SSH_OPTS="-i ~/.ssh/mars_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes"
+
+          FETCH_FLAG=""
+          [[ "${{ inputs.no_fetch }}" == "true" ]] && FETCH_FLAG="--no-fetch"
+
+          set +e
+          RAW_OUTPUT=$(ssh $SSH_OPTS "${MARS_SSH_USER}@${MARS_SSH_HOST}" \
+            "~/projects/rustacean/scripts/check-dev-stack-drift.sh $FETCH_FLAG" 2>&1)
+          DRIFT_EXIT=$?
+          set -e
+
+          {
+            echo "exit_code=$DRIFT_EXIT"
+            echo "drift_report<<EOF"
+            echo "$RAW_OUTPUT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Drift check exited: $DRIFT_EXIT"
+          echo "$RAW_OUTPUT"
+
+      # ── On drift: ensure the alert label exists ────────────────────────────
+      - name: Ensure dev-stack-drift label exists
+        if: steps.drift.outputs.exit_code == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create dev-stack-drift \
+            --repo f-crop/rustacean \
+            --description "Automated alert: dev-stack behind origin/main on mars" \
+            --color "d93f0b" \
+            --force
+
+      # ── On drift: open or update the drift alert issue ─────────────────────
+      - name: Open or update drift alert issue
+        if: steps.drift.outputs.exit_code == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          DETECTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          BODY="## Dev-stack drift detected on mars
+
+The scheduled drift check at **${DETECTED_AT}** found one or more containers running behind \`origin/main\`.
+
+**Workflow run:** ${RUN_URL}
+
+### Drift report
+
+\`\`\`
+${{ steps.drift.outputs.drift_report }}
+\`\`\`
+
+### Remediation
+
+On mars, trigger a full rebuild:
+\`\`\`bash
+cd ~/projects/rustacean
+scripts/dev-stack-auto-rebuild.sh --cold-start
+\`\`\`
+
+Or restart the auto-rebuild watcher (it will detect drift and rebuild on next main commit):
+\`\`\`bash
+systemctl --user restart rustbrain-dev-watch
+\`\`\`
+
+See [docs/dev-stack-auto-rebuild.md](https://github.com/f-crop/rustacean/blob/main/docs/dev-stack-auto-rebuild.md#scheduled-drift-detection) for full remediation steps."
+
+          # Check for an existing open drift alert so we update rather than spam
+          EXISTING=$(gh issue list \
+            --repo f-crop/rustacean \
+            --label dev-stack-drift \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty' 2>/dev/null || echo "")
+
+          if [[ -n "$EXISTING" ]]; then
+            gh issue comment "$EXISTING" \
+              --repo f-crop/rustacean \
+              --body "$BODY"
+            echo "::warning::Drift still present — updated alert issue #$EXISTING"
+          else
+            gh issue create \
+              --repo f-crop/rustacean \
+              --title "[ALERT] Dev-stack drift on mars — ${DETECTED_AT}" \
+              --label dev-stack-drift \
+              --body "$BODY"
+            echo "::warning::New drift alert issue created"
+          fi
+
+      # ── On recovery: close any open drift alert issues ─────────────────────
+      - name: Close resolved drift alert issues
+        if: steps.drift.outputs.exit_code == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          OPEN_ALERTS=$(gh issue list \
+            --repo f-crop/rustacean \
+            --label dev-stack-drift \
+            --state open \
+            --json number \
+            --jq '.[].number' 2>/dev/null || echo "")
+
+          for n in $OPEN_ALERTS; do
+            gh issue close "$n" \
+              --repo f-crop/rustacean \
+              --comment "Dev-stack is now current with \`origin/main\`. Auto-closing drift alert." \
+              2>/dev/null || true
+            echo "Closed drift alert #$n"
+          done
+
+      # ── Fail the job so GHA marks the run red on any non-zero exit ─────────
+      - name: Fail on drift or error
+        if: steps.drift.outputs.exit_code != '0'
+        run: |
+          EXIT="${{ steps.drift.outputs.exit_code }}"
+          if [[ "$EXIT" == "1" ]]; then
+            echo "::error::Dev-stack drift detected on mars. See the dev-stack-drift issue."
+          else
+            echo "::error::Drift check returned exit $EXIT — SSH error or Docker unavailable on mars."
+          fi
+          exit 1

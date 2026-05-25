@@ -265,6 +265,69 @@ non-zero code and a fatal journal entry, which triggers the `Restart=on-failure`
 systemd. The systemd unit also carries `ConditionPathNotEmpty=…/compose/active-env` so it will
 not start at all if that sentinel file is missing or empty.
 
+## Scheduled drift detection
+
+`check-dev-stack-drift.sh` inspects every running container's `git_sha` Docker label and
+compares it against `origin/main` HEAD.  Exit codes:
+
+| Exit | Meaning |
+|------|---------|
+| `0`  | All running containers match HEAD — no drift. |
+| `1`  | One or more containers are behind HEAD — drift detected. |
+| `2`  | Fatal error (git fetch failed, Docker unavailable, etc.). |
+
+The GitHub Actions workflow `.github/workflows/dev-stack-drift-check.yml` runs this check
+every **15 minutes** by SSHing to mars.  When exit 1 is returned:
+
+1. The GHA job **fails** (red check).
+2. A GitHub issue tagged `dev-stack-drift` is opened (or an existing one is updated).
+3. When the stack catches up, the next passing run auto-closes any open drift alert.
+
+### Required GitHub secrets
+
+| Secret | Value |
+|--------|-------|
+| `MARS_SSH_KEY`  | Private SSH key that can reach mars. |
+| `MARS_SSH_HOST` | Hostname or IP of mars. |
+| `MARS_SSH_USER` | SSH username on mars (e.g. `jarnura`). |
+
+Add these via **GitHub → Settings → Secrets → Actions** before the first scheduled run.
+
+### Manual trigger
+
+```bash
+# From the GitHub Actions UI:
+#   Actions → Dev-stack Drift Check → Run workflow
+# or via CLI:
+gh workflow run dev-stack-drift-check.yml --repo f-crop/rustacean
+```
+
+### Remediation
+
+When a drift alert fires:
+
+```bash
+# On mars — force a full rebuild to catch up with origin/main
+cd ~/projects/rustacean
+scripts/dev-stack-auto-rebuild.sh --cold-start
+```
+
+Or restart the auto-rebuild watcher (it will rebuild on the next commit):
+
+```bash
+systemctl --user restart rustbrain-dev-watch
+```
+
+### Testing exit-code contract
+
+```bash
+# Run the shell unit tests (no Docker or live git required):
+scripts/test-drift-exit-codes.sh
+```
+
+Covers: stack fully down (exit 0), all current (exit 0), one drifted (exit 1),
+no-label image (exit 1), mixed absent+drifted (exit 1).
+
 ## Troubleshooting
 
 **Rebuild never triggers**
