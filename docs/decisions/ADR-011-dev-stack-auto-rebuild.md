@@ -20,6 +20,7 @@ Every claim in this ADR is traceable to a merged PR on `main`.
 | 4b | — | #568 | `6025e907` | `rb-build-info` fleet rollout to all 11 services (Phase 2). |
 | 4c | RUSAA-1644 | #570 | `af9624c5` | Agent-runner / MCP SHA pairing — warn-only mismatch detection (Phase 3). |
 | 5 | RUSAA-1653 | #572 | `eff8ed51` | Watcher pinned to **canonical** repo compose dir; refuses to run under `/tmp/`; `ConditionPathNotEmpty=…/compose/active-env` sentinel on the unit. |
+| 6 | RUSAA-1678 | #583 | TBD | Effective-SHA state file fixes squash-merge false-positive BLOCK; `dev-stack-auto-rebuild.sh` writes `service-effective-shas.json` on every successful exit (including "no paths changed"); drift gate reads it to certify label-divergent-but-code-current services. |
 
 ---
 
@@ -87,6 +88,7 @@ Selective rebuild plus user systemd gave us *automated* deployment but not *veri
 
 ### 2.5 Stage 5 — Canonical compose-dir invariant (RUSAA-1653, PR #572, `eff8ed51`)
 
+
 `docker compose` stamps each container with `com.docker.compose.project.working_dir`. Bind-mount paths like `../migrations:/migrations:ro` resolve **relative to that label**, not relative to the running watcher's CWD. A second clone of the repo (e.g. `/tmp/phase2-deploy/rustacean`) that ran `docker compose up` would silently rewrite the label, and when that scratch dir was cleaned up the next container restart would fail on a missing bind source.
 
 The fix is layered defense:
@@ -96,6 +98,38 @@ The fix is layered defense:
 3. **Drift detector.** `scripts/check-compose-working-dir.sh` reports `OK` / `DRIFT` per container and exits non-zero on any divergence; `--fix` runs `docker compose up -d --force-recreate` to re-stamp the label.
 
 The invariant: **one canonical clone per host, and the watcher refuses to operate on any other.** Operators may keep additional clones for hotfix work; they may not point the dev-stack at them.
+
+### 2.6 Stage 6 — Effective-SHA state file (RUSAA-1678, PR #583)
+
+The drift gate (`scripts/check-dev-stack-drift.sh`) compares each running container's `git_sha` label against `origin/main` HEAD using a git ancestry check: a label SHA that is an ancestor of HEAD is considered current. This breaks after a squash-merge: the squash commit is a new SHA with no parent relationship to the branch commits it absorbed, so worker services whose code did not change retain their pre-squash branch SHA as their label, and `git merge-base --is-ancestor` returns `false` even though the running code is bit-for-bit identical to HEAD.
+
+Forensic baseline (see [RUSAA-1678](/RUSAA/issues/RUSAA-1678)): PR #568 was squash-merged as `6025e907`, leaving 9 worker images labelled `b046bbac` (the pre-squash branch SHA). Every subsequent docs-only PR (#569–#577) hit the false-positive BLOCK because no worker paths changed, so those workers were never rebuilt to a HEAD-ancestral label.
+
+**Fix:** `scripts/dev-stack-auto-rebuild.sh` now writes `~/.local/state/rustbrain/service-effective-shas.json` on every successful exit (including the "no paths changed" skip path). The file records `{ "updated_at": "<iso8601>", "services": { "<name>": "<sha>", … } }` for all 12 managed services (11 Rust + frontend). The drift gate loads this file and, for each container whose label SHA does not match HEAD, checks whether `services[name] == HEAD_SHA`; if so, the service is marked **OK (certified)** and omitted from the `drifted` array.
+
+**Invariant:** the file is updated to `NEW_SHA` only on successful exit. On error exits (build failure, health failure, rollback) the file retains the last known-good SHA, so the drift gate still BLOCKs until the next successful run — the conservative, correct behaviour.
+
+**Graceful absent-file fallback:** when the file does not exist (fresh mars clone, or the file was manually deleted to reset to label-only mode), the drift gate operates exactly as before Stage 6: ancestry-check only.
+
+**JSON report field:** the drift report gains a top-level `ok_certified` array alongside `ok`. Entries in `ok_certified` passed via the state file, not via label match. This lets operators distinguish the two acceptance modes:
+
+```json
+{
+  "head_sha": "6025e907…",
+  "head_commit_age_seconds": 120,
+  "drifted": [],
+  "ok": ["control-api"],
+  "ok_certified": ["projector-pg", "tombstoner", "ingest-clone", "expand-worker",
+                   "parse-worker", "typecheck-worker", "ingest-graph",
+                   "projector-neo4j", "embed-worker", "agent-runner", "frontend"]
+}
+```
+
+The exit-0 console line includes a count when certified services are present:
+
+```
+[check-dev-stack-drift] all services current (head=6025e907); 11 certified via effective-SHA state file
+```
 
 ---
 
@@ -110,6 +144,8 @@ The invariant: **one canonical clone per host, and the watcher refuses to operat
 **One watcher per host is sufficient and intended.** Stage 5's canonical-dir invariant is structural: a second watcher cannot coexist on the same host without one of them violating either the script-level `/tmp/` guard or the unit-level `ConditionPathNotEmpty` sentinel. Operators wanting to test watcher changes do so in a non-mars environment.
 
 **Rebuild logs are the durable record.** `~/.local/state/rustbrain/dev-stack-rebuilds.ndjson` is append-only; the most recent N records are queryable via `scripts/dev-stack-auto-rebuild.sh --logs [N]`. The NDJSON schema (`timestamp`, `prev_sha`, `new_sha`, `rebuilt[]`, `result`, `health`, `elapsed_s`, `reason`) is the surface that Done-gate evidence reads from. Changes to the schema are breaking; additive fields only.
+
+**The effective-SHA state file is a secondary durable artifact.** `~/.local/state/rustbrain/service-effective-shas.json` records the last HEAD SHA that all services were certified against. It is overwritten (not appended) on every successful auto-rebuild exit; it is the drift gate's secondary acceptance mechanism (Stage 6). Deleting the file is safe — the drift gate falls back to label-only ancestry mode. Do not commit it; it is machine-local state. The drift report's `ok_certified` array is the user-visible signal that the state file influenced the result.
 
 **Operator runbook is a separate deliverable.** The recovery procedures (what to do when the watcher is wedged, how to force a cold-start, how to fix working_dir drift, how to read NDJSON logs to triage a stuck UAT round) belong to the C4 stack-rebuild-verify runbook under the Wave-7 docs umbrella ([RUSAA-1664](/RUSAA/issues/RUSAA-1664)), not this ADR. The `dev-deployment` skill covers the mars-specific recovery paths that an agent needs at runtime.
 

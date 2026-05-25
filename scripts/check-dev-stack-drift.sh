@@ -85,6 +85,28 @@ HEAD_TS="$(git show -s --format=%ct "$HEAD_SHA" 2>/dev/null || echo "0")"
 NOW_TS="$(date +%s)"
 HEAD_COMMIT_AGE=$(( NOW_TS - HEAD_TS ))
 
+# -- Load effective-SHA state file --------------------------------------------
+# Written by dev-stack-auto-rebuild.sh on every successful exit (including the
+# "no paths changed" skipped path) so that services whose label SHA is a
+# pre-squash branch commit — not an ancestor of main — are not false-positive
+# BLOCKed by the ancestry check.  Falls back gracefully to label-only mode when
+# the file is absent (e.g. on a fresh mars clone).
+EFFECTIVE_SHA_FILE="${RB_LOG_DIR:-"$HOME/.local/state/rustbrain"}/service-effective-shas.json"
+declare -A EFFECTIVE_SHAS=()
+if [[ -f "$EFFECTIVE_SHA_FILE" ]]; then
+  while IFS="=" read -r svc sha; do
+    [[ -n "$svc" ]] && EFFECTIVE_SHAS["$svc"]="$sha"
+  done < <(python3 -c "
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    for svc, sha in data.get('services', {}).items():
+        print(f'{svc}={sha}')
+except Exception:
+    pass
+" "$EFFECTIVE_SHA_FILE")
+fi
+
 # -- Services -----------------------------------------------------------------
 # All services in compose/dev.yml with a build: stanza.
 # Container names follow the compose project name 'rustbrain-dev'.
@@ -112,6 +134,7 @@ CUSTOM_SERVICES=(
 
 DRIFTED_ROWS=""
 OK_NAMES=""
+OK_CERTIFIED_NAMES=""
 
 for svc in "${CUSTOM_SERVICES[@]}"; do
   container="rustbrain-dev-${svc}-1"
@@ -132,12 +155,21 @@ for svc in "${CUSTOM_SERVICES[@]}"; do
     OK_NAMES="${OK_NAMES}${svc}
 "
   else
-    is_ancestor=false
-    if git merge-base --is-ancestor "$deployed_sha" "$HEAD_SHA" 2>/dev/null; then
-      is_ancestor=true
-    fi
-    DRIFTED_ROWS="${DRIFTED_ROWS}${svc}	${deployed_sha}	${is_ancestor}
+    # Check the effective-SHA state file before falling back to ancestry check.
+    # A service whose label is a pre-squash branch SHA (not an ancestor of main)
+    # is code-equivalent to HEAD when the state file was updated after that squash.
+    effective_sha="${EFFECTIVE_SHAS[$svc]:-}"
+    if [[ -n "$effective_sha" && "$effective_sha" == "$HEAD_SHA" ]]; then
+      OK_CERTIFIED_NAMES="${OK_CERTIFIED_NAMES}${svc}
 "
+    else
+      is_ancestor=false
+      if git merge-base --is-ancestor "$deployed_sha" "$HEAD_SHA" 2>/dev/null; then
+        is_ancestor=true
+      fi
+      DRIFTED_ROWS="${DRIFTED_ROWS}${svc}	${deployed_sha}	${is_ancestor}
+"
+    fi
   fi
 done
 
@@ -150,6 +182,7 @@ head_sha = sys.argv[1]
 head_age = int(sys.argv[2])
 drifted_raw = sys.argv[3]
 ok_raw = sys.argv[4]
+ok_certified_raw = sys.argv[5]
 
 drifted = []
 for line in drifted_raw.splitlines():
@@ -164,14 +197,16 @@ for line in drifted_raw.splitlines():
     })
 
 ok = [s.strip() for s in ok_raw.splitlines() if s.strip()]
+ok_certified = [s.strip() for s in ok_certified_raw.splitlines() if s.strip()]
 
 print(json.dumps({
     'head_sha': head_sha,
     'head_commit_age_seconds': head_age,
     'drifted': drifted,
     'ok': ok,
+    'ok_certified': ok_certified,
 }, indent=2))
-" "$HEAD_SHA" "$HEAD_COMMIT_AGE" "$DRIFTED_ROWS" "$OK_NAMES")"
+" "$HEAD_SHA" "$HEAD_COMMIT_AGE" "$DRIFTED_ROWS" "$OK_NAMES" "$OK_CERTIFIED_NAMES")"
 
 # -- Output & exit ------------------------------------------------------------
 
@@ -179,7 +214,13 @@ DRIFTED_COUNT=0
 [[ -n "$DRIFTED_ROWS" ]] && DRIFTED_COUNT="$(printf '%s' "$DRIFTED_ROWS" | grep -c $'\t' || true)"
 
 if [[ "$DRIFTED_COUNT" -eq 0 ]]; then
-  echo "[check-dev-stack-drift] all services current (head=${HEAD_SHA:0:8})"
+  CERTIFIED_COUNT=0
+  [[ -n "$OK_CERTIFIED_NAMES" ]] && CERTIFIED_COUNT="$(printf '%s' "$OK_CERTIFIED_NAMES" | grep -c '[^[:space:]]' || true)"
+  if [[ "$CERTIFIED_COUNT" -gt 0 ]]; then
+    echo "[check-dev-stack-drift] all services current (head=${HEAD_SHA:0:8}); ${CERTIFIED_COUNT} certified via effective-SHA state file"
+  else
+    echo "[check-dev-stack-drift] all services current (head=${HEAD_SHA:0:8})"
+  fi
   post_gh_status "success" "Dev-stack current against HEAD" "$HEAD_SHA"
   exit 0
 else
