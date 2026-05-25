@@ -142,6 +142,6 @@ Each service polls a control endpoint to discover "is there a newer SHA?" and se
 
 ## 5. Open follow-ups (not part of this ADR's acceptance)
 
-- **C4** — stack-rebuild-verify operator runbook covering wedge recovery, cold-start, working_dir drift repair, and NDJSON triage. Separate Wave-7 docs subtask under [RUSAA-1664](/RUSAA/issues/RUSAA-1664).
+- **C4** — stack-rebuild-verify operator runbook covering wedge recovery, cold-start, working_dir drift repair, and NDJSON triage: [`docs/runbooks/stack-rebuild-verify.md`](../runbooks/stack-rebuild-verify.md) (Wave-7 docs subtask under [RUSAA-1664](/RUSAA/issues/RUSAA-1664)).
 - **Hard gate on SHA pairing.** Stage 4 Phase 3 is warn-only. Promoting it to a hard gate requires cross-service-transactional rebuild orchestration — a future ADR if/when it becomes load-bearing for UAT correctness rather than diagnostic.
 - **Multi-host dev-stack.** If a second UAT host is ever added (geographic redundancy, parallel feature-branch UAT), the canonical-dir invariant generalises to canonical-host-per-environment; the watcher's leader election story is currently "there is only one host" and would need to be redesigned.

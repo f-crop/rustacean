@@ -263,6 +263,8 @@ Handlers call `require_verified_session(auth)` or `require_session(auth)` to unw
    └──────────────────────────────────────────────┘
 ```
 
+**Operator runbooks:** [tenant provisioning](runbooks/tenant-provisioning.md) covers the end-to-end signup flow on mars; [auth/migrations sanity](runbooks/auth-migrations-sanity.md) covers post-deploy validation and failure-mode diagnosis.
+
 ---
 
 ## API-first: OpenAPI as source of truth
@@ -359,6 +361,8 @@ The `rb-tracing` crate initialises a `tracing-subscriber` stack with:
 `RUST_LOG` controls log verbosity (e.g. `info,control_api=debug`).  
 `OTEL_SERVICE_NAME` sets the service name in traces (default: `control-api`).  
 `OTEL_EXPORTER_OTLP_ENDPOINT` points to the collector (default in compose: `http://otel-collector:4317`).
+
+**Operator runbooks:** [stack rebuild verify](runbooks/stack-rebuild-verify.md) covers watcher status, build-SHA verification, and recovery from rebuild failures. See also [dev-stack-auto-rebuild.md](dev-stack-auto-rebuild.md) and [ADR-011](decisions/ADR-011-dev-stack-auto-rebuild.md).
 
 ---
 
