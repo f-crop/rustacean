@@ -43,12 +43,15 @@ rustacean/
 ├── crates/
 │   ├── rb-auth/         # Password hashing, sessions, API-key generation
 │   ├── rb-email/        # Email templates (Jinja2 via minijinja) + SMTP/console transports
+│   ├── rb-github/       # GitHub App authentication (JWT, installation tokens) + API client
+│   ├── rb-mcp/          # MCP JSON-RPC types and handler dispatch
 │   ├── rb-schemas/      # Protobuf schema definitions (build.rs generated)
 │   ├── rb-secrets/      # Zeroizing secret-value wrappers
 │   ├── rb-storage-pg/   # PostgreSQL repository abstractions (sqlx)
 │   ├── rb-tenant/       # Tenant context and schema-name derivation
 │   └── rb-tracing/      # OpenTelemetry + tracing-subscriber initialisation
 ├── services/
+│   ├── agent-runner/    # AI agent subprocess runner (Claude Code, OpenCode adapters)
 │   ├── control-api/     # Main HTTP API service (Axum 0.8)
 │   └── migrate/         # Database and Kafka migration runner
 ├── frontend/            # React 18 + Vite + TypeScript + Tailwind + shadcn/ui
@@ -62,8 +65,12 @@ rustacean/
 │   ├── getting-started.md
 │   ├── architecture.md
 │   ├── runbook.md
+│   ├── runbooks/        # Operator runbooks per subsystem
 │   ├── api-reference.md
-│   └── business-context.md
+│   ├── business-context.md
+│   ├── PORT_MAP.md
+│   ├── decisions/       # Architecture Decision Records (ADRs)
+│   └── CODEMAPS/        # Per-service code maps
 └── openapi.json         # Generated OpenAPI 3.1 spec — do not hand-edit
 ```
 
@@ -76,6 +83,10 @@ rustacean/
 | [Runbook](docs/runbook.md) | Start/stop, logs, health checks, migrations, failure modes |
 | [API Reference](docs/api-reference.md) | Every endpoint with request/response examples |
 | [Business Context](docs/business-context.md) | Problem statement, target users, product vision, roadmap |
+| [Port Map](docs/PORT_MAP.md) | Port assignments for the mars host |
+| [Operator Runbooks](docs/runbooks/) | Per-subsystem troubleshooting playbooks |
+| [ADRs](docs/decisions/) | Architecture Decision Records (ADR-009 through ADR-011) |
+| [Codemaps](docs/CODEMAPS/) | Per-service module trees and public API tables |
 
 ## Development commands
 

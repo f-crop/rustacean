@@ -199,9 +199,50 @@ curl -s -b cookies.txt http://localhost:8080/v1/me | jq .
 
 ---
 
+## 7. Agent runtime setup (Wave 7)
+
+The agent execution subsystem requires two additional components.
+
+### claude-login sidecar
+
+The `claude-login` container provides an SSH endpoint for a one-time `claude /login` to obtain OAuth credentials. These are stored in the `claude-credentials` named volume and mounted read-only into `agent-runner`.
+
+```bash
+# SSH into the sidecar and run the interactive login (one-time)
+ssh -p ${CLAUDE_SSH_HOST_PORT:-12222} loginuser@localhost
+# Inside the container:
+claude /login
+```
+
+See [runbooks/claude-login.md](runbooks/claude-login.md) for troubleshooting.
+
+### Dev-stack auto-rebuild watcher
+
+Install the git hooks that trigger automatic selective rebuilds on `git pull`:
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
+See [ADR-011](decisions/ADR-011-dev-stack-auto-rebuild.md) and [runbooks/stack-rebuild-verify.md](runbooks/stack-rebuild-verify.md).
+
+### LiteLLM (OpenCode runtime)
+
+When using the `opencode` adapter, the agent-runner connects to an external LiteLLM proxy. Set these env vars in your compose override or `.env`:
+
+```bash
+LITELLM_BASE_URL=http://<litellm-host>:4000   # LiteLLM proxy endpoint
+LITELLM_API_KEY=sk-...                         # LiteLLM virtual key
+```
+
+LiteLLM is not included in `compose/dev.yml` — it runs as an external service on mars in v1 (see [ADR-009 §3.4](decisions/ADR-009-agent-execution-architecture.md)).
+
+---
+
 ## Next steps
 
-- **Architecture deep-dive**: [docs/architecture.md](architecture.md) — system overview, crate layout, read-side topology
-- **Ops reference**: [docs/runbook.md](runbook.md)
-- **API reference**: [docs/api-reference.md](api-reference.md) — all endpoints including code intelligence (search, graph traversal)
+- **Architecture deep-dive**: [architecture.md](architecture.md) — system overview, crate layout, agent execution topology
+- **Ops reference**: [runbook.md](runbook.md) · [runbooks/](runbooks/) for per-subsystem playbooks
+- **API reference**: [api-reference.md](api-reference.md) — all endpoints including agents, MCP, and code intelligence
+- **Decision records**: [decisions/](decisions/) — ADR-009 (agent execution), ADR-010 (GitHub install), ADR-011 (auto-rebuild)
 - **Contributing**: a contributor guide is forthcoming.

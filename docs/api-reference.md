@@ -2,6 +2,8 @@
 
 **Base URL**: `http://localhost:8080` (local) · `http://100.87.157.74:18080` (mars/Tailscale)
 
+> **Source of truth**: [`openapi.json`](../openapi.json) (regenerated from code via `cargo run -p control-api -- print-openapi`) is the authoritative API contract. This document is a navigational index with prose explanations — when this page and the spec disagree, the spec wins.
+
 **OpenAPI spec**: `GET /openapi.json` returns the full machine-readable spec. The frontend generates TypeScript types from this spec; do not hand-edit `openapi.json`.
 
 **Authentication**: Most endpoints require an active session cookie (`rb_session`, `HttpOnly`) or a Bearer API key token.
@@ -1058,3 +1060,126 @@ Kafka consistency metrics. Reports consumer lag and time since last event for ea
 curl -s -H "Authorization: Bearer $ADMIN_KEY" \
   http://localhost:8080/v1/health/consistency | jq .
 ```
+
+---
+
+## Agent session endpoints (Wave 7)
+
+The agent subsystem lets tenants run AI coding sessions backed by runtime adapters (Claude Code, OpenCode). Sessions are created via the REST API; events stream back over SSE. See [ADR-009](decisions/ADR-009-agent-execution-architecture.md) for the full design.
+
+### POST /v1/agents/sessions
+
+Create a new agent session. Publishes a start command to Kafka (`rb.agent.commands`); the `agent-runner` service picks it up and spawns the subprocess.
+
+**Auth required**: verified session **or** API key with `write` scope
+
+Rate-limited per tenant: 10 creates/min (`RB_SESSION_CREATE_RATE_LIMIT`), 100 concurrent sessions per tenant (`RB_TENANT_SESSION_CAP`).
+
+### GET /v1/agents/sessions
+
+List agent sessions for the current tenant. Supports filtering by status.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+### GET /v1/agents/sessions/{id}
+
+Get a single agent session by ID.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+### DELETE /v1/agents/sessions/{id}
+
+Terminate and delete an agent session. Publishes a terminate command to Kafka.
+
+**Auth required**: verified session **or** API key with `write` scope
+
+### GET /v1/agents/sessions/{id}/events
+
+**SSE event stream.** Long-lived connection that pushes `RuntimeEvent` records as they arrive. Supports `?from_sequence=N` to resume from a known position.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Content-Type**: `text/event-stream`
+
+### GET /v1/agents/sessions/{id}/events/history
+
+Replay all historical events for a session (non-streaming JSON array). Useful for hydrating the frontend viewer after a page reload.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+### GET /v1/agents/sessions/{id}/log.ndjson
+
+Download the full session log as newline-delimited JSON. Each line is a `RuntimeEvent`.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+Refer to `openapi.json` for the full request/response schemas (session object, event types, error codes).
+
+---
+
+## MCP endpoint (Wave 7)
+
+### POST /mcp
+
+Streamable HTTP JSON-RPC 2.0 endpoint implementing the [Model Context Protocol](https://modelcontextprotocol.io/). Exposes the code intelligence surface as MCP tools so external AI agents can query the codebase programmatically.
+
+**Auth required**: API key with `read` scope (passed via MCP session initialization)
+
+**Content-Type**: `application/json` (JSON-RPC 2.0)
+
+**Supported methods**:
+
+| Method | Description |
+|--------|-------------|
+| `initialize` | Start an MCP session; returns server capabilities |
+| `tools/list` | Enumerate available tools |
+| `tools/call` | Invoke a tool by name |
+
+**Available tools**:
+
+| Tool | Description |
+|------|-------------|
+| `search_items` | Semantic search via Ollama + Qdrant |
+| `get_item` | Item lookup by FQN |
+| `get_callers` | Backward BFS call-graph traversal |
+| `get_callees` | Forward BFS call-graph traversal |
+| `get_trait_impls` | Trait implementation enumeration |
+| `run_query` | Raw Cypher query (requires `admin` scope) |
+
+See the `rb-mcp` crate and [ADR-009 §6.2](decisions/ADR-009-agent-execution-architecture.md) for tool schemas and security model.
+
+---
+
+## GitHub integration endpoints
+
+### GET /v1/github/install-url
+
+Generate the GitHub App installation URL for the current tenant. Redirects the user to GitHub to install the app on their organization/account.
+
+**Auth required**: verified session
+
+### GET /v1/github/callback
+
+OAuth callback handler. GitHub redirects here after app installation. Binds the installation to the calling tenant. See [ADR-010](decisions/ADR-010-github-app-tenant-install.md) for the single-tenant lock invariant and orphan-reclaim flow.
+
+**Auth required**: verified session (via session cookie in redirect)
+
+### POST /v1/github/webhook
+
+GitHub webhook receiver. Processes `installation`, `installation_repositories`, and `push` events. Verified via HMAC-SHA256 signature (`X-Hub-Signature-256`).
+
+**Auth**: webhook secret (not user auth)
+
+### GET /v1/github/installations/{id}/available-repos
+
+List repositories accessible to a GitHub App installation. Used by the frontend to let the user select which repos to connect.
+
+**Auth required**: verified session
+
+### GET /v1/health/github-app
+
+GitHub App health check. Returns the app identity and installation count.
+
+**Auth**: public (unauthenticated)
+
+**Operator runbooks**: [github-install-rebind](runbooks/github-install-rebind.md) covers cross-tenant installation collision diagnosis and resolution.

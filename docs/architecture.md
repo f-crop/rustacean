@@ -17,31 +17,74 @@ rust-brain is a multi-tenant platform built as a Rust monorepo with a React fron
                ┌─────────────────▼─┐    ┌──▼───────────────┐
                │   control-api     │    │   frontend (dist) │
                │  Axum 0.8 :8080   │    │  Vite build       │
-               └──┬──┬──┬──┬──┬───┘    └──────────────────-┘
-                  │  │  │  │  │
-       ┌──────────▼┐ │  │  │  └──────────────┐
-       │ PostgreSQL│ │  │  │   ┌─────────────▼──┐
-       │ :5432     │ │  │  │   │ otel-collector  │
-       └───────────┘ │  │  │   │ :4317/:4318     │
-                     │  │  │   └───┬─────────────┘
-          ┌──────────▼┐ │  │       │
-          │ Neo4j     │ │  │  ┌────▼─────────────┐
-          │ :7687 bolt│ │  │  │ Tempo / Prometheus│
-          └───────────┘ │  │  │ Grafana dashboards│
-                        │  │  └──────────────────-┘
-             ┌──────────▼┐ │
-             │ Qdrant    │ │
-             │ :6333 REST│ │
-             └───────────┘ │
-                  ┌────────▼────────┐
-                  │ Kafka (KRaft)   │──▶ ingestion pipeline
-                  │ :9092 / :9094   │    (parse, extract, embed workers)
-                  └─────────────────┘
-                           │
-                  ┌────────▼──────┐
-                  │ Ollama :11434 │  (embedding via embed-worker)
-                  └───────────────┘
+               │  + /mcp (JSON-RPC)│    └──────────────────-┘
+               └──┬──┬──┬──┬──┬──┬┘
+                  │  │  │  │  │  │
+       ┌──────────▼┐ │  │  │  │  └──────────────┐
+       │ PostgreSQL│ │  │  │  │   ┌─────────────▼──┐
+       │ :5432     │ │  │  │  │   │ otel-collector  │
+       └───────────┘ │  │  │  │   │ :4317/:4318     │
+                     │  │  │  │   └───┬─────────────┘
+          ┌──────────▼┐ │  │  │       │
+          │ Neo4j     │ │  │  │  ┌────▼─────────────┐
+          │ :7687 bolt│ │  │  │  │ Tempo / Prometheus│
+          └───────────┘ │  │  │  │ Grafana dashboards│
+                        │  │  │  └──────────────────-┘
+             ┌──────────▼┐ │  │
+             │ Qdrant    │ │  │
+             │ :6333 REST│ │  │
+             └───────────┘ │  │
+                  ┌────────▼──┼──────────┐
+                  │ Kafka (KRaft)        │──▶ ingestion pipeline
+                  │ :9092 / :9094        │    (parse, extract, embed workers)
+                  └──────┬───────────────┘
+                         │
+            ┌────────────▼──────┐    ┌──────────────────┐
+            │ Ollama :11434     │    │  agent-runner     │
+            │ (embeddings)      │    │  Kafka consumer   │
+            └───────────────────┘    │  rb.agent.commands│
+                                     └──┬──────────┬────┘
+                                        │          │
+                               ┌────────▼──┐ ┌────▼──────────────┐
+                               │claude-login│ │ LiteLLM (external)│
+                               │SSH sidecar │ │ (opencode runtime)│
+                               │:12222      │ └──────────────────-┘
+                               └────────────┘
+                                     │
+                              claude-credentials
+                               (named volume)
 ```
+
+### Agent execution topology (Wave 7)
+
+The agent execution subsystem runs AI coding agents inside isolated workspaces. `control-api` exposes session management (`/v1/agents/sessions/*`) and an MCP server (`POST /mcp`). Session commands flow via Kafka to `agent-runner`, which spawns runtime-specific subprocesses.
+
+```
+Browser ──POST /v1/agents/sessions──▶ control-api
+                                           │
+                                     Kafka: rb.agent.commands
+                                           │
+                                     ┌─────▼──────────┐
+                                     │  agent-runner   │
+                                     │  (adapters)     │
+                                     ├────────┬────────┤
+                                     │claude  │opencode│
+                                     │_code   │(lite   │
+                                     │adapter │ llm)   │
+                                     └───┬────┴────┬───┘
+                                         │         │
+                              claude-credentials   LITELLM_BASE_URL
+                               (shared volume)     (external)
+                                         │
+                                     ┌───▼────────┐
+                                     │claude-login │
+                                     │SSH sidecar  │
+                                     │(one-time    │
+                                     │ /login)     │
+                                     └─────────────┘
+```
+
+Runtime adapters: `ClaudeCodeAdapter` (OAuth via shared `claude-credentials` volume), `OpencodeAdapter` (LiteLLM proxy), `PiAdapter` (stub, ADR-009 Phase 3). See [ADR-009](decisions/ADR-009-agent-execution-architecture.md) for the full design.
 
 ---
 
@@ -69,6 +112,11 @@ The Cargo workspace (`Cargo.toml`) contains two kinds of members:
 | `rb-sse` | Server-Sent Events helpers for real-time ingestion status |
 | `rb-parse-syn` | Rust source parser using `syn` for AST extraction |
 | `rb-parse-tree-sitter` | Multi-language parser using tree-sitter for AST extraction |
+| `rb-mcp` | MCP (Model Context Protocol) JSON-RPC types and handler dispatch |
+| `rb-kafka-health` | Kafka liveness probe and consumer-lag tracking |
+| `rb-build-info` | Compile-time build provenance (git SHA, timestamp, dirty flag) |
+| `rb-feature-resolver` | Rust feature-flag resolution for conditional compilation |
+| `rb-audit-cli` | CLI tool for querying the audit event log |
 
 ### Services (`services/`)
 
@@ -86,6 +134,7 @@ The Cargo workspace (`Cargo.toml`) contains two kinds of members:
 | `projector-neo4j` | `projector-neo4j` | Kafka → Neo4j projector for graph data |
 | `tombstoner` | `tombstoner` | Async tenant deletion: drops PostgreSQL schemas, removes Neo4j nodes, deletes Qdrant points |
 | `audit-worker` | `audit-worker` | Kafka → PostgreSQL projector for audit events |
+| `agent-runner` | `rb-agent-runner` | Kafka consumer that spawns AI agent subprocesses (Claude Code, OpenCode) in isolated workspaces |
 
 ---
 
@@ -327,3 +376,15 @@ The `rb-tracing` crate initialises a `tracing-subscriber` stack with:
 | Graph store | Neo4j | Code knowledge graph for future code-intel features |
 | LLM inference | Ollama | Local model serving for AI features |
 | Frontend | React 18 + Vite + Tailwind + shadcn/ui | Fast DX, type-safe, accessible components |
+
+---
+
+## Decision records
+
+Architecture decisions are captured as ADRs in [`docs/decisions/`](decisions/).
+
+| ADR | Title | Status |
+|-----|-------|--------|
+| [ADR-009](decisions/ADR-009-agent-execution-architecture.md) | Agent Execution Architecture | Accepted (rev 6) — MCP server, agent session lifecycle, runtime adapters (Claude Code, OpenCode, Pi), LiteLLM gateway, per-tenant rate limits |
+| [ADR-010](decisions/ADR-010-github-app-tenant-install.md) | Tenant-scoped GitHub App install + orphan-reclaim | Accepted — self-healing atomic CTE reclaim for cross-tenant installation collisions |
+| [ADR-011](decisions/ADR-011-dev-stack-auto-rebuild.md) | Dev-stack auto-rebuild watcher | Accepted — selective per-path rebuilds via post-merge git hook, user systemd service, build-SHA provenance |
