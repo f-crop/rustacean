@@ -186,25 +186,7 @@ pub async fn github_callback(
     .await?;
 
     let Some((installation_uuid,)) = installation_uuid_opt else {
-        let owner: Option<Uuid> = sqlx::query_scalar(
-            "SELECT tenant_id FROM control.github_installations \
-             WHERE github_installation_id = $1",
-        )
-        .bind(params.installation_id)
-        .fetch_optional(&state.pool)
-        .await?;
-        tracing::warn!(
-            requesting_tenant = %tenant_id,
-            owner_tenant = ?owner,
-            installation_id = params.installation_id,
-            "github callback: cross-tenant installation conflict rejected"
-        );
-        // Redirect to the frontend with an error flag so the browser renders
-        // a friendly message rather than exposing the raw JSON 409 body.
-        return Ok(Redirect::to(&format!(
-            "{}/repos?install=conflict",
-            state.config.base_url,
-        )));
+        return attempt_orphan_reclaim(&state, params.installation_id, tenant_id, &info).await;
     };
 
     tracing::info!(
@@ -222,6 +204,85 @@ pub async fn github_callback(
         state.config.base_url,
         installation_uuid,
         urlencode(&info.account.login),
+    )))
+}
+
+/// Attempt to atomically reclaim a GitHub installation that belongs to another tenant.
+///
+/// Reclaim is permitted only when the existing row's tenant is in a terminal/deleted
+/// state and no active repos are linked. Returns a redirect to `/repos?install=…`.
+async fn attempt_orphan_reclaim(
+    state: &AppState,
+    installation_id: i64,
+    tenant_id: Uuid,
+    info: &rb_github::InstallationInfo,
+) -> Result<Redirect, AppError> {
+    // Reclaim is safe only when:
+    //   • the existing installation is soft-deleted (gi.deleted_at IS NOT NULL), OR
+    //   • the owning tenant is in a terminal state (deleted/deleting),
+    //   AND no active repos are still linked to the installation.
+    let reclaim_opt: Option<(Uuid, Uuid)> = sqlx::query_as(
+        "WITH reclaimable AS ( \
+             SELECT gi.id, gi.tenant_id AS prior_tenant_id \
+             FROM   control.github_installations gi \
+             JOIN   control.tenants t ON t.id = gi.tenant_id \
+             WHERE  gi.github_installation_id = $1 \
+               AND  gi.tenant_id <> $2 \
+               AND  (   gi.deleted_at IS NOT NULL \
+                     OR t.deleted_at IS NOT NULL \
+                     OR t.status IN ('deleting', 'deleted') \
+                    ) \
+               AND  NOT EXISTS ( \
+                        SELECT 1 \
+                        FROM   control.repos r \
+                        WHERE  r.installation_id = gi.id \
+                          AND  r.archived_at IS NULL \
+                    ) \
+         ) \
+         UPDATE control.github_installations gi \
+         SET    tenant_id     = $2, \
+                account_login = $3, \
+                account_type  = $4, \
+                account_id    = $5, \
+                deleted_at    = NULL, \
+                suspended_at  = NULL \
+         FROM   reclaimable \
+         WHERE  gi.id = reclaimable.id \
+         RETURNING gi.id, reclaimable.prior_tenant_id",
+    )
+    .bind(installation_id)
+    .bind(tenant_id)
+    .bind(&info.account.login)
+    .bind(&info.account.kind)
+    .bind(info.account.id)
+    .fetch_optional(&state.pool)
+    .await?;
+
+    if let Some((installation_uuid, prior_tenant_id)) = reclaim_opt {
+        tracing::warn!(
+            requesting_tenant = %tenant_id,
+            prior_tenant = %prior_tenant_id,
+            installation_id = installation_id,
+            installation_uuid = %installation_uuid,
+            account = %info.account.login,
+            "github callback: orphaned installation reclaimed"
+        );
+        return Ok(Redirect::to(&format!(
+            "{}/repos?install=success&installation_uuid={}&account_login={}",
+            state.config.base_url,
+            installation_uuid,
+            urlencode(&info.account.login),
+        )));
+    }
+
+    tracing::warn!(
+        requesting_tenant = %tenant_id,
+        installation_id = installation_id,
+        "github callback: cross-tenant installation conflict rejected (active owner)"
+    );
+    Ok(Redirect::to(&format!(
+        "{}/repos?install=conflict&reason=active",
+        state.config.base_url,
     )))
 }
 

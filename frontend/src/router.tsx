@@ -88,6 +88,7 @@ const reposSearchSchema = z.object({
   install: z.enum(["success", "conflict"]).optional(),
   installation_uuid: z.uuid().optional(),
   account_login: z.string().optional(),
+  reason: z.enum(["active"]).optional(),
 });
 
 const reposRoute = createRoute({
