@@ -82,7 +82,7 @@ sha = sys.argv[1]
 ts  = sys.argv[2]
 services = sys.argv[3].split()
 print(json.dumps({'updated_at': ts, 'services': {svc: sha for svc in services}}, indent=2))
-" "$sha" "$(ts)" "${ALL_RUST_SERVICES[*]} frontend" > "$EFFECTIVE_SHA_FILE"
+" "$sha" "$(ts)" "${ALL_RUST_SERVICES[*]} frontend claude-login" > "$EFFECTIVE_SHA_FILE"
 }
 
 # -- Early init: must precede COMPOSE_ENV_FILE sourcing so the EXIT trap can
@@ -215,6 +215,7 @@ ALL_RUST_SERVICES=(
 )
 declare -A REBUILD_SERVICE=()
 REBUILD_FRONTEND=false
+REBUILD_CLAUDE_LOGIN=false
 
 mark_rust_service() { REBUILD_SERVICE["$1"]=true; }
 mark_all_rust()    { for svc in "${ALL_RUST_SERVICES[@]}"; do mark_rust_service "$svc"; done; }
@@ -223,6 +224,7 @@ if [[ "$COLD_START" == "true" ]]; then
   echo "[dev-stack-auto-rebuild] cold start — forcing rebuild of all services"
   mark_all_rust
   REBUILD_FRONTEND=true
+  REBUILD_CLAUDE_LOGIN=true
 else
   CHANGED_FILES="$(git diff --name-only "$PREV_SHA" "$NEW_SHA" 2>/dev/null || true)"
 
@@ -265,13 +267,16 @@ else
         mark_rust_service agent-runner ;;
       frontend/*|docker/frontend/*)
         REBUILD_FRONTEND=true ;;
+      docker/claude-login/*)
+        REBUILD_CLAUDE_LOGIN=true ;;
       compose/dev.yml|compose/full.yml|compose/tailscale.yml|compose/tailscale.env|compose/scripts/*)
         mark_all_rust
-        REBUILD_FRONTEND=true ;;
+        REBUILD_FRONTEND=true
+        REBUILD_CLAUDE_LOGIN=true ;;
     esac
   done <<< "$CHANGED_FILES"
 
-  if [[ "${#REBUILD_SERVICE[@]}" -eq 0 && "$REBUILD_FRONTEND" == "false" ]]; then
+  if [[ "${#REBUILD_SERVICE[@]}" -eq 0 && "$REBUILD_FRONTEND" == "false" && "$REBUILD_CLAUDE_LOGIN" == "false" ]]; then
     echo "[dev-stack-auto-rebuild] no service paths changed — skipping"
     write_effective_shas "$NEW_SHA"
     log_record "skipped" "" "[]" "no service paths changed"
@@ -310,6 +315,17 @@ if [[ "$REBUILD_FRONTEND" == "true" ]]; then
     exit 1
   fi
   SERVICES_REBUILT+=(frontend)
+fi
+
+if [[ "$REBUILD_CLAUDE_LOGIN" == "true" ]]; then
+  echo "[dev-stack-auto-rebuild] building claude-login..."
+  if ! $COMPOSE_CMD build --build-arg "GIT_SHA=$NEW_SHA" claude-login 2>&1; then
+    echo "[dev-stack-auto-rebuild] claude-login build FAILED"
+    log_record "build_failed" "" '["claude-login"]' "claude-login build error"
+    post_gh_status "failure" "claude-login build failed"
+    exit 1
+  fi
+  SERVICES_REBUILT+=(claude-login)
 fi
 
 # -- Restart -----------------------------------------------------------------
