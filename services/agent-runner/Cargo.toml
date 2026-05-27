@@ -35,6 +35,7 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+metrics-util.workspace = true
 tempfile = "3"
 wiremock.workspace = true
 

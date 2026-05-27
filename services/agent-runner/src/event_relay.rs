@@ -274,6 +274,7 @@ async fn post_with_retry(
         if attempt > 0 {
             let delay_ms = BASE_RETRY_DELAY_MS * (1u64 << (attempt - 1));
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            counter!("rb_agent_relay_retry_total").increment(1);
         }
 
         match client.post(url).json(body).send().await {
@@ -294,7 +295,6 @@ async fn post_with_retry(
                     event_count = event_count,
                     "EventRelay: POST 5xx — will retry"
                 );
-                counter!("rb_agent_relay_retry_total").increment(1);
             }
             Ok(resp) => {
                 // 4xx and other non-retryable responses
@@ -315,7 +315,6 @@ async fn post_with_retry(
                     event_count = event_count,
                     "EventRelay: connection error — will retry"
                 );
-                counter!("rb_agent_relay_retry_total").increment(1);
             }
             Err(e) => {
                 tracing::warn!(
@@ -586,5 +585,62 @@ mod tests {
 
         let n = server.received_requests().await.unwrap().len();
         assert_eq!(n, 1, "success on first attempt — no retries");
+    }
+
+    // ── Metric correctness ─────────────────────────────────────────────────
+
+    /// Regression: attempt-0 failures must NOT increment `retry_total`.
+    /// A single 5xx on attempt=0 followed by a 2xx success on attempt=1
+    /// must produce `retry_total` == 1 (not 2).
+    #[tokio::test]
+    async fn retry_total_not_incremented_on_attempt_zero() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        // A fresh recorder per test; ignore errors if another test already
+        // installed a global recorder (the assertion below is what matters).
+        let _ = recorder.install();
+
+        let server = MockServer::start().await;
+        // attempt 0 → 500, attempt 1 → 200
+        Mock::given(method("POST"))
+            .and(path("/internal/agent/sessions/s5/events"))
+            .respond_with(ResponseTemplate::new(500))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/internal/agent/sessions/s5/events"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({ "tenant_id": "t1", "events": [] });
+        let url = format!("{}/internal/agent/sessions/s5/events", server.uri());
+
+        post_with_retry(&client, &url, &body, "s5", 1).await;
+
+        let entries = snapshotter.snapshot().into_vec();
+        let retry_count: u64 = entries
+            .iter()
+            .filter(|(key, _, _, _)| key.key().name() == "rb_agent_relay_retry_total")
+            .filter_map(|(_, _, _, v)| {
+                if let DebugValue::Counter(n) = v {
+                    Some(*n)
+                } else {
+                    None
+                }
+            })
+            .sum();
+
+        // Only attempt=1 (the real retry) must be counted.
+        assert_eq!(
+            retry_count, 1,
+            "retry_total must be 1 (attempt=1 only); attempt=0 failure must not count"
+        );
     }
 }

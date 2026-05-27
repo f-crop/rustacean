@@ -46,6 +46,7 @@ dependencies = [
  "chrono",
  "clap",
  "metrics",
+ "metrics-util 0.18.0",
  "nix",
  "rb-build-info",
  "rb-kafka",
