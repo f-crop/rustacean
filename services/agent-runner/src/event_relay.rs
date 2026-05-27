@@ -64,11 +64,17 @@ pub struct RelayItem {
 pub struct EventSender {
     buffer: Arc<Mutex<VecDeque<RelayItem>>>,
     capacity: usize,
+    /// Minimum buffer length that triggers an immediate (hard) flush.
+    batch_size: usize,
     notify: Arc<Notify>,
 }
 
 impl EventSender {
     /// Enqueue `item` for relay. Never blocks; evicts the oldest item if full.
+    ///
+    /// `notify_one()` fires only when the buffer reaches `batch_size`, so items
+    /// accumulate into full batches under continuous load. Partial batches are
+    /// flushed by the timer in the background flush loop.
     ///
     /// # Panics
     ///
@@ -81,8 +87,11 @@ impl EventSender {
             counter!("rb_agent_relay_dropped_total", "reason" => "buffer_full").increment(1);
         }
         buf.push_back(item);
+        let should_notify = buf.len() >= self.batch_size;
         drop(buf);
-        self.notify.notify_one();
+        if should_notify {
+            self.notify.notify_one();
+        }
     }
 }
 
@@ -131,6 +140,7 @@ pub fn spawn(config: RelayConfig) -> EventSender {
     let sender = EventSender {
         buffer: Arc::clone(&buffer),
         capacity: config.capacity,
+        batch_size: config.batch_size,
         notify: Arc::clone(&notify),
     };
 
@@ -354,6 +364,7 @@ mod tests {
         EventSender {
             buffer: Arc::new(Mutex::new(VecDeque::new())),
             capacity,
+            batch_size: DEFAULT_BATCH_SIZE,
             notify: Arc::new(Notify::new()),
         }
     }
@@ -425,6 +436,58 @@ mod tests {
         assert_eq!(buf_len(&sender), 1);
         // Only the most-recently enqueued item survives.
         assert_eq!(front_seq(&sender), Some(3));
+    }
+
+    // ── Notification gating ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn notify_does_not_fire_below_batch_size() {
+        let batch_size: usize = 3;
+        let sender = EventSender {
+            buffer: Arc::new(Mutex::new(VecDeque::new())),
+            capacity: 100,
+            batch_size,
+            notify: Arc::new(Notify::new()),
+        };
+
+        // Push batch_size - 1 items; notify must NOT fire.
+        for i in 0..(batch_size - 1) {
+            sender.send(make_item(i as i64));
+        }
+        let timed_out = tokio::time::timeout(
+            Duration::from_millis(20),
+            sender.notify.notified(),
+        )
+        .await;
+        assert!(
+            timed_out.is_err(),
+            "notify_one must not fire before batch_size items are buffered"
+        );
+    }
+
+    #[tokio::test]
+    async fn notify_fires_exactly_when_batch_size_is_reached() {
+        let batch_size: usize = 3;
+        let sender = EventSender {
+            buffer: Arc::new(Mutex::new(VecDeque::new())),
+            capacity: 100,
+            batch_size,
+            notify: Arc::new(Notify::new()),
+        };
+
+        // Fill up to the threshold.
+        for i in 0..batch_size {
+            sender.send(make_item(i as i64));
+        }
+        let result = tokio::time::timeout(
+            Duration::from_millis(20),
+            sender.notify.notified(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "notify_one must fire when buffer reaches batch_size"
+        );
     }
 
     // ── Retry behavior ──────────────────────────────────────────────────────
