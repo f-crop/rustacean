@@ -264,6 +264,7 @@ async fn post_with_retry(
         if attempt > 0 {
             let delay_ms = BASE_RETRY_DELAY_MS * (1u64 << (attempt - 1));
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            counter!("rb_agent_relay_retry_total").increment(1);
         }
 
         match client.post(url).json(body).send().await {
@@ -284,9 +285,6 @@ async fn post_with_retry(
                     event_count = event_count,
                     "EventRelay: POST 5xx — will retry"
                 );
-                if attempt > 0 {
-                    counter!("rb_agent_relay_retry_total").increment(1);
-                }
             }
             Ok(resp) => {
                 // 4xx and other non-retryable responses
@@ -307,9 +305,6 @@ async fn post_with_retry(
                     event_count = event_count,
                     "EventRelay: connection error — will retry"
                 );
-                if attempt > 0 {
-                    counter!("rb_agent_relay_retry_total").increment(1);
-                }
             }
             Err(e) => {
                 tracing::warn!(
@@ -537,9 +532,9 @@ mod tests {
 
     // ── Metric correctness ─────────────────────────────────────────────────
 
-    /// Regression: attempt-0 failures must NOT increment retry_total.
+    /// Regression: attempt-0 failures must NOT increment `retry_total`.
     /// A single 5xx on attempt=0 followed by a 2xx success on attempt=1
-    /// must produce retry_total == 1 (not 2).
+    /// must produce `retry_total` == 1 (not 2).
     #[tokio::test]
     async fn retry_total_not_incremented_on_attempt_zero() {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
