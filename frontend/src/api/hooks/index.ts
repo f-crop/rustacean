@@ -93,3 +93,7 @@ export {
   type EventItem,
   type HistoryResponse,
 } from "./useAgentSessions";
+export {
+  useStageTimeline,
+  stageTimelineQueryKey,
+} from "./useTraceViewer";

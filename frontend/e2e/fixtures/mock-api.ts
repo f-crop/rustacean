@@ -39,6 +39,22 @@ export const REPOS_EMPTY_RESPONSE = { repos: [] };
 
 export const INGEST_RESPONSE = { run_id: "run-id-1" };
 
+export const STAGE_TIMELINE_RESPONSE = {
+  ingestion_run_id: "run-uuid-axe-1",
+  trace_id: "abc12345def67890abc12345def67890",
+  stages: [
+    { stage: "clone", status: "succeeded", started_at: "2024-01-01T00:00:00Z", finished_at: "2024-01-01T00:00:02Z", error_message: null },
+    { stage: "expand", status: "succeeded", started_at: "2024-01-01T00:00:02Z", finished_at: "2024-01-01T00:00:04Z", error_message: null },
+    { stage: "parse", status: "succeeded", started_at: "2024-01-01T00:00:04Z", finished_at: "2024-01-01T00:00:06Z", error_message: null },
+    { stage: "typecheck", status: "succeeded", started_at: "2024-01-01T00:00:06Z", finished_at: "2024-01-01T00:00:08Z", error_message: null },
+    { stage: "extract", status: "succeeded", started_at: "2024-01-01T00:00:08Z", finished_at: "2024-01-01T00:00:10Z", error_message: null },
+    { stage: "embed", status: "succeeded", started_at: "2024-01-01T00:00:10Z", finished_at: "2024-01-01T00:00:12Z", error_message: null },
+    { stage: "project_pg", status: "succeeded", started_at: "2024-01-01T00:00:12Z", finished_at: "2024-01-01T00:00:14Z", error_message: null },
+    { stage: "project_neo4j", status: "succeeded", started_at: "2024-01-01T00:00:14Z", finished_at: "2024-01-01T00:00:16Z", error_message: null },
+    { stage: "project_qdrant", status: "succeeded", started_at: "2024-01-01T00:00:16Z", finished_at: "2024-01-01T00:00:18Z", error_message: null },
+  ],
+};
+
 export const CONNECT_REPO_RESPONSE = {
   repo_id: "repo-2",
   full_name: "acme/api",
