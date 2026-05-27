@@ -454,11 +454,8 @@ mod tests {
         for i in 0..(batch_size - 1) {
             sender.send(make_item(i as i64));
         }
-        let timed_out = tokio::time::timeout(
-            Duration::from_millis(20),
-            sender.notify.notified(),
-        )
-        .await;
+        let timed_out =
+            tokio::time::timeout(Duration::from_millis(20), sender.notify.notified()).await;
         assert!(
             timed_out.is_err(),
             "notify_one must not fire before batch_size items are buffered"
@@ -479,11 +476,8 @@ mod tests {
         for i in 0..batch_size {
             sender.send(make_item(i as i64));
         }
-        let result = tokio::time::timeout(
-            Duration::from_millis(20),
-            sender.notify.notified(),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(Duration::from_millis(20), sender.notify.notified()).await;
         assert!(
             result.is_ok(),
             "notify_one must fire when buffer reaches batch_size"
