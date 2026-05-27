@@ -57,7 +57,7 @@ neo4j_q() {
 # Returns the log-end offset for topic:partition from the live Kafka broker.
 kafka_end_offset() {
   local topic="$1"
-  ${DC} exec -T kafka kafka-get-offsets.sh \
+  ${DC} exec -T kafka /opt/kafka/bin/kafka-get-offsets.sh \
     --bootstrap-server localhost:9092 \
     --topic-partitions "${topic}:0" \
     --time latest 2>/dev/null \
