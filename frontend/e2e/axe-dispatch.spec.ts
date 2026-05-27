@@ -7,6 +7,7 @@ import {
   REPOS_RESPONSE,
   MEMBERS_RESPONSE,
   API_KEYS_RESPONSE,
+  STAGE_TIMELINE_RESPONSE,
 } from "./fixtures/mock-api";
 
 const ALL_ROUTES = [
@@ -18,6 +19,7 @@ const ALL_ROUTES = [
   "/repos",
   "/members",
   "/api-keys",
+  "/trace/abc12345def67890abc12345def67890",
 ] as const;
 
 const scanRouteEnv = (process.env.SCAN_ROUTE ?? "").trim();
@@ -40,6 +42,12 @@ const ROUTE_MOCKS: Partial<Record<string, MockFn>> = {
     await page.route("**/v1/me", (r) => r.fulfill({ json: ME_RESPONSE }));
     await page.route("**/v1/api-keys", (r) =>
       r.fulfill({ json: API_KEYS_RESPONSE }),
+    );
+  },
+  "/trace/abc12345def67890abc12345def67890": async (page) => {
+    await page.route("**/v1/me", (r) => r.fulfill({ json: ME_RESPONSE }));
+    await page.route("**/v1/ingestions/*/stages", (r) =>
+      r.fulfill({ json: STAGE_TIMELINE_RESPONSE }),
     );
   },
 };

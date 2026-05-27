@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 import { AppShell, GlobalSuspenseFallback } from "@/components/AppShell";
 import { ActivityPage } from "@/pages/ActivityPage";
+import { TraceViewerPage } from "@/pages/TraceViewerPage";
 import { AgentExecutionPage } from "@/pages/AgentExecutionPage";
 import { AgentSessionDetailPage } from "@/pages/AgentSessionDetailPage";
 import { SessionReplayPage } from "@/pages/SessionReplayPage";
@@ -171,6 +172,17 @@ const adminGithubRoute = createRoute({
   component: AdminGithubPage,
 });
 
+const traceSearchSchema = z.object({
+  runId: z.string().optional(),
+});
+
+const traceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: routes.trace,
+  validateSearch: traceSearchSchema,
+  component: TraceViewerPage,
+});
+
 const catchAllRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -198,6 +210,7 @@ const routeTree = rootRoute.addChildren([
   agentSessionDetailRoute,
   agentSessionReplayRoute,
   adminGithubRoute,
+  traceRoute,
   catchAllRoute,
 ]);
 

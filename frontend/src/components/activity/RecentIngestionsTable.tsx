@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { RecentIngestionRun } from "@/api";
 import { formatApiError } from "@/lib/errors/api";
 import { formatTimestamp } from "./utils";
@@ -124,7 +125,16 @@ export function RecentIngestionsTable({
                     : "—"}
                 </td>
                 <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                  {run.trace_id ? `${run.trace_id.slice(0, 8)}…` : "—"}
+                  {run.trace_id ? (
+                    <Link
+                      to="/trace/$traceId"
+                      params={{ traceId: run.trace_id }}
+                      search={{ runId: run.id }}
+                      className="hover:underline"
+                    >
+                      {run.trace_id.slice(0, 8)}…
+                    </Link>
+                  ) : "—"}
                 </td>
               </tr>
             );
