@@ -94,6 +94,11 @@ pub struct Config {
     /// endpoints. Optional at boot so the service starts without it; admin
     /// routes return 503 when unset.
     pub admin_token: Option<String>,
+
+    // --- Trace ID surfacing (REQ-TR-03) ---
+    /// `RB_TEMPO_BASE_URL` — Grafana base URL used to construct deep-link redirects
+    /// from `GET /v1/traces/:trace_id`. Defaults to `http://localhost:3000`.
+    pub tempo_base_url: String,
 }
 
 impl Config {
@@ -181,6 +186,8 @@ impl Config {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(100),
             admin_token: env::var("RB_ADMIN_TOKEN").ok().filter(|s| !s.is_empty()),
+            tempo_base_url: env::var("RB_TEMPO_BASE_URL")
+                .unwrap_or_else(|_| "http://localhost:3000".to_owned()),
         })
     }
 
@@ -323,6 +330,7 @@ impl Config {
             session_create_window_secs: 60,
             tenant_session_cap: 100,
             admin_token: None,
+            tempo_base_url: "http://localhost:3000".to_owned(),
         }
     }
 }

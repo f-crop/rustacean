@@ -14,7 +14,7 @@ export function useVerifyEmail() {
         { body },
       );
       if (error) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
     },
     onSuccess: () => {

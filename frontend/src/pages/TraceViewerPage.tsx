@@ -1,9 +1,57 @@
 import { useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { fetchTempoTrace, type TempoTrace, type TempoSpan, type TempoProcess } from "@/api/tempo";
 import { useStageTimeline } from "@/api/hooks/useTraceViewer";
+import { traceRedirectUrl } from "@/api/client";
 import { PageContainer } from "@/components/repos/PageContainer";
 import type { StageRunItem } from "@/api/hooks/useTraceViewer";
+
+// ---------------------------------------------------------------------------
+// Trace ID header — copy-to-clipboard + Grafana Tempo link
+// ---------------------------------------------------------------------------
+
+interface TraceIdHeaderProps {
+  readonly traceId: string;
+}
+
+function TraceIdHeader({ traceId }: TraceIdHeaderProps): JSX.Element {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(traceId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // clipboard may be unavailable in insecure contexts — silently ignore
+    });
+  }, [traceId]);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <h1 className="text-2xl font-semibold tracking-tight">Trace viewer</h1>
+      <div className="flex items-center gap-2">
+        <p className="text-sm text-muted-foreground font-mono truncate">{traceId}</p>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label="Copy trace ID to clipboard"
+          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+        <a
+          href={traceRedirectUrl(traceId)}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="View trace in Grafana Tempo (opens in new tab)"
+          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          View in Tempo ↗
+        </a>
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Stage constants
@@ -342,9 +390,8 @@ function TraceViewerInner({ traceId, ingestionRunId }: TraceViewerInnerProps): J
 
   return (
     <PageContainer>
-      <header className="mb-6 flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Trace viewer</h1>
-        <p className="text-sm text-muted-foreground font-mono truncate">{traceId}</p>
+      <header className="mb-6">
+        <TraceIdHeader traceId={traceId} />
       </header>
 
       {tempo.kind === "loading" && (

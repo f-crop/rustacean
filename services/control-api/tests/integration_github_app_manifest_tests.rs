@@ -119,6 +119,7 @@ fn build_test_config_with_api_base(
         session_create_window_secs: 60,
         tenant_session_cap: 100,
         admin_token: None,
+        tempo_base_url: "http://localhost:3000".to_owned(),
     }
 }
 

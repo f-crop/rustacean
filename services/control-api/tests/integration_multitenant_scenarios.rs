@@ -91,6 +91,7 @@ async fn real_db_state() -> Option<(AppState, sqlx::PgPool)> {
         session_create_window_secs: 60,
         tenant_session_cap: 100,
         admin_token: None,
+        tempo_base_url: "http://localhost:3000".to_owned(),
     };
     let state = AppState {
         pool: pool.clone(),

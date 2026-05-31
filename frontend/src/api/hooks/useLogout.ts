@@ -7,7 +7,7 @@ export function useLogout() {
     mutationFn: async () => {
       const { error, response } = await apiClient.POST("/v1/auth/logout");
       if (error) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
     },
     onSuccess: () => {

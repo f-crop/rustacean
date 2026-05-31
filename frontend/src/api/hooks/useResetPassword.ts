@@ -12,7 +12,7 @@ export function useResetPassword() {
         { body },
       );
       if (error) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
     },
   });

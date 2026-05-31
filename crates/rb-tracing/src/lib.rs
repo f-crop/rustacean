@@ -18,6 +18,22 @@ pub fn current_trace_id() -> Option<String> {
     sc.is_valid().then(|| sc.trace_id().to_string())
 }
 
+/// Returns the W3C 32-hex trace ID from `span`'s `OTel` context, or `None` when
+/// the span has no valid OpenTelemetry context (e.g. no `OpenTelemetryLayer` installed).
+///
+/// Prefer this over [`current_trace_id`] when the span object is available
+/// before it has been entered, e.g. in HTTP middleware that captures the trace ID
+/// before driving the handler future.
+#[must_use]
+pub fn span_trace_id(span: &tracing::Span) -> Option<String> {
+    use opentelemetry::trace::TraceContextExt as _;
+    use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+    let otel_ctx = span.context();
+    let otel_span = otel_ctx.span();
+    let sc = otel_span.span_context();
+    sc.is_valid().then(|| sc.trace_id().to_string())
+}
+
 use opentelemetry::{global, trace::TracerProvider as _};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig as _};

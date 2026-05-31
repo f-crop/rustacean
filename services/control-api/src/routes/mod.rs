@@ -14,6 +14,7 @@ pub mod me;
 pub mod query;
 pub mod repos;
 pub mod tenants;
+pub mod traces;
 
 use axum::{
     Router,
@@ -66,6 +67,7 @@ use crate::routes::{
         delete_tenant, invite_member, list_members, remove_member, transfer_ownership,
         update_member_role,
     },
+    traces::get_trace,
 };
 use crate::state::AppState;
 
@@ -146,6 +148,8 @@ pub fn build_public(state: AppState) -> Router {
         .route("/v1/ingest/events", get(events_stream))
         .route("/v1/ingest/test-publish", post(test_publish))
         .route("/v1/audit", get(list_audit_events))
+        // Trace ID redirect to Grafana Tempo (ADR-012 §S4)
+        .route("/v1/traces/{trace_id}", get(get_trace))
         // MCP endpoint (ADR-009)
         .route("/mcp", post(mcp_handler))
         // Admin v1 operator endpoints (ADR-012 §S1) — bearer-token gated

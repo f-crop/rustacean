@@ -18,7 +18,7 @@ export function useHealth(
       const result = await apiClient.GET("/health");
       const status = result.response.status;
       if (!result.response.ok || !result.data) {
-        throw toApiError(status, result.error ?? null);
+        throw toApiError(status, result.error ?? null, result.response);
       }
       return result.data;
     },

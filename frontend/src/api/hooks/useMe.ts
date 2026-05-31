@@ -17,7 +17,7 @@ export function useMe(
     queryFn: async () => {
       const { data, error, response } = await apiClient.GET("/v1/me");
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },

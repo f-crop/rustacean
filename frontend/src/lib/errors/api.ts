@@ -60,12 +60,14 @@ export function formatApiError(
     return NETWORK_FALLBACK;
   }
   const fromBody = readMessage(apiError.body);
-  if (fromBody) {
-    return fromBody;
-  }
-  return (
+  let message =
+    fromBody ??
     STATUS_FALLBACKS[apiError.status] ??
     contextFallback ??
-    DEFAULT_FALLBACK
-  );
+    DEFAULT_FALLBACK;
+
+  if (apiError.traceId) {
+    message = `${message} [trace: ${apiError.traceId.slice(0, 8)}]`;
+  }
+  return message;
 }
