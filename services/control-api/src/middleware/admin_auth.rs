@@ -8,8 +8,9 @@
 //!    `400 Bad Request` with an audit row written (`outcome='denied',
 //!    error_class='missing_actor'`) so the attempt is visible (invariant §S1.6.2).
 //!
-//! On success the middleware inserts [`AdminActor`] and [`AdminRequestId`] into
-//! request extensions. Handlers read them with `Extension<AdminActor>`.
+//! On success the middleware inserts [`AdminActor`], [`AdminRequestId`],
+//! [`AdminIp`], and [`AdminUserAgent`] into request extensions. Handlers read
+//! them with `Extension<AdminActor>` etc.
 //!
 //! The audit row for successful and erroring requests is written by each
 //! handler individually (invariant §S1.6.1), not here — except for the
@@ -39,6 +40,14 @@ pub struct AdminActor(pub String);
 /// set by the `SetRequestIdLayer` before this middleware runs.
 #[derive(Clone, Debug)]
 pub struct AdminRequestId(pub Uuid);
+
+/// Client IP from `x-forwarded-for` / `x-real-ip` headers; `None` when absent.
+#[derive(Clone, Debug)]
+pub struct AdminIp(pub Option<String>);
+
+/// Value of the `user-agent` header; `None` when absent.
+#[derive(Clone, Debug)]
+pub struct AdminUserAgent(pub Option<String>);
 
 // ---------------------------------------------------------------------------
 // Constant-time token comparison
@@ -138,6 +147,8 @@ pub async fn require_admin_token(
         Some(a) => {
             request.extensions_mut().insert(AdminActor(a));
             request.extensions_mut().insert(AdminRequestId(request_id));
+            request.extensions_mut().insert(AdminIp(ip));
+            request.extensions_mut().insert(AdminUserAgent(user_agent));
             next.run(request).await
         }
     }
@@ -201,5 +212,29 @@ mod tests {
     #[test]
     fn constant_time_eq_empty_vs_empty() {
         assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn admin_ip_extension_present_with_value() {
+        let ext = AdminIp(Some("203.0.113.1".to_owned()));
+        assert_eq!(ext.0.as_deref(), Some("203.0.113.1"));
+    }
+
+    #[test]
+    fn admin_ip_extension_none_when_header_absent() {
+        let ext = AdminIp(None);
+        assert!(ext.0.is_none());
+    }
+
+    #[test]
+    fn admin_user_agent_extension_present_with_value() {
+        let ext = AdminUserAgent(Some("curl/7.88.0".to_owned()));
+        assert_eq!(ext.0.as_deref(), Some("curl/7.88.0"));
+    }
+
+    #[test]
+    fn admin_user_agent_extension_none_when_header_absent() {
+        let ext = AdminUserAgent(None);
+        assert!(ext.0.is_none());
     }
 }

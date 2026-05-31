@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::admin_auth::{AdminActor, AdminRequestId},
+    middleware::admin_auth::{AdminActor, AdminIp, AdminRequestId, AdminUserAgent},
     routes::admin::v1::write_audit_row,
     state::AppState,
 };
@@ -38,6 +38,8 @@ pub async fn rebind_gh_install(
     State(state): State<AppState>,
     Extension(AdminActor(actor)): Extension<AdminActor>,
     Extension(AdminRequestId(request_id)): Extension<AdminRequestId>,
+    Extension(AdminIp(ip)): Extension<AdminIp>,
+    Extension(AdminUserAgent(user_agent)): Extension<AdminUserAgent>,
     Path(tenant_id): Path<Uuid>,
     Json(body): Json<RebindGhInstallReq>,
 ) -> Result<Response, AppError> {
@@ -49,8 +51,8 @@ pub async fn rebind_gh_install(
             Some(tenant_id),
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({
                 "github_installation_id": body.github_installation_id,
                 "force": body.force,
@@ -78,8 +80,8 @@ pub async fn rebind_gh_install(
             Some(tenant_id),
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({
                 "github_installation_id": body.github_installation_id,
             }),
@@ -108,8 +110,8 @@ pub async fn rebind_gh_install(
             Some(tenant_id),
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({
                 "github_installation_id": body.github_installation_id,
             }),
@@ -129,8 +131,8 @@ pub async fn rebind_gh_install(
             Some(tenant_id),
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({
                 "github_installation_id": body.github_installation_id,
                 "note": "already_bound_to_tenant",
@@ -156,8 +158,8 @@ pub async fn rebind_gh_install(
             Some(tenant_id),
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({
                 "github_installation_id": body.github_installation_id,
                 "current_tenant_id": current_tenant_id,
@@ -182,8 +184,8 @@ pub async fn rebind_gh_install(
         Some(tenant_id),
         None,
         request_id,
-        None,
-        None,
+        ip.as_deref(),
+        user_agent.as_deref(),
         &serde_json::json!({
             "github_installation_id": body.github_installation_id,
             "previous_tenant_id": current_tenant_id,

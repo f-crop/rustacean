@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::admin_auth::{AdminActor, AdminRequestId},
+    middleware::admin_auth::{AdminActor, AdminIp, AdminRequestId, AdminUserAgent},
     routes::admin::v1::write_audit_row,
     state::AppState,
 };
@@ -59,6 +59,8 @@ pub async fn list_audit_log(
     State(state): State<AppState>,
     Extension(AdminActor(actor)): Extension<AdminActor>,
     Extension(AdminRequestId(request_id)): Extension<AdminRequestId>,
+    Extension(AdminIp(ip)): Extension<AdminIp>,
+    Extension(AdminUserAgent(user_agent)): Extension<AdminUserAgent>,
     Query(params): Query<AuditLogQuery>,
 ) -> Result<Json<AuditLogResp>, AppError> {
     let limit = params.limit.unwrap_or(100).clamp(1, 500);
@@ -132,8 +134,8 @@ pub async fn list_audit_log(
         params.tenant_id,
         None,
         request_id,
-        None,
-        None,
+        ip.as_deref(),
+        user_agent.as_deref(),
         &serde_json::json!({
             "tenant_id": params.tenant_id,
             "limit": limit,

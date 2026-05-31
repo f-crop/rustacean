@@ -586,3 +586,68 @@ async fn inv5_force_delete_is_two_phase() {
         .await
         .ok();
 }
+
+/// Handler-level audit rows must carry the client IP and user-agent that the
+/// middleware extracted and injected as extensions.
+///
+/// Hits `POST /api/admin/v1/bootstrap/admin` (either 201 or 409) and verifies
+/// that the resulting audit row has non-NULL `ip` and `user_agent` columns.
+#[tokio::test]
+async fn handler_audit_row_carries_ip_and_user_agent() {
+    let Some(pool) = real_db_pool().await else {
+        return;
+    };
+
+    let config = lazy_config_with_token(&std::env::var("RB_DATABASE_URL").unwrap());
+    let app = build_public(build_state_from_pool(pool.clone(), config));
+
+    let request_id = Uuid::new_v4();
+
+    let _resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/admin/v1/bootstrap/admin")
+                .header("authorization", format!("Bearer {ADMIN_TOKEN}"))
+                .header("x-admin-actor", "ip-ua-test-actor")
+                .header("x-request-id", request_id.to_string())
+                .header("x-forwarded-for", "198.51.100.42")
+                .header("user-agent", "test-harness/1.0")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"email":"ipua@test.com","password":"supersecret12"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT ip::text, user_agent \
+         FROM auth.admin_audit_log \
+         WHERE request_id = $1",
+    )
+    .bind(request_id)
+    .fetch_optional(&pool)
+    .await
+    .expect("query audit row");
+
+    let (ip, ua) = row.expect("audit row must exist");
+    assert!(
+        ip.is_some(),
+        "handler audit row must have non-NULL ip, got None"
+    );
+    assert!(
+        ua.is_some(),
+        "handler audit row must have non-NULL user_agent, got None"
+    );
+    assert!(
+        ip.as_deref().unwrap_or("").contains("198.51.100.42"),
+        "ip must contain the forwarded address, got: {ip:?}"
+    );
+    assert_eq!(
+        ua.as_deref(),
+        Some("test-harness/1.0"),
+        "user_agent must match the sent header"
+    );
+}

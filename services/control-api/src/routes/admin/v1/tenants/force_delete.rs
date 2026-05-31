@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::admin_auth::{AdminActor, AdminRequestId},
+    middleware::admin_auth::{AdminActor, AdminIp, AdminRequestId, AdminUserAgent},
     routes::admin::v1::write_audit_row,
     state::AppState,
 };
@@ -63,12 +63,16 @@ pub async fn force_delete(
     State(state): State<AppState>,
     Extension(AdminActor(actor)): Extension<AdminActor>,
     Extension(AdminRequestId(request_id)): Extension<AdminRequestId>,
+    Extension(AdminIp(ip)): Extension<AdminIp>,
+    Extension(AdminUserAgent(user_agent)): Extension<AdminUserAgent>,
     Path(tenant_id): Path<Uuid>,
     Json(body): Json<ForceDeleteReq>,
 ) -> Result<Response, AppError> {
     match body.confirm_token {
-        None => force_delete_phase1(&state, actor, tenant_id, request_id).await,
-        Some(token) => force_delete_phase2(&state, actor, tenant_id, request_id, &token).await,
+        None => force_delete_phase1(&state, actor, tenant_id, request_id, ip, user_agent).await,
+        Some(token) => {
+            force_delete_phase2(&state, actor, tenant_id, request_id, ip, user_agent, &token).await
+        }
     }
 }
 
@@ -77,6 +81,8 @@ async fn force_delete_phase1(
     actor: String,
     tenant_id: Uuid,
     request_id: Uuid,
+    ip: Option<String>,
+    user_agent: Option<String>,
 ) -> Result<Response, AppError> {
     let snapshot = fetch_snapshot(state, tenant_id).await?;
     let snapshot_json = serde_json::to_string(&snapshot).unwrap_or_default();
@@ -108,8 +114,8 @@ async fn force_delete_phase1(
         Some(tenant_id),
         None,
         request_id,
-        None,
-        None,
+        ip.as_deref(),
+        user_agent.as_deref(),
         &serde_json::json!({
             "snapshot": &snapshot,
         }),
@@ -132,6 +138,8 @@ async fn force_delete_phase2(
     actor: String,
     tenant_id: Uuid,
     request_id: Uuid,
+    ip: Option<String>,
+    user_agent: Option<String>,
     confirm_token: &str,
 ) -> Result<Response, AppError> {
     let admin_token = state.config.admin_token.as_deref().unwrap_or("");
@@ -155,8 +163,8 @@ async fn force_delete_phase2(
             Some(tenant_id),
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({"error": "actor_mismatch"}),
             "denied",
             Some("actor_mismatch"),
@@ -172,8 +180,8 @@ async fn force_delete_phase2(
             Some(tenant_id),
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({"error": "tenant_id_mismatch"}),
             "denied",
             Some("tenant_id_mismatch"),
@@ -194,8 +202,8 @@ async fn force_delete_phase2(
             Some(tenant_id),
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({"error": "snapshot_shifted"}),
             "denied",
             Some("snapshot_shifted"),
@@ -251,8 +259,8 @@ async fn force_delete_phase2(
                 Some(tenant_id),
                 None,
                 request_id,
-                None,
-                None,
+                ip.as_deref(),
+                user_agent.as_deref(),
                 &serde_json::json!({"error": "kafka_publish_failed"}),
                 "error",
                 Some("kafka_publish_failed"),
@@ -271,8 +279,8 @@ async fn force_delete_phase2(
         Some(tenant_id),
         None,
         request_id,
-        None,
-        None,
+        ip.as_deref(),
+        user_agent.as_deref(),
         &serde_json::json!({"snapshot": current_snapshot}),
         "ok",
         None,

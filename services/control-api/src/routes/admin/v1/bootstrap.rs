@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::admin_auth::{AdminActor, AdminRequestId},
+    middleware::admin_auth::{AdminActor, AdminIp, AdminRequestId, AdminUserAgent},
     routes::admin::v1::write_audit_row,
     state::AppState,
 };
@@ -46,6 +46,8 @@ pub async fn bootstrap_admin(
     State(state): State<AppState>,
     Extension(AdminActor(actor)): Extension<AdminActor>,
     Extension(AdminRequestId(request_id)): Extension<AdminRequestId>,
+    Extension(AdminIp(ip)): Extension<AdminIp>,
+    Extension(AdminUserAgent(user_agent)): Extension<AdminUserAgent>,
     Json(body): Json<BootstrapAdminReq>,
 ) -> Result<impl IntoResponse, AppError> {
     // Validate input before any DB touch.
@@ -70,8 +72,8 @@ pub async fn bootstrap_admin(
             None,
             None,
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({"email": email, "existing_users": user_count}),
             "denied",
             Some("users_already_exist"),
@@ -101,8 +103,8 @@ pub async fn bootstrap_admin(
         None,
         Some(user_id),
         request_id,
-        None,
-        None,
+        ip.as_deref(),
+        user_agent.as_deref(),
         &serde_json::json!({"email": email}),
         "ok",
         None,
