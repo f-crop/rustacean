@@ -1,0 +1,275 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "annotations": { "list": [] },
+  "description": "Stack overview — is the stack healthy right now? (ADR-012 §S3)",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "title": "Latency & Throughput", "url": "/d/rb-latency-throughput", "type": "dashboards" },
+    { "title": "Changes & Deploys",    "url": "/d/rb-changes-deploys",    "type": "dashboards" },
+    { "title": "Operability & Admin",  "url": "/d/rb-operability-admin",  "type": "dashboards" }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["rust-brain", "overview", "s3"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Stack Overview",
+  "uid": "rb-stack-overview",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Service Status",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Build info — all services",
+      "description": "rb_build_info{service, version, git_sha} — one row per service. Red = service not reporting.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 1 },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "service", "desc": false }]
+      },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rb_build_info",
+          "legendFormat": "{{service}}",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "filterFieldsByName", "options": { "include": { "names": ["service", "version", "git_sha", "Value"] } } }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "Kafka",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Consumer lag by topic",
+      "description": "rb_kafka_consumer_lag_records — should stay near 0. Sustained lag indicates a slow consumer.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 5000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (topic, group) (rb_kafka_consumer_lag_records)",
+          "legendFormat": "{{topic}} / {{group}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Kafka message rates (produce + consume)",
+      "description": "rb_kafka_messages_total{op} — per-topic produce and consume rates.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (topic, op) (rate(rb_kafka_messages_total[1m]))",
+          "legendFormat": "{{op}} / {{topic}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Sessions & SSE",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Active SSE clients",
+      "description": "rb_sse_clients — current count of open SSE connections.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 19 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "expr": "sum(rb_sse_clients)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "SSE dropped events rate",
+      "description": "rb_sse_dropped_total{reason} — events dropped because a client's buffer was full.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 9, "x": 6, "y": 19 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0, "color": { "fixedColor": "orange", "mode": "fixed" } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(rb_sse_dropped_total[1m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Active agent sessions",
+      "description": "rb_agent_runner_active_sessions — number of agent sessions currently running.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 9, "x": 15, "y": 19 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "rb_agent_runner_active_sessions",
+          "legendFormat": "active sessions",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Error Rates",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Worker DLQ rates",
+      "description": "Dead-letter queue event rates across all workers — non-zero means unprocessable messages.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0, "color": { "fixedColor": "red", "mode": "fixed" } },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum(rate(rb_ingest_clone_total{outcome=\"dlq\"}[1m]))",
+          "legendFormat": "ingest-clone dlq",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(rb_parse_worker_dlq_total[1m]))",
+          "legendFormat": "parse-worker dlq",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(rb_expand_worker_dlq_total[1m]))",
+          "legendFormat": "expand-worker dlq",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(rb_ingest_graph_dlq_total[1m]))",
+          "legendFormat": "ingest-graph dlq",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(rb_embed_worker_dlq_total[1m]))",
+          "legendFormat": "embed-worker dlq",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(rate(rb_typecheck_worker_dlq_total[1m]))",
+          "legendFormat": "typecheck-worker dlq",
+          "refId": "F"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Agent relay failures",
+      "description": "rb_agent_relay_failed_total — events that could not be relayed after all retries.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0, "color": { "fixedColor": "red", "mode": "fixed" } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(rb_agent_relay_failed_total[1m]))",
+          "legendFormat": "relay failures/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(rb_agent_events_dropped_total[1m]))",
+          "legendFormat": "events dropped/s",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

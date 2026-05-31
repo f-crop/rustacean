@@ -1,0 +1,324 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "annotations": { "list": [] },
+  "description": "Latency & throughput — where is the bottleneck if something is slow? (ADR-012 §S3)",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "title": "Stack Overview",      "url": "/d/rb-stack-overview",      "type": "dashboards" },
+    { "title": "Changes & Deploys",   "url": "/d/rb-changes-deploys",     "type": "dashboards" },
+    { "title": "Operability & Admin", "url": "/d/rb-operability-admin",   "type": "dashboards" }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["rust-brain", "latency", "throughput", "s3"],
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Latency & Throughput",
+  "uid": "rb-latency-throughput",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "API Latency",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Request latency p50/p95/p99 (control-api)",
+      "description": "rb_control_api_request_duration_seconds histogram — request latency percentiles.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, route) (rate(rb_control_api_request_duration_seconds_bucket[2m])))",
+          "legendFormat": "p50 {{route}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(rb_control_api_request_duration_seconds_bucket[2m])))",
+          "legendFormat": "p95 {{route}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, route) (rate(rb_control_api_request_duration_seconds_bucket[2m])))",
+          "legendFormat": "p99 {{route}}",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Request rate by route (control-api)",
+      "description": "rb_control_api_requests_total — per-route request throughput.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (route, method) (rate(rb_control_api_requests_total{status_class=\"2xx\"}[1m]))",
+          "legendFormat": "{{method}} {{route}} 2xx",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (route) (rate(rb_control_api_requests_total{status_class=\"4xx\"}[1m]))",
+          "legendFormat": "{{route}} 4xx",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (route) (rate(rb_control_api_requests_total{status_class=\"5xx\"}[1m]))",
+          "legendFormat": "{{route}} 5xx",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Kafka Throughput",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Kafka produce rate (msg/s)",
+      "description": "rb_kafka_messages_total{op=\"produce\"} — per-topic produce throughput.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (topic) (rate(rb_kafka_messages_total{op=\"produce\",outcome=\"ok\"}[1m]))",
+          "legendFormat": "{{topic}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Kafka consume rate (msg/s)",
+      "description": "rb_kafka_messages_total{op=\"consume\"} — per-topic consume throughput.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (topic) (rate(rb_kafka_messages_total{op=\"consume\",outcome=\"ok\"}[1m]))",
+          "legendFormat": "{{topic}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Consumer lag by topic/group",
+      "description": "rb_kafka_consumer_lag_records — queue depth; should stay near 0 under normal load.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 10000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (topic, group) (rb_kafka_consumer_lag_records)",
+          "legendFormat": "{{topic}} / {{group}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Ingestion Pipeline Throughput",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Ingestion pipeline — per-stage event rate",
+      "description": "Per-stage event rates through the 11-worker ingestion pipeline.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum(rate(rb_ingest_clone_total{outcome=\"ok\"}[1m]))",
+          "legendFormat": "ingest-clone",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(rb_parse_worker_total{outcome=\"ok\"}[1m]))",
+          "legendFormat": "parse-worker",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(rb_expand_worker_total{outcome=\"ok\"}[1m]))",
+          "legendFormat": "expand-worker",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(rb_ingest_graph_total{outcome=\"ok\"}[1m]))",
+          "legendFormat": "ingest-graph",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(rb_typecheck_worker_total{outcome=\"ok\"}[1m]))",
+          "legendFormat": "typecheck-worker",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Projection & embedding throughput",
+      "description": "Downstream projection and vector embedding event rates.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum(rate(rb_projector_pg_events_total{outcome=\"ok\"}[1m]))",
+          "legendFormat": "projector-pg",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(rb_projector_neo4j_events_total{outcome=\"ok\"}[1m]))",
+          "legendFormat": "projector-neo4j",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(rb_embed_worker_total{outcome=\"ok\"}[1m]))",
+          "legendFormat": "embed-worker batches",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(rb_embed_worker_vectors_total[1m]))",
+          "legendFormat": "vectors embedded/s",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Error Rates",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Worker error rates",
+      "description": "Per-worker error event rates — spikes indicate processing failures.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum(rate(rb_ingest_clone_total{outcome=\"err\"}[1m]))",
+          "legendFormat": "ingest-clone err",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(rb_parse_worker_total{outcome=\"err\"}[1m]))",
+          "legendFormat": "parse-worker err",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(rb_expand_worker_total{outcome=\"err\"}[1m]))",
+          "legendFormat": "expand-worker err",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(rb_projector_pg_events_total{outcome=\"err\"}[1m]))",
+          "legendFormat": "projector-pg err",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(rb_projector_neo4j_events_total{outcome=\"err\"}[1m]))",
+          "legendFormat": "projector-neo4j err",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(rate(rb_embed_worker_total{outcome=\"err\"}[1m]))",
+          "legendFormat": "embed-worker err",
+          "refId": "F"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "API error rate (5xx)",
+      "description": "rb_control_api_requests_total{status_class=\"5xx\"} — server errors indicate a broken service path.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0, "color": { "fixedColor": "red", "mode": "fixed" } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (route) (rate(rb_control_api_requests_total{status_class=\"5xx\"}[1m]))",
+          "legendFormat": "{{route}} 5xx",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

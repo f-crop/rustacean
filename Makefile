@@ -1,4 +1,4 @@
-.PHONY: review-ready review-checklist review-checklist-fixtures state-reconcile-fixtures install-hooks blob-smoke blob-smoke-s3 ingest-smoke apply-branch-protection
+.PHONY: review-ready review-checklist review-checklist-fixtures state-reconcile-fixtures install-hooks blob-smoke blob-smoke-s3 ingest-smoke apply-branch-protection grafana-lint
 
 # Run all local pre-PR checks: fmt, clippy, test, deny, openapi, frontend (if changed).
 # All steps run even on partial failure so you see the full picture before pushing.
@@ -28,6 +28,13 @@ install-hooks:
 # Use --dry-run to preview without applying: make apply-branch-protection ARGS=--dry-run
 apply-branch-protection:
 	bash scripts/apply-branch-protection.sh $(ARGS)
+
+# Validate that every Grafana dashboard panel only references metrics that are
+# in the S2 frozen registry (ADR-012 §S3).  Fails if a panel queries a metric
+# not listed in infra/grafana/metrics-registry.txt.
+# Folded into ci/test per ADR-012 §S5.2.
+grafana-lint:
+	bash scripts/grafana-lint.sh
 
 
 # Run SSE ingest smoke tests (no Kafka required — uses dev test-publish route).

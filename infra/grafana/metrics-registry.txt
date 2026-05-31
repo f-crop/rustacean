@@ -1,0 +1,98 @@
+# S2 frozen metric registry (ADR-012 §S2).
+#
+# Every metric emitted by any rb-* service or crate is listed here.
+# Sources:
+#   - ADR-012 §2.2.2 canonical examples (the frozen contract)
+#   - Rust source: grep 'metrics::(counter|gauge|histogram)!("rb_' crates/ services/
+#   - Pushgateway: scripts/push-token-metrics.sh
+#
+# grafana-lint reads this file and fails if any panel's PromQL references
+# a metric that is not listed below. Add new metrics here in the same PR
+# that introduces them to the source code.
+
+# ── ADR-012 §2.2.2 canonical (frozen contract) ──────────────────────────────
+rb_admin_requests_total
+rb_agent_runner_active_sessions
+rb_agent_runner_sessions_total
+rb_build_info
+rb_control_api_request_duration_seconds
+rb_control_api_requests_total
+rb_db_pool_connections
+rb_kafka_consumer_lag
+rb_outbox_age_seconds
+rb_session_failures_total
+
+# ── rb-kafka (crates/rb-kafka/src/consumer.rs, producer.rs) ─────────────────
+rb_kafka_consume_lag_seconds
+rb_kafka_consumer_lag_records
+rb_kafka_dlq_total
+rb_kafka_e2e_latency_seconds
+rb_kafka_messages_total
+rb_kafka_retry_total
+
+# ── rb-blob (crates/rb-blob/src/) ───────────────────────────────────────────
+rb_blob_bytes_total
+rb_blob_op_total
+
+# ── rb-sse (crates/rb-sse/src/) ─────────────────────────────────────────────
+rb_sse_clients
+rb_sse_dropped_total
+rb_sse_events_dispatched_total
+
+# ── agent-runner (services/agent-runner/src/) ────────────────────────────────
+rb_agent_commands_errors_total
+rb_agent_commands_total
+rb_agent_events_dropped_total
+rb_agent_events_failed_total
+rb_agent_events_published_total
+rb_agent_relay_dropped_total
+rb_agent_relay_failed_total
+rb_agent_relay_published_total
+rb_agent_relay_retry_total
+
+# ── embed-worker (services/embed-worker/src/) ────────────────────────────────
+rb_embed_worker_dlq_total
+rb_embed_worker_total
+rb_embed_worker_vectors_total
+rb_embeddings
+
+# ── expand-worker (services/expand-worker/src/) ──────────────────────────────
+rb_expand_worker_crate_skip_total
+rb_expand_worker_dlq_total
+rb_expand_worker_total
+
+# ── ingest-clone (services/ingest-clone/src/) ────────────────────────────────
+rb_ingest_clone_total
+
+# ── ingest-graph (services/ingest-graph/src/) ────────────────────────────────
+rb_ingest_graph_dlq_total
+rb_ingest_graph_relations_total
+rb_ingest_graph_total
+
+# ── parse-worker (services/parse-worker/src/) ────────────────────────────────
+rb_parse_worker_dlq_total
+rb_parse_worker_files_total
+rb_parse_worker_items_total
+rb_parse_worker_total
+
+# ── projector-neo4j (services/projector-neo4j/src/) ─────────────────────────
+rb_projector_neo4j_cap_exceeded_total
+rb_projector_neo4j_events_total
+
+# ── projector-pg (services/projector-pg/src/) ────────────────────────────────
+rb_projector_pg_events_total
+
+# ── tombstoner (services/tombstoner/src/) ────────────────────────────────────
+rb_tombstoner_events_total
+
+# ── typecheck-worker (services/typecheck-worker/src/) ────────────────────────
+rb_typecheck_worker_dlq_total
+rb_typecheck_worker_files_total
+rb_typecheck_worker_items_total
+rb_typecheck_worker_total
+
+# ── Pushgateway (scripts/push-token-metrics.sh) ──────────────────────────────
+rb_agent_context_budget_ratio_last_run
+rb_agent_context_tokens_current_run
+rb_agent_context_tokens_peak_last_run
+rb_agent_context_turns_last_run
