@@ -48,34 +48,7 @@ async fn main() -> Result<()> {
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("projector-neo4j")?;
-    let metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
-        .install_recorder()
-        .context("failed to install Prometheus metrics recorder")?;
-    metrics::gauge!(
-        "rb_build_info",
-        "service" => "projector_neo4j",
-        "git_sha" => rb_build_info::SHA,
-        "version" => env!("CARGO_PKG_VERSION"),
-    )
-    .set(1.0);
-    let metrics_port: u16 = std::env::var("RB_METRICS_PORT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(9091);
-    tokio::spawn(async move {
-        use axum::routing::get;
-        let app = axum::Router::new().route(
-            "/metrics",
-            get(move || async move { metrics_handle.render() }),
-        );
-        let listener = tokio::net::TcpListener::bind(("0.0.0.0", metrics_port))
-            .await
-            .expect("metrics listener bind failed");
-        tracing::info!(port = metrics_port, "metrics server listening");
-        axum::serve(listener, app)
-            .await
-            .expect("metrics server error");
-    });
+    rb_metrics::spawn_metrics_server(rb_metrics::install_recorder("projector_neo4j")?);
 
     let neo4j_uri = std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://neo4j:7687".to_owned());
     let neo4j_user = std::env::var("NEO4J_USER").unwrap_or_else(|_| "neo4j".to_owned());

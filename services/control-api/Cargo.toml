@@ -19,9 +19,10 @@ name = "control_api"
 path = "src/lib.rs"
 
 [dependencies]
-rb-auth = { path = "../../crates/rb-auth", version = "0.1.0" }
+rb-auth       = { path = "../../crates/rb-auth",       version = "0.1.0" }
 rb-build-info = { path = "../../crates/rb-build-info", version = "0.1.0" }
-migrate = { path = "../migrate", version = "0.1.0" }
+rb-metrics    = { path = "../../crates/rb-metrics",    version = "0.1.0" }
+migrate       = { path = "../migrate",                  version = "0.1.0" }
 rb-email = { path = "../../crates/rb-email", version = "0.1.0" }
 rb-kafka = { path = "../../crates/rb-kafka", version = "0.1.0" }
 rb-kafka-health = { path = "../../crates/rb-kafka-health", version = "0.1.0" }
@@ -64,7 +65,6 @@ metrics.workspace = true
 dashmap.workspace = true
 futures.workspace = true
 urlencoding = "2"
-metrics-exporter-prometheus.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true }

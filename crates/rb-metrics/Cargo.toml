@@ -1,0 +1,24 @@
+[package]
+name = "rb-metrics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+description = "Shared Prometheus metrics recorder setup and metrics server for Rustacean services."
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+rb-build-info = { path = "../rb-build-info", version = "0.1.0" }
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+metrics-exporter-prometheus = { workspace = true }
+
+[lints]
+workspace = true
