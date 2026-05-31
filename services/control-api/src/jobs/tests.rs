@@ -195,6 +195,7 @@ fn make_state(pool: PgPool) -> AppState {
         session_create_rate_limit: 10,
         session_create_window_secs: 60,
         tenant_session_cap: 100,
+        admin_token: None,
     };
     AppState {
         pool,

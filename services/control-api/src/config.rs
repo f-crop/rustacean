@@ -88,6 +88,12 @@ pub struct Config {
     /// `RB_TENANT_SESSION_CAP` — max concurrent active sessions per tenant.
     /// Defaults to 100.
     pub tenant_session_cap: usize,
+
+    // --- Admin bootstrap (REQ-AD-01, ADR-012 §S1) ---
+    /// `RB_ADMIN_TOKEN` — shared bearer secret that gates all `/api/admin/v1/*`
+    /// endpoints. Optional at boot so the service starts without it; admin
+    /// routes return 503 when unset.
+    pub admin_token: Option<String>,
 }
 
 impl Config {
@@ -174,6 +180,7 @@ impl Config {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(100),
+            admin_token: env::var("RB_ADMIN_TOKEN").ok().filter(|s| !s.is_empty()),
         })
     }
 
@@ -315,6 +322,7 @@ impl Config {
             session_create_rate_limit: 10,
             session_create_window_secs: 60,
             tenant_session_cap: 100,
+            admin_token: None,
         }
     }
 }

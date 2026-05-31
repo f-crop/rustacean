@@ -74,6 +74,7 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         session_create_rate_limit: 10,
         session_create_window_secs: 60,
         tenant_session_cap: 100,
+        admin_token: None,
     };
     let state = AppState {
         pool: pool.clone(),
