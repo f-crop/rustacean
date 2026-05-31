@@ -407,6 +407,8 @@ jobs:
         run: npx playwright install-deps chromium
       - name: Build frontend bundle
         run: npm run build
+        env:
+          VITE_TEMPO_URL: http://localhost:3200
       - name: Run Playwright E2E tests
         run: npx playwright test
       - name: Upload Playwright report
