@@ -72,6 +72,7 @@ fn lazy_config_with_token(db_url: &str) -> Config {
         session_create_window_secs: 60,
         tenant_session_cap: 100,
         admin_token: Some(ADMIN_TOKEN.to_owned()),
+        tempo_base_url: "http://localhost:3000".to_owned(),
     }
 }
 
