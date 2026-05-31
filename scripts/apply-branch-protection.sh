@@ -42,7 +42,7 @@ if [[ "${1:-}" == "--list" ]]; then
 fi
 
 # Build the JSON payload for the branch protection PUT.
-# Preserves all other protection settings; only updates required_status_checks.
+# Declaratively sets the full branch protection configuration (idempotent PUT).
 CHECKS_JSON=$(printf '%s\n' "${REQUIRED_CHECKS[@]}" \
   | jq -R . | jq -sc '.')
 
