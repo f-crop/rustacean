@@ -169,4 +169,26 @@ test.describe("Agent Execution — Activity page", () => {
       page.getByRole("heading", { name: "Recent queries" }),
     ).toBeVisible();
   });
+
+  test("trace ID link navigates to trace viewer with correct URL", async ({ page }) => {
+    await page.route("**/v1/ingestions/*/stages", (route) =>
+      route.fulfill({
+        json: {
+          ingestion_run_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          trace_id: "0123456789abcdef0123456789abcdef",
+          stages: [],
+        },
+      }),
+    );
+    await setupPage(page, RECENT_INGESTIONS_WITH_DATA);
+    await page.goto("/activity");
+
+    const traceLink = page.getByRole("link", { name: /^01234567/ });
+    await expect(traceLink).toBeVisible();
+
+    await traceLink.click();
+
+    await expect(page).toHaveURL(/\/trace\/0123456789abcdef0123456789abcdef/);
+    await expect(page).toHaveURL(/runId=a1b2c3d4-e5f6-7890-abcd-ef1234567890/);
+  });
 });
