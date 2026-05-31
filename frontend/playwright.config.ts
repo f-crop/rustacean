@@ -1,5 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// PR CI: Chromium only.
+// Nightly: Chromium + Firefox + WebKit (set PLAYWRIGHT_NIGHTLY=true).
+const isNightly = !!process.env.PLAYWRIGHT_NIGHTLY;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -26,6 +30,18 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    ...(isNightly
+      ? [
+          {
+            name: "firefox",
+            use: { ...devices["Desktop Firefox"] },
+          },
+          {
+            name: "webkit",
+            use: { ...devices["Desktop Safari"] },
+          },
+        ]
+      : []),
   ],
   outputDir: "test-results",
 });
