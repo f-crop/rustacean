@@ -1,14 +1,12 @@
 name: Pipeline E2E Smoke Test
 
-# Full 9-stage pipeline integration test (RUSAA-645).
-# Requires real GitHub App credentials stored as repository secrets.
-# Skipped automatically on fork PRs (secrets are unavailable there).
+# Full 9-stage pipeline integration test (ADR-012 §S5.2, required check #11).
+# Always runs on PRs so the required check is always reported.
+# E2E steps are skipped when no pipeline-relevant files changed OR when
+# GitHub App secrets are unavailable (fork PRs, secret not configured).
 
 on:
-  # Runs after merge to main (secrets available) and on manual triggers.
-  # Intentionally NOT on pull_request: the test requires GitHub App secrets
-  # that are unavailable on PRs, takes up to 10 minutes, and is not a merge
-  # gate (regular CI — cargo test, clippy, etc. — gates PRs instead).
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -19,34 +17,58 @@ concurrency:
 
 jobs:
   pipeline-e2e:
-    name: pipeline e2e smoke
+    name: pipeline-e2e
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # Detect whether this PR touches pipeline-relevant files.
+      # When nothing relevant changed the job exits early (pass) so the required
+      # check is always reported without running a 10-minute E2E test.
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            e2e:
+              - 'services/**'
+              - 'crates/**'
+              - 'migrations/**'
+              - 'docker/**'
+              - 'compose/**'
+              - 'scripts/e2e-smoke-test.sh'
+              - '.github/workflows/pipeline-e2e.yml'
 
-      - name: Verify required secrets are present
+      # Determine whether GitHub App secrets are available.
+      # Secrets are empty on fork PRs and may be unconfigured in forks/test repos.
+      - name: Check secrets availability
+        id: secrets
         env:
           SMOKE_GH_APP_ID: ${{ secrets.SMOKE_GH_APP_ID }}
           SMOKE_GH_PRIVATE_KEY_PEM_B64: ${{ secrets.SMOKE_GH_PRIVATE_KEY_PEM_B64 }}
         run: |
-          missing=()
-          [ -n "$SMOKE_GH_APP_ID" ]             || missing+=("SMOKE_GH_APP_ID")
-          [ -n "$SMOKE_GH_PRIVATE_KEY_PEM_B64" ] || missing+=("SMOKE_GH_PRIVATE_KEY_PEM_B64")
-          if [ "${#missing[@]}" -gt 0 ]; then
-            for s in "${missing[@]}"; do
-              echo "::error::Required secret $s is not configured."
-            done
-            echo "::error::Also ensure SMOKE_INSTALLATION_ID, SMOKE_GITHUB_REPO_ID,"
-            echo "::error::and SMOKE_GITHUB_REPO_FULL_NAME are set as repository secrets."
-            exit 1
+          if [ -n "$SMOKE_GH_APP_ID" ] && [ -n "$SMOKE_GH_PRIVATE_KEY_PEM_B64" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub App secrets present — proceeding with E2E test."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "GitHub App secrets unavailable — skipping E2E test (fork PR or unconfigured)."
           fi
-          echo "All required secrets present — proceeding with E2E test."
+
+      - name: Skip — no pipeline-relevant files changed
+        if: steps.changes.outputs.e2e != 'true'
+        run: echo "No pipeline-relevant files changed — skipping E2E test."
+
+      - name: Skip — GitHub App secrets unavailable
+        if: steps.changes.outputs.e2e == 'true' && steps.secrets.outputs.available != 'true'
+        run: echo "GitHub App secrets unavailable — skipping E2E test."
+
+      - name: Set up Docker Buildx
+        if: steps.changes.outputs.e2e == 'true' && steps.secrets.outputs.available == 'true'
+        uses: docker/setup-buildx-action@v3
 
       - name: Decode GitHub App private key
+        if: steps.changes.outputs.e2e == 'true' && steps.secrets.outputs.available == 'true'
         env:
           SMOKE_GH_PRIVATE_KEY_PEM_B64: ${{ secrets.SMOKE_GH_PRIVATE_KEY_PEM_B64 }}
         run: |
@@ -62,6 +84,7 @@ jobs:
           rm -f /tmp/smoke-gh-key.pem
 
       - name: Run E2E pipeline smoke test
+        if: steps.changes.outputs.e2e == 'true' && steps.secrets.outputs.available == 'true'
         env:
           SMOKE_GH_APP_ID: ${{ secrets.SMOKE_GH_APP_ID }}
           SMOKE_INSTALLATION_ID: ${{ secrets.SMOKE_INSTALLATION_ID }}
