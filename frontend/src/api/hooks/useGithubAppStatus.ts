@@ -19,7 +19,7 @@ export function useGithubAppStatus(
         "/v1/admin/github/app-status",
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },

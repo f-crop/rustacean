@@ -10,7 +10,7 @@ export function useForgotPassword() {
       const result = await apiClient.POST("/v1/auth/forgot-password", { body });
       const status = result.response.status;
       if (result.error || !result.response.ok) {
-        throw toApiError(status, result.error ?? null);
+        throw toApiError(status, result.error ?? null, result.response);
       }
     },
   });

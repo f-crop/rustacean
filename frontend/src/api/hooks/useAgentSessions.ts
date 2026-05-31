@@ -39,7 +39,7 @@ export function useAgentSessions(
         "/v1/agents/sessions",
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -59,7 +59,7 @@ export function useCreateSession(tenantId: string) {
         { body },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -78,7 +78,7 @@ export function useDeleteSession(tenantId: string) {
         { params: { path: { id } } },
       );
       if (error) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
     },
     onSuccess: () => {
@@ -103,7 +103,7 @@ export function useSessionDetail(
         { params: { path: { id: sessionId } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -137,7 +137,7 @@ export function useSessionHistory(sessionId: string, enabled: boolean) {
         },
       );
       if (!response.ok) {
-        throw toApiError(response.status, null);
+        throw toApiError(response.status, null, response);
       }
       return JSON.parse(rawText as string) as HistoryResponse;
     },

@@ -9,7 +9,7 @@ export function useGithubInstallUrl() {
     mutationFn: async () => {
       const { data, error, response } = await apiClient.GET("/v1/github/install-url");
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },

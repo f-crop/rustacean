@@ -21,7 +21,7 @@ export function useStageTimeline(
         { params: { path: { ingestion_run_id: ingestionRunId } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },

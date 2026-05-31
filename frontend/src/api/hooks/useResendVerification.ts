@@ -12,7 +12,7 @@ export function useResendVerification() {
         { body },
       );
       if (error) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
     },
   });

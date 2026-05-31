@@ -28,7 +28,7 @@ export function useApiKeys(
     queryFn: async () => {
       const { data, error, response } = await apiClient.GET("/v1/api-keys");
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -46,7 +46,7 @@ export function useCreateApiKey(tenantId: string) {
         { body },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -65,7 +65,7 @@ export function useRevokeApiKey(tenantId: string) {
         { params: { path: { id } } },
       );
       if (error) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
     },
     onSuccess: () => {

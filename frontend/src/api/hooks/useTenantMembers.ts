@@ -34,7 +34,7 @@ export function useTenantMembers(
         { params: { path: { id: tenantId } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -52,7 +52,7 @@ export function useInviteMember(tenantId: string) {
         { params: { path: { id: tenantId } }, body },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -75,7 +75,7 @@ export function useUpdateMemberRole(tenantId: string) {
         { params: { path: { id: tenantId, uid } }, body },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -94,7 +94,7 @@ export function useRemoveMember(tenantId: string) {
         { params: { path: { id: tenantId, uid } } },
       );
       if (error) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
     },
     onSettled: () => {
@@ -112,7 +112,7 @@ export function useTransferOwnership(tenantId: string) {
         { params: { path: { id: tenantId } }, body },
       );
       if (error) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
     },
     onSuccess: () => {

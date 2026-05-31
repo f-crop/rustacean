@@ -41,7 +41,7 @@ export function useIngestionStagesForRunningRuns(
           { params: { path: { ingestion_run_id: runId } } },
         );
         if (error || !data) {
-          throw toApiError(response.status, error);
+          throw toApiError(response.status, error, response);
         }
         return data;
       },

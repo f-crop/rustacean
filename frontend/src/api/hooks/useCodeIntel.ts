@@ -41,7 +41,7 @@ export function useModuleTree(
         { params: { path: { repo_id: repoId } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -64,7 +64,7 @@ export function useItem(
         { params: { path: { repo_id: repoId, fqn_b64: fqnB64 } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -88,7 +88,7 @@ export function useSearch() {
     mutationFn: async (body) => {
       const { data, error, response } = await apiClient.POST("/v1/search", { body });
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -116,7 +116,7 @@ export function useCallers(
         { params: { path: { repo_id: repoId, fqn_b64: fqnB64 } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -138,7 +138,7 @@ export function useCallees(
         { params: { path: { repo_id: repoId, fqn_b64: fqnB64 } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },

@@ -15,7 +15,7 @@ export function useLogin() {
         { body },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },

@@ -48,7 +48,7 @@ export function useRepos(
     queryFn: async () => {
       const { data, error, response } = await apiClient.GET("/v1/repos");
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -63,7 +63,7 @@ export function useConnectRepo(tenantId: string) {
     mutationFn: async (body) => {
       const { data, error, response } = await apiClient.POST("/v1/repos", { body });
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -82,7 +82,7 @@ export function useTriggerIngest(tenantId: string) {
         { params: { path: { id: repoId } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data;
     },
@@ -110,7 +110,7 @@ export function useAvailableRepos(
         { params: { path: { id: installationId }, query: { page, per_page: 30 } } },
       );
       if (error || !data) {
-        throw toApiError(response.status, error);
+        throw toApiError(response.status, error, response);
       }
       return data as unknown as AvailableReposResponse;
     },
