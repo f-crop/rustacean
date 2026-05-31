@@ -11,13 +11,14 @@ name = "ingest-clone"
 path = "src/main.rs"
 
 [dependencies]
-rb-blob       = { path = "../../crates/rb-blob",        version = "0.1.0" }
-rb-build-info = { path = "../../crates/rb-build-info",  version = "0.1.0" }
-rb-github     = { path = "../../crates/rb-github",      version = "0.1.0" }
-rb-kafka        = { path = "../../crates/rb-kafka",        version = "0.1.0" }
-rb-kafka-health = { path = "../../crates/rb-kafka-health", version = "0.1.0" }
-rb-schemas = { path = "../../crates/rb-schemas", version = "0.1.0" }
-rb-tracing = { path = "../../crates/rb-tracing", version = "0.1.0" }
+rb-blob         = { path = "../../crates/rb-blob",         version = "0.1.0" }
+rb-build-info   = { path = "../../crates/rb-build-info",   version = "0.1.0" }
+rb-github       = { path = "../../crates/rb-github",       version = "0.1.0" }
+rb-kafka        = { path = "../../crates/rb-kafka",         version = "0.1.0" }
+rb-kafka-health = { path = "../../crates/rb-kafka-health",  version = "0.1.0" }
+rb-metrics      = { path = "../../crates/rb-metrics",       version = "0.1.0" }
+rb-schemas      = { path = "../../crates/rb-schemas",       version = "0.1.0" }
+rb-tracing      = { path = "../../crates/rb-tracing",       version = "0.1.0" }
 
 anyhow.workspace       = true
 bytes.workspace        = true

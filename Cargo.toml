@@ -35,6 +35,7 @@ members = [
     "crates/rb-mcp",
     "crates/rb-kafka-health",
     "crates/rb-build-info",
+    "crates/rb-metrics",
 ]
 
 [workspace.package]

@@ -53,6 +53,7 @@ async fn main() -> Result<()> {
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("expand-worker")?;
+    rb_metrics::spawn_metrics_server(rb_metrics::install_recorder("expand_worker")?);
 
     let blob_store = store_from_env()
         .await

@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("projector-pg")?;
+    rb_metrics::spawn_metrics_server(rb_metrics::install_recorder("projector_pg")?);
 
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
 

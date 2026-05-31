@@ -87,6 +87,7 @@ async fn main() -> Result<()> {
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("ingest-clone")?;
+    rb_metrics::spawn_metrics_server(rb_metrics::install_recorder("ingest_clone")?);
 
     let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
     let pool = Arc::new(

@@ -73,6 +73,7 @@ async fn main() -> Result<()> {
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("embed-worker")?;
+    rb_metrics::spawn_metrics_server(rb_metrics::install_recorder("embed_worker")?);
 
     let ollama_url =
         std::env::var("RB_OLLAMA_URL").unwrap_or_else(|_| "http://ollama:11434".to_owned());

@@ -37,9 +37,7 @@ use crate::{
 /// bind, or axum returns an IO error during serving.
 #[allow(clippy::too_many_lines)]
 pub async fn run(config: Config) -> Result<()> {
-    let metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
-        .install_recorder()
-        .context("failed to install Prometheus metrics recorder")?;
+    let metrics_handle = rb_metrics::install_recorder("control_api")?;
 
     let pool = PgPoolOptions::new()
         .max_connections(20)

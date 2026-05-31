@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
 
     let workspace_base = validate_boot_env()?;
     let _guard = rb_tracing::init("rb-agent-runner")?;
+    rb_metrics::spawn_metrics_server(rb_metrics::install_recorder("agent_runner")?);
 
     let consumer: Consumer<AgentSessionCommand> =
         Consumer::new(&ConsumerCfg::new("rb-agent-runner"))?;

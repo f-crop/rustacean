@@ -38,6 +38,7 @@ async fn main() -> Result<()> {
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("audit-worker")?;
+    rb_metrics::spawn_metrics_server(rb_metrics::install_recorder("audit_worker")?);
 
     let database_url = std::env::var("RB_DATABASE_URL").context("RB_DATABASE_URL is required")?;
 

@@ -48,6 +48,7 @@ async fn main() -> Result<()> {
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("projector-neo4j")?;
+    rb_metrics::spawn_metrics_server(rb_metrics::install_recorder("projector_neo4j")?);
 
     let neo4j_uri = std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://neo4j:7687".to_owned());
     let neo4j_user = std::env::var("NEO4J_USER").unwrap_or_else(|_| "neo4j".to_owned());
