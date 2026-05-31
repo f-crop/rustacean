@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    middleware::admin_auth::{AdminActor, AdminRequestId},
+    middleware::admin_auth::{AdminActor, AdminIp, AdminRequestId, AdminUserAgent},
     routes::admin::v1::write_audit_row,
     state::AppState,
 };
@@ -62,6 +62,8 @@ pub async fn impersonate(
     State(state): State<AppState>,
     Extension(AdminActor(actor)): Extension<AdminActor>,
     Extension(AdminRequestId(request_id)): Extension<AdminRequestId>,
+    Extension(AdminIp(ip)): Extension<AdminIp>,
+    Extension(AdminUserAgent(user_agent)): Extension<AdminUserAgent>,
     Path(tenant_id): Path<Uuid>,
     Json(body): Json<ImpersonateReq>,
 ) -> Result<Response, AppError> {
@@ -88,8 +90,8 @@ pub async fn impersonate(
             Some(tenant_id),
             Some(body.user_id),
             request_id,
-            None,
-            None,
+            ip.as_deref(),
+            user_agent.as_deref(),
             &serde_json::json!({"duration_secs": duration_secs}),
             "denied",
             Some("user_not_tenant_member"),
@@ -137,8 +139,8 @@ pub async fn impersonate(
         Some(tenant_id),
         Some(body.user_id),
         request_id,
-        None,
-        None,
+        ip.as_deref(),
+        user_agent.as_deref(),
         &serde_json::json!({
             "duration_secs": duration_secs,
             "expires_at": expires_at,
