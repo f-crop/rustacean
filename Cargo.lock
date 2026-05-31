@@ -43,9 +43,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum 0.8.9",
  "chrono",
  "clap",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "nix",
  "rb-build-info",
@@ -238,8 +240,12 @@ name = "audit-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "chrono",
+ "metrics",
+ "metrics-exporter-prometheus",
  "opentelemetry",
+ "rb-build-info",
  "rb-kafka",
  "rb-kafka-health",
  "rb-schemas",
@@ -1578,9 +1584,11 @@ name = "embed-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "chrono",
  "clap",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "rb-blob",
  "rb-build-info",
@@ -1655,12 +1663,14 @@ name = "expand-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "bytes",
  "chrono",
  "clap",
  "glob",
  "hex",
  "metrics",
+ "metrics-exporter-prometheus",
  "rb-blob",
  "rb-build-info",
  "rb-feature-resolver",
@@ -2414,12 +2424,14 @@ name = "ingest-clone"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "bytes",
  "chrono",
  "clap",
  "hex",
  "jsonwebtoken",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "rb-blob",
  "rb-build-info",
@@ -2446,9 +2458,11 @@ name = "ingest-graph"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "chrono",
  "clap",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "proc-macro2",
  "rb-blob",
@@ -3260,11 +3274,13 @@ name = "parse-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "bytes",
  "chrono",
  "clap",
  "hex",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "rb-blob",
  "rb-build-info",
@@ -3534,9 +3550,11 @@ name = "projector-neo4j"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "chrono",
  "clap",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "rb-build-info",
  "rb-kafka",
@@ -3555,9 +3573,11 @@ name = "projector-pg"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "chrono",
  "clap",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "rb-build-info",
  "rb-kafka",
@@ -5296,9 +5316,11 @@ name = "tombstoner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "chrono",
  "clap",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "rb-build-info",
  "rb-kafka",
@@ -5617,11 +5639,13 @@ name = "typecheck-worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "bytes",
  "chrono",
  "clap",
  "hex",
  "metrics",
+ "metrics-exporter-prometheus",
  "metrics-util 0.18.0",
  "proc-macro2",
  "rb-blob",

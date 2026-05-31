@@ -19,12 +19,14 @@ rb-schemas = { path = "../../crates/rb-schemas", version = "0.1.0" }
 rb-tracing = { path = "../../crates/rb-tracing", version = "0.1.0" }
 
 anyhow.workspace      = true
+axum.workspace        = true
 bytes.workspace       = true
 clap.workspace        = true
 serde_json.workspace  = true
 chrono.workspace  = true
 hex.workspace     = true
 metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
 sha2.workspace    = true
 tokio.workspace   = true
 tracing.workspace = true

@@ -53,6 +53,34 @@ async fn main() -> Result<()> {
     validate_boot_env()?;
 
     let _guard = rb_tracing::init("parse-worker")?;
+    let metrics_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .install_recorder()
+        .context("failed to install Prometheus metrics recorder")?;
+    metrics::gauge!(
+        "rb_build_info",
+        "service" => "parse_worker",
+        "git_sha" => rb_build_info::SHA,
+        "version" => env!("CARGO_PKG_VERSION"),
+    )
+    .set(1.0);
+    let metrics_port: u16 = std::env::var("RB_METRICS_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(9091);
+    tokio::spawn(async move {
+        use axum::routing::get;
+        let app = axum::Router::new().route(
+            "/metrics",
+            get(move || async move { metrics_handle.render() }),
+        );
+        let listener = tokio::net::TcpListener::bind(("0.0.0.0", metrics_port))
+            .await
+            .expect("metrics listener bind failed");
+        tracing::info!(port = metrics_port, "metrics server listening");
+        axum::serve(listener, app)
+            .await
+            .expect("metrics server error");
+    });
 
     let blob_store = store_from_env()
         .await

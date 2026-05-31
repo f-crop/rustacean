@@ -22,9 +22,11 @@ rb-tracing = { path = "../../crates/rb-tracing", version = "0.1.0" }
 
 anyhow.workspace = true
 async-trait.workspace = true
+axum.workspace = true
 clap.workspace = true
 chrono.workspace = true
 metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
 nix = { version = "0.29", features = ["signal"] }
 reqwest = { workspace = true, features = ["json"] }
 serde.workspace = true

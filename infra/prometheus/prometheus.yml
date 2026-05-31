@@ -19,3 +19,19 @@ scrape_configs:
     static_configs:
       - targets: ['control-api:8080']
     metrics_path: /metrics
+
+  - job_name: worker-services
+    static_configs:
+      - targets:
+          - 'agent-runner:9091'
+          - 'audit-worker:9091'
+          - 'embed-worker:9091'
+          - 'expand-worker:9091'
+          - 'ingest-clone:9091'
+          - 'ingest-graph:9091'
+          - 'parse-worker:9091'
+          - 'projector-neo4j:9091'
+          - 'projector-pg:9091'
+          - 'tombstoner:9091'
+          - 'typecheck-worker:9091'
+    metrics_path: /metrics

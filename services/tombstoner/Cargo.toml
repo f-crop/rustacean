@@ -20,9 +20,11 @@ rb-storage-pg     = { path = "../../crates/rb-storage-pg",    version = "0.1.0" 
 rb-tenant         = { path = "../../crates/rb-tenant",        version = "0.1.0" }
 rb-tracing        = { path = "../../crates/rb-tracing",       version = "0.1.0" }
 anyhow.workspace     = true
+axum.workspace       = true
 chrono.workspace     = true
 clap.workspace       = true
 metrics.workspace    = true
+metrics-exporter-prometheus.workspace = true
 reqwest.workspace    = true
 serde_json.workspace = true
 sqlx.workspace       = true

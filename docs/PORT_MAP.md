@@ -82,6 +82,28 @@ docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/ta
 
 ---
 
+## Worker Service Metrics (internal network only)
+
+Worker services (Kafka consumers) expose a Prometheus `/metrics` endpoint on port `9091` inside the Docker network. Prometheus scrapes them at `<service-name>:9091/metrics`. No host-port mapping is needed — Prometheus runs inside the same `rb-net` network.
+
+| Container hostname | Internal port | Purpose |
+|---|---|---|
+| agent-runner | 9091 | Prometheus metrics |
+| audit-worker | 9091 | Prometheus metrics |
+| embed-worker | 9091 | Prometheus metrics |
+| expand-worker | 9091 | Prometheus metrics |
+| ingest-clone | 9091 | Prometheus metrics |
+| ingest-graph | 9091 | Prometheus metrics |
+| parse-worker | 9091 | Prometheus metrics |
+| projector-neo4j | 9091 | Prometheus metrics |
+| projector-pg | 9091 | Prometheus metrics |
+| tombstoner | 9091 | Prometheus metrics |
+| typecheck-worker | 9091 | Prometheus metrics |
+
+Port is configurable via `RB_METRICS_PORT` env var (default `9091`).
+
+---
+
 ## Notes
 
 ### Kafka external connectivity
