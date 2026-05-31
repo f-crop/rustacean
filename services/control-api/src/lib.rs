@@ -12,6 +12,7 @@ mod state;
 
 pub use config::Config;
 pub use error::AppError;
+pub use middleware::otel_trace::otel_trace_middleware;
 pub use openapi::ApiDoc;
 #[allow(deprecated)]
 pub use routes::build;

@@ -47,7 +47,21 @@ pub async fn otel_trace_middleware(request: Request, next: Next) -> Response {
         // _cx_guard dropped here; span retains the parent relationship set at creation
     };
 
-    next.run(request).instrument(span).await
+    // Capture the trace ID before consuming `span` into the instrumented future.
+    // rb_tracing::span_trace_id reads from the span's OTel extensions, which are
+    // populated synchronously by OpenTelemetryLayer::on_new_span at span creation.
+    let trace_id = rb_tracing::span_trace_id(&span);
+
+    let mut response = next.run(request).instrument(span).await;
+
+    // Inject X-Trace-Id header so clients can correlate UI errors with Tempo traces.
+    if let Some(id) = trace_id {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&id) {
+            response.headers_mut().insert("x-trace-id", value);
+        }
+    }
+
+    response
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

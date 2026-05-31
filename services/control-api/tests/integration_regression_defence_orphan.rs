@@ -121,6 +121,7 @@ fn build_state_with_gh(pool: PgPool, gh_loader: Arc<GhAppLoader>) -> AppState {
         session_create_window_secs: 60,
         tenant_session_cap: 100,
         admin_token: None,
+        tempo_base_url: "http://localhost:3000".to_owned(),
     };
     AppState {
         pool,
