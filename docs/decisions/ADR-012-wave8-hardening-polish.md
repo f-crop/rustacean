@@ -330,12 +330,25 @@ Three more workflows (`dev-stack-drift-check`, `frontend-axe-dispatch`, `board-s
 
 #### 2.5.3 Branch-protection bind procedure
 
-Branch protection is **declarative** via a checked-in `.github/branch-protection.yml`-equivalent (or a documented `gh api` script under `scripts/` if GitHub does not support declarative yet — Wave 8 picks whichever is reliable). The bind procedure:
+Branch protection is **declarative** via `scripts/apply-branch-protection.sh` under source control. The bind procedure:
 
-1. Update the bind script / declarative file with the new required-checks list.
+1. Update `scripts/apply-branch-protection.sh` with the new required-checks list (and any policy field changes).
 2. PR review pings PR Reviewer (who is allowed to merge with the new check passing).
-3. Once merged, PR Reviewer runs `scripts/apply-branch-protection.sh` (idempotent) which calls `gh api repos/:owner/:repo/branches/main/protection -X PUT` with the new list.
+3. Once merged, PR Reviewer runs `scripts/apply-branch-protection.sh` (idempotent) which calls `gh api repos/:owner/:repo/branches/main/protection -X PUT` with the full payload.
 4. A read-back verification (`gh api .../branches/main/protection`) runs in `runtime-smoke` to detect drift between the file and the live protection rules.
+
+**Full-payload scope.** GitHub's branch-protection PUT endpoint is **replace-semantics** — every field in the payload replaces the live value, including fields not related to required-checks. `scripts/apply-branch-protection.sh` therefore owns the complete protection policy for `main`, not just the check-name list. The canonical values for the non-check fields are:
+
+| Field | Value | Rationale |
+|---|---|---|
+| `enforce_admins` | `true` | Admins must not bypass required checks; CTO uses `--admin` merge only when the branch-protection check itself is what blocks (e.g. the initial bind). |
+| `required_approving_review_count` | `1` | Gate-3 reviewer approval required before merge. |
+| `dismiss_stale_reviews` | `true` | A force-push after approval must re-trigger review; stale approvals must not re-attach. |
+| `allow_force_pushes` | `false` | History rewrite on `main` is prohibited. |
+| `allow_deletions` | `false` | `main` cannot be deleted. |
+| `bypass_pull_request_allowances` | (omitted) | No documented allow-list exists; omitting the field preserves GitHub's default (empty). Adding entries here requires an ADR amendment. |
+
+**Regression prevention.** The script contains inline assertions that verify the three security-critical values (`enforce_admins`, `dismiss_stale_reviews`, `required_approving_review_count`) are present in the generated PAYLOAD before the PUT executes. Any regression in these values causes the script to exit non-zero before writing to the live branch.
 
 #### 2.5.4 Cross-stream dependencies
 
