@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # apply-branch-protection.sh — declarative bind for the 12 required status checks.
 #
-# ADR-012 §S5.3: this script is the authoritative source for which checks are
-# required on the main branch. It is idempotent (PUT replaces the full list).
+# ADR-012 §S5.3: this script is the authoritative source for the FULL branch
+# protection payload for main.  GitHub's PUT endpoint is replace-semantics —
+# every field in the payload overwrites the live policy, so the defaults here
+# must match the intended production policy exactly.
+#
+# Canonical non-check settings (do not weaken without board approval):
+#   enforce_admins:                  true   (admins cannot bypass required checks)
+#   required_approving_review_count: 1      (Gate-3 reviewer approval required)
+#   dismiss_stale_reviews:           true   (stale approvals cleared on new push)
 #
 # Usage:
 #   scripts/apply-branch-protection.sh            # Apply to origin repo
@@ -42,7 +49,8 @@ if [[ "${1:-}" == "--list" ]]; then
 fi
 
 # Build the JSON payload for the branch protection PUT.
-# Declaratively sets the full branch protection configuration (idempotent PUT).
+# GitHub PUT is replace-semantics: every field here replaces the live value.
+# Keep all three security settings in sync with the canonical values above.
 CHECKS_JSON=$(printf '%s\n' "${REQUIRED_CHECKS[@]}" \
   | jq -R . | jq -sc '.')
 
@@ -53,16 +61,11 @@ PAYLOAD=$(jq -n \
       strict: false,
       contexts: $checks
     },
-    enforce_admins: false,
+    enforce_admins: true,
     required_pull_request_reviews: {
-      dismiss_stale_reviews: false,
+      dismiss_stale_reviews: true,
       require_code_owner_reviews: false,
-      required_approving_review_count: 0,
-      bypass_pull_request_allowances: {
-        users: [],
-        teams: [],
-        apps: []
-      }
+      required_approving_review_count: 1
     },
     restrictions: null,
     allow_force_pushes: false,
@@ -72,6 +75,22 @@ PAYLOAD=$(jq -n \
     lock_branch: false,
     allow_fork_syncing: false
   }')
+
+# ── Pre-flight assertions: verify the three security-critical values ──────────
+# Catches regressions if the jq template is edited accidentally.
+_assert_payload() {
+  local field="$1" expected="$2"
+  local actual
+  actual=$(echo "$PAYLOAD" | jq -r "$field")
+  if [[ "$actual" != "$expected" ]]; then
+    echo "::error::PAYLOAD assertion failed: $field = $actual (expected $expected)" >&2
+    exit 1
+  fi
+}
+
+_assert_payload '.enforce_admins'                                          'true'
+_assert_payload '.required_pull_request_reviews.dismiss_stale_reviews'    'true'
+_assert_payload '.required_pull_request_reviews.required_approving_review_count' '1'
 
 if [[ "${1:-}" == "--dry-run" ]]; then
   echo "==> DRY RUN — would PUT the following payload to branches/main/protection:"
