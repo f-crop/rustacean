@@ -1,14 +1,19 @@
 name: Pipeline E2E Smoke Test
 
-# Full 9-stage pipeline integration test (RUSAA-645).
-# Requires real GitHub App credentials stored as repository secrets.
-# Skipped automatically on fork PRs (secrets are unavailable there).
+# Full 9-stage pipeline integration test (ADR-012 §S5.2, required check #11).
+# Required on PRs that touch pipeline-relevant files; path-skips for docs/config-only PRs.
+# GitHub App secrets are repository-level — available for non-fork PRs from team members.
 
 on:
-  # Runs after merge to main (secrets available) and on manual triggers.
-  # Intentionally NOT on pull_request: the test requires GitHub App secrets
-  # that are unavailable on PRs, takes up to 10 minutes, and is not a merge
-  # gate (regular CI — cargo test, clippy, etc. — gates PRs instead).
+  pull_request:
+    paths:
+      - 'services/**'
+      - 'crates/**'
+      - 'migrations/**'
+      - 'docker/**'
+      - 'compose/**'
+      - 'scripts/e2e-smoke-test.sh'
+      - '.github/workflows/pipeline-e2e.yml'
   push:
     branches: [main]
   workflow_dispatch:
@@ -19,7 +24,7 @@ concurrency:
 
 jobs:
   pipeline-e2e:
-    name: pipeline e2e smoke
+    name: pipeline-e2e
     runs-on: ubuntu-latest
 
     steps:

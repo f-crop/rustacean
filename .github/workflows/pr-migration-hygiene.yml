@@ -16,7 +16,7 @@ on:
 
 jobs:
   migration-checksum:
-    name: migration checksum guard
+    name: pr-migration-hygiene
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

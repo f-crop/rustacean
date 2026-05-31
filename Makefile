@@ -1,4 +1,4 @@
-.PHONY: review-ready review-checklist review-checklist-fixtures state-reconcile-fixtures install-hooks blob-smoke blob-smoke-s3 ingest-smoke
+.PHONY: review-ready review-checklist review-checklist-fixtures state-reconcile-fixtures install-hooks blob-smoke blob-smoke-s3 ingest-smoke apply-branch-protection
 
 # Run all local pre-PR checks: fmt, clippy, test, deny, openapi, frontend (if changed).
 # All steps run even on partial failure so you see the full picture before pushing.
@@ -22,6 +22,12 @@ state-reconcile-fixtures:
 # Install git hooks (pre-push bundle detector). Safe to re-run.
 install-hooks:
 	bash scripts/install-hooks.sh
+
+# Apply the 12 required status checks to the main branch protection (ADR-012 §S5.3).
+# Idempotent — safe to run multiple times. Requires gh CLI with admin write access.
+# Use --dry-run to preview without applying: make apply-branch-protection ARGS=--dry-run
+apply-branch-protection:
+	bash scripts/apply-branch-protection.sh $(ARGS)
 
 
 # Run SSE ingest smoke tests (no Kafka required — uses dev test-publish route).
