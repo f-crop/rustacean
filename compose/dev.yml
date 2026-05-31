@@ -267,6 +267,7 @@ services:
       RB_OLLAMA_URL: "http://ollama:11434"
       RB_MIGRATIONS_ROOT: /migrations
       RB_INTERNAL_SECRET: "${RB_INTERNAL_SECRET:-dev-internal-secret-change-me}"
+      RB_ADMIN_TOKEN: "${RB_ADMIN_TOKEN:-}"
     volumes:
       - ../migrations:/migrations:ro
     ports:
