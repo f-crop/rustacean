@@ -21,10 +21,16 @@ use axum::{
     routing::{delete, get, patch, post, put},
 };
 
+use crate::middleware::admin_auth::require_admin_token;
 use crate::middleware::internal_auth::require_internal_secret;
 use crate::routes::{
     admin::github::{get_app_callback, get_app_status, post_app_manifest},
     admin::partition_maintenance::partition_maintenance,
+    admin::v1::{
+        audit_log::list_audit_log,
+        bootstrap::bootstrap_admin,
+        tenants::{force_delete, impersonate, rebind_gh_install},
+    },
     agents::{
         create_session, delete_session, delete_session_api_key, get_session, ingest_session_events,
         list_sessions, patch_session_status, session_events, session_events_history,
@@ -63,6 +69,7 @@ use crate::routes::{
 };
 use crate::state::AppState;
 
+#[allow(clippy::too_many_lines)]
 pub fn build_public(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
@@ -141,6 +148,20 @@ pub fn build_public(state: AppState) -> Router {
         .route("/v1/audit", get(list_audit_events))
         // MCP endpoint (ADR-009)
         .route("/mcp", post(mcp_handler))
+        // Admin v1 operator endpoints (ADR-012 §S1) — bearer-token gated
+        .nest(
+            "/api/admin/v1",
+            Router::new()
+                .route("/bootstrap/admin", post(bootstrap_admin))
+                .route(
+                    "/tenants/{tenant_id}/rebind-gh-install",
+                    post(rebind_gh_install),
+                )
+                .route("/tenants/{tenant_id}/impersonate", post(impersonate))
+                .route("/tenants/{tenant_id}/force-delete", post(force_delete))
+                .route("/audit-log", get(list_audit_log))
+                .route_layer(from_fn_with_state(state.clone(), require_admin_token)),
+        )
         // Agent session routes (ADR-009 Option B)
         .route(
             "/v1/agents/sessions",

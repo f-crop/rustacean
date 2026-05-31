@@ -88,6 +88,10 @@ pub enum AppError {
     SessionNotRunning,
     #[error("redirect_uri origin does not match the allowed origin")]
     BadRedirectUri,
+    #[error("admin user already exists; bootstrap is a one-time operation")]
+    AdminBootstrapConflict,
+    #[error("tenant row counts shifted between phase-1 and phase-2; re-run from dry-run")]
+    AdminForceDeleteConflict,
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
     #[error("auth error: {0}")]
@@ -274,6 +278,16 @@ impl IntoResponse for AppError {
             AppError::BadRedirectUri => (
                 StatusCode::BAD_REQUEST,
                 "bad_redirect_uri",
+                self.to_string(),
+            ),
+            AppError::AdminBootstrapConflict => (
+                StatusCode::CONFLICT,
+                "admin_bootstrap_conflict",
+                self.to_string(),
+            ),
+            AppError::AdminForceDeleteConflict => (
+                StatusCode::CONFLICT,
+                "force_delete_conflict",
                 self.to_string(),
             ),
             AppError::Database(e) => {
