@@ -1,0 +1,279 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "annotations": { "list": [] },
+  "description": "Operability & admin — who did what, and can the operator fix it without SQL? (ADR-012 §S3)",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "title": "Stack Overview",       "url": "/d/rb-stack-overview",     "type": "dashboards" },
+    { "title": "Latency & Throughput", "url": "/d/rb-latency-throughput", "type": "dashboards" },
+    { "title": "Changes & Deploys",    "url": "/d/rb-changes-deploys",    "type": "dashboards" }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["rust-brain", "operability", "admin", "s3"],
+  "time": { "from": "now-3h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Operability & Admin",
+  "uid": "rb-operability-admin",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Admin Actions",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Admin request rate by action",
+      "description": "rb_admin_requests_total — rate of admin API calls per action type. Each spike corresponds to an operator action.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (action, outcome) (rate(rb_admin_requests_total[5m]))",
+          "legendFormat": "{{action}} / {{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Admin denials (last 15 min)",
+      "description": "rb_admin_requests_total{outcome=\"denied\"} — non-zero may indicate misconfigured token or unauthorised access attempt.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "increase(rb_admin_requests_total{outcome=\"denied\"}[15m])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Admin errors (last 15 min)",
+      "description": "rb_admin_requests_total{outcome=\"error\"} — 5xx on admin endpoints indicates a server-side fault.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "increase(rb_admin_requests_total{outcome=\"error\"}[15m])",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Session Health",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Session failure rate",
+      "description": "rb_session_failures_total{reason} — bounded enum of failure reasons. Non-zero indicates agent session problems.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(rb_session_failures_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Agent relay failures & retries",
+      "description": "rb_agent_relay_failed_total and rb_agent_relay_retry_total — event relay health from agent-runner to control-api.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum(rate(rb_agent_relay_failed_total[1m]))",
+          "legendFormat": "relay failed/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(rb_agent_relay_retry_total[1m]))",
+          "legendFormat": "relay retries/s",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(rb_agent_relay_dropped_total[1m]))",
+          "legendFormat": "relay dropped/s",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Queue Depth",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Kafka consumer lag (all topics)",
+      "description": "rb_kafka_consumer_lag_records — synthetic-load threshold: < 10,000 messages, never sustained > 1 min.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 10000 }
+            ]
+          },
+          "custom": { "thresholdsStyle": { "mode": "area" } }
+        },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum by (topic) (rb_kafka_consumer_lag_records)",
+          "legendFormat": "{{topic}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Outbox age",
+      "description": "rb_outbox_age_seconds — age of the oldest undelivered outbox event. Synthetic-load threshold: p95 < 60 s.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "red", "value": 60 }
+            ]
+          },
+          "custom": { "thresholdsStyle": { "mode": "area" } }
+        },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "rb_outbox_age_seconds",
+          "legendFormat": "{{service}} / {{topic}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Connection Pools",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "DB pool connections (idle / busy)",
+      "description": "rb_db_pool_connections — pool utilisation per service. Consistently full busy pool indicates saturation.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "rb_db_pool_connections{state=\"busy\"}",
+          "legendFormat": "{{service}} / {{pool}} busy",
+          "refId": "A"
+        },
+        {
+          "expr": "rb_db_pool_connections{state=\"idle\"}",
+          "legendFormat": "{{service}} / {{pool}} idle",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

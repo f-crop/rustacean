@@ -1,0 +1,173 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "annotations": { "list": [] },
+  "description": "Changes & deploys — what changed recently? (ADR-012 §S3)",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "title": "Stack Overview",      "url": "/d/rb-stack-overview",     "type": "dashboards" },
+    { "title": "Latency & Throughput","url": "/d/rb-latency-throughput", "type": "dashboards" },
+    { "title": "Operability & Admin", "url": "/d/rb-operability-admin",  "type": "dashboards" }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["rust-brain", "changes", "deploys", "s3"],
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Changes & Deploys",
+  "uid": "rb-changes-deploys",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Current Build",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Current build SHAs — all services",
+      "description": "rb_build_info — current deployed SHA and version for every service. A SHA change indicates a deploy event.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 1 },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "service", "desc": false }]
+      },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "git_sha" },
+            "properties": [
+              { "id": "custom.width", "value": 400 },
+              { "id": "links", "value": [
+                {
+                  "title": "View PR on GitHub",
+                  "url": "https://github.com/f-crop/rustacean/commits/${__value.raw}",
+                  "targetBlank": true
+                }
+              ]}
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "rb_build_info",
+          "legendFormat": "{{service}}",
+          "refId": "A",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        { "id": "filterFieldsByName", "options": { "include": { "names": ["service", "version", "git_sha", "Value"] } } },
+        { "id": "sortBy", "options": { "fields": [{ "displayName": "service" }] } }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "Build History",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Build SHA change events",
+      "description": "Changes in rb_build_info over time — each step-change marks a deploy event for that service.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "barAlignment": 0,
+            "lineWidth": 1,
+            "fillOpacity": 80
+          }
+        },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "changes(rb_build_info[10m])",
+          "legendFormat": "{{service}} deploys",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Restarts & Availability",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Service restarts (rb_build_info resets)",
+      "description": "A restart is detected as rb_build_info resetting to 1 after being non-zero. Gaps indicate the service was unreachable.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": []
+      },
+      "options": { "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "resets(rb_build_info[10m])",
+          "legendFormat": "{{service}} resets",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Services reporting",
+      "description": "Number of distinct service labels currently reporting rb_build_info. Should equal 13 (all services).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "green", "value": 13 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "count(rb_build_info)",
+          "legendFormat": "services reporting",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}
