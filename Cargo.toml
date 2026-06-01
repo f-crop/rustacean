@@ -36,6 +36,7 @@ members = [
     "crates/rb-kafka-health",
     "crates/rb-build-info",
     "crates/rb-metrics",
+    "services/synthetic-load",
 ]
 
 [workspace.package]
