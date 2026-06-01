@@ -109,7 +109,8 @@ async fn try_run_once(
             anyhow::bail!("ingestion run {run_id} failed: {msg}");
         }
 
-        let all_done = timeline.stages.iter().all(|s| s.status == "succeeded");
+        let all_done = !timeline.stages.is_empty()
+            && timeline.stages.iter().all(|s| s.status == "succeeded");
         if all_done {
             break;
         }

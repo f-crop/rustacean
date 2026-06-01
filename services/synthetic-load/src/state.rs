@@ -5,6 +5,7 @@
 //! the last checkpoint and now exceeds 1 hour, the soak clock resets to zero
 //! (ADR-012 §2.7.2 resume semantics).
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -54,7 +55,6 @@ pub struct HealthCounters {
     pub checks_failed: u64,
     pub degradation_events: u64,
     pub drift_events: u64,
-    pub db_unavailable_since: Option<DateTime<Utc>>,
 }
 
 impl HealthCounters {
@@ -101,9 +101,8 @@ pub struct HarnessState {
     /// Trace ID of the most recent failed request across any loop.
     pub last_failed_trace_id: Option<String>,
 
-    /// Cumulative query latency samples for p95 approximation.
-    /// Stored as a rolling window of the last 1000 samples.
-    pub query_latency_samples_ms: Vec<u64>,
+    /// Rolling window of the last 1000 query latency samples for p95 approximation.
+    pub query_latency_samples_ms: VecDeque<u64>,
 }
 
 impl HarnessState {
@@ -121,7 +120,7 @@ impl HarnessState {
             health: HealthCounters::default(),
             expected_sha: None,
             last_failed_trace_id: None,
-            query_latency_samples_ms: Vec::new(),
+            query_latency_samples_ms: VecDeque::new(),
         }
     }
 
@@ -135,9 +134,9 @@ impl HarnessState {
     /// Append a query latency sample; keep the window at ≤1000 entries.
     pub fn record_query_latency(&mut self, latency_ms: u64) {
         if self.query_latency_samples_ms.len() >= 1000 {
-            self.query_latency_samples_ms.remove(0);
+            self.query_latency_samples_ms.pop_front();
         }
-        self.query_latency_samples_ms.push(latency_ms);
+        self.query_latency_samples_ms.push_back(latency_ms);
     }
 
     /// Approximate p95 query latency in seconds from the rolling window.
@@ -145,7 +144,7 @@ impl HarnessState {
         if self.query_latency_samples_ms.is_empty() {
             return None;
         }
-        let mut sorted = self.query_latency_samples_ms.clone();
+        let mut sorted: Vec<u64> = self.query_latency_samples_ms.iter().copied().collect();
         sorted.sort_unstable();
         #[allow(
             clippy::cast_precision_loss,

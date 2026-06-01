@@ -52,7 +52,7 @@ pub async fn run(
     // Spawn the three per-tenant loop tasks.
     let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::state::IterationOutcome>(256);
 
-    spawn_loop_tasks(&config, &state, tx, cancel.clone()).await;
+    spawn_loop_tasks(&config, &state, tx.clone(), cancel.clone()).await;
 
     // Health check timer and daily report timer.
     let mut health_ticker = tokio::time::interval(config.health_interval);
@@ -168,7 +168,7 @@ pub async fn run(
             }
 
             _tick = tenant_rotation_ticker.tick() => {
-                rotate_oldest_tenant(&config, &state, &admin_http).await;
+                rotate_oldest_tenant(&config, &state, &admin_http, tx.clone(), cancel.clone()).await;
             }
         }
     }
@@ -177,7 +177,9 @@ pub async fn run(
     {
         let s = state.lock().await;
         let summary = DailySummary::from_state(&s);
-        let _ = summary.write(&config.state_dir);
+        if let Err(e) = summary.write(&config.state_dir) {
+            tracing::warn!("final summary write failed: {e}");
+        }
         tracing::info!(verdict = %summary.verdict, "final summary written");
     }
 
@@ -230,12 +232,13 @@ async fn ingestion_worker(
         return;
     };
 
-    // Re-login on start.
+    // Re-login on start; abort if credentials are rejected to avoid a silently broken worker.
     if crate::tenant::login(&mut client, &tenant.email, &password)
         .await
         .is_err()
     {
-        tracing::warn!(tenant_id = %tenant.tenant_id, "ingestion worker: initial login failed");
+        tracing::warn!(tenant_id = %tenant.tenant_id, "ingestion worker: initial login failed; aborting");
+        return;
     }
 
     loop {
@@ -264,7 +267,8 @@ async fn agent_worker(
         .await
         .is_err()
     {
-        tracing::warn!(tenant_id = %tenant.tenant_id, "agent worker: initial login failed");
+        tracing::warn!(tenant_id = %tenant.tenant_id, "agent worker: initial login failed; aborting");
+        return;
     }
 
     loop {
@@ -293,7 +297,8 @@ async fn query_worker(
         .await
         .is_err()
     {
-        tracing::warn!(tenant_id = %tenant.tenant_id, "query worker: initial login failed");
+        tracing::warn!(tenant_id = %tenant.tenant_id, "query worker: initial login failed; aborting");
+        return;
     }
 
     let mut iteration: u64 = 0;
@@ -355,9 +360,11 @@ async fn ensure_tenant_pool(
 }
 
 async fn rotate_oldest_tenant(
-    config: &Config,
+    config: &Arc<Config>,
     state: &Arc<Mutex<HarnessState>>,
     admin_http: &reqwest::Client,
+    tx: tokio::sync::mpsc::Sender<crate::state::IterationOutcome>,
+    cancel: CancellationToken,
 ) {
     let oldest = {
         let s = state.lock().await;
@@ -400,9 +407,35 @@ async fn rotate_oldest_tenant(
     match provision(&mut client, next_slot, &config.database_url).await {
         Ok(record) => {
             tracing::info!(slot = next_slot, tenant_id = %record.tenant_id, "replacement tenant provisioned");
-            let mut s = state.lock().await;
-            s.tenants.push(record);
-            s.next_slot = next_slot + 1;
+            {
+                let mut s = state.lock().await;
+                s.tenants.push(record.clone());
+                s.next_slot = next_slot + 1;
+            }
+
+            // Spawn all three worker tasks for the new tenant.
+            let cfg = Arc::clone(config);
+            let tx_i = tx.clone();
+            let cancel_i = cancel.clone();
+            let t = record.clone();
+            tokio::spawn(async move {
+                ingestion_worker(cfg, t, tx_i, cancel_i).await;
+            });
+
+            let cfg = Arc::clone(config);
+            let tx_a = tx.clone();
+            let cancel_a = cancel.clone();
+            let t = record.clone();
+            tokio::spawn(async move {
+                agent_worker(cfg, t, tx_a, cancel_a).await;
+            });
+
+            let cfg = Arc::clone(config);
+            let tx_q = tx;
+            let cancel_q = cancel;
+            tokio::spawn(async move {
+                query_worker(cfg, record, tx_q, cancel_q).await;
+            });
         }
         Err(e) => {
             tracing::warn!(slot = next_slot, error = %e, "replacement tenant provision failed");

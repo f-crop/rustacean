@@ -150,7 +150,9 @@ async fn main() -> Result<()> {
             // Save final state.
             {
                 let mut s = state.lock().await;
-                let _ = s.save(&config.state_dir);
+                if let Err(e) = s.save(&config.state_dir) {
+                    tracing::warn!("final state save failed: {e}");
+                }
             }
 
             return result;
@@ -197,17 +199,22 @@ fn print_latest_report(config: &Config) -> Result<()> {
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install CTRL+C handler");
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!("CTRL+C handler error: {e}");
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut stream) => {
+                stream.recv().await;
+            }
+            Err(e) => {
+                tracing::warn!("SIGTERM handler install failed: {e}; SIGTERM will not trigger shutdown");
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]

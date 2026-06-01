@@ -59,6 +59,9 @@ impl ApiClient {
         }
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
+            if status == StatusCode::UNAUTHORIZED {
+                return Err(anyhow::Error::new(UnauthorizedError));
+            }
             anyhow::bail!("POST {path} → {status}: {text}");
         }
         serde_json::from_str(&text)
@@ -83,6 +86,9 @@ impl ApiClient {
         }
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
+            if status == StatusCode::UNAUTHORIZED {
+                return Err(anyhow::Error::new(UnauthorizedError));
+            }
             anyhow::bail!("GET {path} → {status}: {text}");
         }
         serde_json::from_str(&text)
@@ -221,7 +227,20 @@ pub struct SearchResponse {}
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Returns `true` when an `anyhow::Error` from a client method indicates HTTP 401.
+/// Typed sentinel returned by client methods on HTTP 401 so callers can match
+/// on the error type rather than parsing the message string.
+#[derive(Debug)]
+pub struct UnauthorizedError;
+
+impl std::fmt::Display for UnauthorizedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "HTTP 401 Unauthorized")
+    }
+}
+
+impl std::error::Error for UnauthorizedError {}
+
+/// Returns `true` when an `anyhow::Error` from a client method is an HTTP 401.
 pub fn is_unauthorized(err: &anyhow::Error) -> bool {
-    err.to_string().contains("→ 401")
+    err.is::<UnauthorizedError>()
 }
