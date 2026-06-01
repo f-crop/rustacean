@@ -1,0 +1,31 @@
+[package]
+name = "synthetic-load"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "synthetic-load"
+path = "src/main.rs"
+
+[dependencies]
+rb-build-info = { path = "../../crates/rb-build-info", version = "0.1.0" }
+rb-metrics    = { path = "../../crates/rb-metrics",    version = "0.1.0" }
+rb-tracing    = { path = "../../crates/rb-tracing",    version = "0.1.0" }
+anyhow.workspace     = true
+chrono.workspace     = true
+clap.workspace       = true
+metrics.workspace    = true
+reqwest              = { workspace = true, features = ["cookies"] }
+serde.workspace      = true
+serde_json.workspace = true
+sqlx.workspace       = true
+tokio.workspace      = true
+tokio-util           = { version = "0.7" }
+tracing.workspace    = true
+uuid.workspace       = true
+
+[lints]
+workspace = true
