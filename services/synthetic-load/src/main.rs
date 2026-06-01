@@ -211,7 +211,9 @@ async fn shutdown_signal() {
                 stream.recv().await;
             }
             Err(e) => {
-                tracing::warn!("SIGTERM handler install failed: {e}; SIGTERM will not trigger shutdown");
+                tracing::warn!(
+                    "SIGTERM handler install failed: {e}; SIGTERM will not trigger shutdown"
+                );
                 std::future::pending::<()>().await;
             }
         }
