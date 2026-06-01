@@ -92,6 +92,10 @@ jobs:
               - *workspace
               - 'services/typecheck-worker/**'
               - 'docker/typecheck-worker/**'
+            synthetic-load:
+              - *workspace
+              - 'services/synthetic-load/**'
+              - 'docker/synthetic-load/**'
       - id: compute
         env:
           EVENT: ${{ github.event_name }}
@@ -99,7 +103,7 @@ jobs:
           CHANGED: ${{ steps.filter.outputs.changes }}
         run: |
           set -euo pipefail
-          ALL='["agent-runner","control-api","embed-worker","expand-worker","frontend","ingest-clone","ingest-graph","parse-worker","projector-neo4j","projector-pg","tombstoner","typecheck-worker"]'
+          ALL='["agent-runner","control-api","embed-worker","expand-worker","frontend","ingest-clone","ingest-graph","parse-worker","projector-neo4j","projector-pg","tombstoner","typecheck-worker","synthetic-load"]'
           # On push-to-main, always build every image so :sha-<sha> tags exist
           # for every service. The path filter is only an optimisation for PRs.
           if [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
