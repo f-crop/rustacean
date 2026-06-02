@@ -50,6 +50,7 @@ fn make_manager(addr: std::net::SocketAddr, tmp: &tempfile::TempDir) -> SessionM
 }
 
 /// `start_session` rejects a new session once the per-tenant cap is saturated.
+/// Also asserts the tenant counter stays at MAX after the failed call (no counter leak).
 #[tokio::test(flavor = "current_thread")]
 async fn per_tenant_limit_rejects_excess_sessions() {
     use rb_schemas::{AgentRuntime, AgentSessionStart};
@@ -74,5 +75,46 @@ async fn per_tenant_limit_rejects_excess_sessions() {
         .unwrap_err();
     assert!(err.to_string().contains("rate_limit_exceeded"));
     assert!(err.to_string().contains("tenant"));
+    // Counter must still be exactly MAX — not leaked upward (C1 regression).
+    let counts = manager.caps.tenant_counts().lock_owned().await;
+    assert_eq!(
+        counts.get(&tenant_id).copied().unwrap_or(0),
+        super::caps::MAX_SESSIONS_PER_TENANT,
+        "tenant counter must not be incremented on a rejected session"
+    );
+    server_handle.abort();
+}
+
+/// Workspace traversal error must not touch the tenant counter (C1 regression:
+/// early-return paths before caps.acquire must leave the counter unchanged).
+#[tokio::test(flavor = "current_thread")]
+async fn tenant_counter_not_leaked_on_workspace_error() {
+    use rb_schemas::{AgentRuntime, AgentSessionStart};
+    let (addr, server_handle) = noop_server().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = make_manager(addr, &tmp);
+    let tenant_id = TenantId::from(uuid::Uuid::new_v4());
+    let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    // Traversal path is rejected by safe_join before caps.acquire is ever called.
+    let start = AgentSessionStart {
+        runtime: AgentRuntime::Pi as i32,
+        workspace_path: "../../etc/passwd".to_owned(),
+        api_key: "test-key".to_owned(),
+        initial_prompt: "hello".to_owned(),
+    };
+    let err = manager
+        .start_session(&start, tenant_id, &uuid::Uuid::new_v4().to_string(), tx)
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("Rejected workspace_path"),
+        "expected workspace rejection error; got: {err}"
+    );
+    let counts = manager.caps.tenant_counts().lock_owned().await;
+    assert_eq!(
+        counts.get(&tenant_id).copied().unwrap_or(0),
+        0,
+        "tenant counter must be 0 when session setup fails before caps.acquire"
+    );
     server_handle.abort();
 }

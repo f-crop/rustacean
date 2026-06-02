@@ -116,8 +116,6 @@ impl SessionManager {
             );
         }
 
-        let node_permit = self.caps.acquire(tenant_id).await?;
-
         let workspace_path = safe_join(self.workspace_base.as_path(), &cmd.workspace_path)
             .with_context(|| format!("Rejected workspace_path: {:?}", cmd.workspace_path))?;
 
@@ -148,6 +146,17 @@ impl SessionManager {
             .map_err(|_| anyhow::anyhow!("Invalid runtime value: {}", cmd.runtime))?;
 
         let adapter = adapter_for_runtime(runtime)?;
+
+        // Acquire AFTER all fallible validation so early-return error paths
+        // cannot leak the tenant counter (C1: RUSAA-1812).
+        let node_permit = match self.caps.acquire(tenant_id).await {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tokio::fs::remove_dir_all(&workspace_path).await;
+                return Err(e);
+            }
+        };
+
         let mut process = match adapter.spawn(&ctx).await {
             Ok(p) => p,
             Err(e) => {
@@ -225,7 +234,18 @@ impl SessionManager {
         {
             let mut sessions = self.sessions.lock().await;
             if sessions.len() >= MAX_TRACKED_SESSIONS {
+                // Abort I/O tasks first, then release the sessions lock before
+                // acquiring the process lock — natural-exit takes process then
+                // sessions, so inverting that order would deadlock (C2: RUSAA-1812).
+                stdout_handle.abort();
+                stderr_handle.abort();
                 wait_handle.abort();
+                drop(sessions);
+                {
+                    let mut proc = process_arc.lock().await;
+                    let _ = proc.child.start_kill();
+                }
+                self.caps.release(tenant_id).await;
                 anyhow::bail!(
                     "Maximum number of concurrent sessions ({MAX_TRACKED_SESSIONS}) exceeded"
                 );
