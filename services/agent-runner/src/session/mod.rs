@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use metrics::counter;
 use rb_schemas::{
     AgentEvent, AgentEventKind, AgentRuntime, AgentSessionInput, AgentSessionStart,
     AgentSessionTerminate, TenantId,
@@ -17,6 +16,8 @@ use tracing::Instrument;
 
 use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runtime};
 
+mod caps;
+mod events;
 mod natural_exit;
 mod seq;
 
@@ -38,6 +39,7 @@ pub struct SessionManager {
     relay_sender: agent_runner::EventSender,
     /// SHA of the mcp-server-node bundle baked into the agent-runner image.
     mcp_sha: String,
+    caps: caps::SessionCaps,
 }
 
 struct SessionHandle {
@@ -50,6 +52,12 @@ struct SessionHandle {
     /// `terminate_session` when an explicit termination wins the race.
     wait_handle: JoinHandle<()>,
     tenant_id: TenantId,
+    /// Holds the node-level semaphore permit for the duration of this session.
+    _node_permit: tokio::sync::OwnedSemaphorePermit,
+    /// Defused RAII guard; kept alive so that Drop ordering is explicit.
+    /// The actual decrement at session-end is performed by `caps.release()` /
+    /// `natural_exit` — the guard is defused before insertion into the map.
+    _tenant_guard: caps::TenantCountGuard,
 }
 
 fn safe_join(base: &std::path::Path, rel: &str) -> Result<PathBuf> {
@@ -94,6 +102,7 @@ impl SessionManager {
             http_client,
             relay_sender,
             mcp_sha,
+            caps: caps::SessionCaps::new(),
         }
     }
 
@@ -127,6 +136,8 @@ impl SessionManager {
                 .with_context(|| format!("Failed to set 0700 on {}", workspace_path.display()))?;
         }
 
+        let live_token = cmd.api_key.clone();
+
         let ctx = SessionCtx {
             session_id: session_id.to_string(),
             tenant_id: tenant_id.to_string(),
@@ -139,10 +150,25 @@ impl SessionManager {
             .map_err(|_| anyhow::anyhow!("Invalid runtime value: {}", cmd.runtime))?;
 
         let adapter = adapter_for_runtime(runtime)?;
+
+        // Acquire AFTER all fallible validation so early-return error paths
+        // cannot leak the tenant counter.  The returned TenantCountGuard is
+        // RAII: any `?` return between here and sessions.insert() drops the
+        // guard, which rolls back the counter automatically.
+        let (node_permit, mut tenant_guard) = match self.caps.acquire(tenant_id) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = tokio::fs::remove_dir_all(&workspace_path).await;
+                return Err(e);
+            }
+        };
+
         let mut process = match adapter.spawn(&ctx).await {
             Ok(p) => p,
             Err(e) => {
                 let _ = tokio::fs::remove_dir_all(&workspace_path).await;
+                // tenant_guard drops here → rolls back tenant counter ✓
+                // node_permit drops here → releases node semaphore ✓
                 // Mark the session row `failed` before propagating so it does not
                 // accumulate as `pending` forever (per ADR-009 §5 / RUSAA-1179).
                 // control-api's PATCH path applies the failed_at/failure_reason
@@ -193,6 +219,7 @@ impl SessionManager {
             stderr,
             event_sender.clone(),
             adapter,
+            live_token,
         );
 
         let process_arc = Arc::new(Mutex::new(process));
@@ -208,16 +235,32 @@ impl SessionManager {
             self.control_api_base.clone(),
             self.http_client.clone(),
             event_sender.clone(),
+            self.caps.tenant_counts(),
         );
 
         {
             let mut sessions = self.sessions.lock().await;
             if sessions.len() >= MAX_TRACKED_SESSIONS {
+                // Abort I/O tasks first, then release the sessions lock before
+                // acquiring the process lock — natural-exit takes process then
+                // sessions, so inverting that order would deadlock (C2: RUSAA-1812).
+                stdout_handle.abort();
+                stderr_handle.abort();
                 wait_handle.abort();
+                drop(sessions);
+                {
+                    let mut proc = process_arc.lock().await;
+                    let _ = proc.child.start_kill();
+                }
+                // tenant_guard drops here (still armed) → rolls back tenant counter.
+                // node_permit drops here → releases node semaphore.
                 anyhow::bail!(
                     "Maximum number of concurrent sessions ({MAX_TRACKED_SESSIONS}) exceeded"
                 );
             }
+            // Commit session: defuse the guard so Drop doesn't double-decrement
+            // when the handle is eventually removed from the map.
+            tenant_guard.defuse();
             sessions.insert(
                 session_id.to_string(),
                 SessionHandle {
@@ -227,11 +270,13 @@ impl SessionManager {
                     stderr_handle,
                     wait_handle,
                     tenant_id,
+                    _node_permit: node_permit,
+                    _tenant_guard: tenant_guard,
                 },
             );
         }
 
-        self.emit_lifecycle_event(
+        events::emit_lifecycle_event(
             tenant_id,
             session_id,
             0,
@@ -310,6 +355,8 @@ impl SessionManager {
             timestamps.remove(session_id);
         }
 
+        self.caps.release(handle.tenant_id);
+
         // Abort I/O and wait handlers before taking the process lock so the
         // natural-exit handler cannot win the cleanup race after we removed
         // the session from the map.
@@ -362,7 +409,7 @@ impl SessionManager {
             );
         }
 
-        self.emit_terminated_event(
+        events::emit_terminated_event(
             handle.tenant_id,
             session_id,
             exit_code,
@@ -424,6 +471,7 @@ impl SessionManager {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn spawn_output_handlers(
         &self,
         session_id: String,
@@ -432,12 +480,14 @@ impl SessionManager {
         stderr: ChildStderr,
         event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
         adapter: Box<dyn RuntimeAdapter>,
+        live_token: String,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         let seq_counters = self.seq_counters.clone();
         let seq_timestamps = self.seq_counter_timestamps.clone();
         let relay_sender = self.relay_sender.clone();
         let sid_stdout = session_id.clone();
         let span_out = tracing::info_span!("stdout_handler", session_id = %sid_stdout);
+        let live_token_stdout = live_token.clone();
 
         let stdout_handle = tokio::spawn(
             {
@@ -449,19 +499,34 @@ impl SessionManager {
                     while let Ok(Some(line)) = lines.next_line().await {
                         let seq = seq::next_seq(&seq_counters, &seq_timestamps, &sid_stdout).await;
                         if let Some(parsed) = adapter.parse_stdout_line(&line) {
+                            // Redact before the payload reaches any durable store or relay
+                            // (ADR-013 §6.3): JWT, bearer tokens, rb_live_ keys, env-var names.
+                            let redacted = rb_auth::redact_with_token(
+                                &parsed.payload,
+                                Some(&live_token_stdout),
+                            );
                             let event = AgentEvent {
                                 tenant_id: tenant_id.to_string(),
                                 session_id: sid_stdout.clone(),
                                 seq,
                                 kind: AgentEventKind::Stdout.into(),
-                                payload: parsed.payload,
+                                payload: redacted.into_owned(),
                                 emitted_at_ms: chrono::Utc::now().timestamp_millis(),
                             };
                             if let Err(e) = es.try_send((tenant_id, event)) {
                                 tracing::error!(session_id = %sid_stdout, error = %e, "Failed to send stdout event (channel full or closed)");
                             }
+                            // Relay path: redact the full line before SSE/DB relay (ADR-013 §6.3).
+                            let redacted_line =
+                                rb_auth::redact_with_token(&line, Some(&live_token_stdout));
+                            agent_runner::relay_stdout_events(
+                                &relay_sender,
+                                &sid_stdout,
+                                &tenant_id.to_string(),
+                                seq,
+                                &redacted_line,
+                            );
                         }
-                        agent_runner::relay_stdout_events(&relay_sender, &sid_stdout, &tenant_id.to_string(), seq, &line);
                     }
                 }
             }
@@ -479,12 +544,15 @@ impl SessionManager {
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let seq = seq::next_seq(&seq_counters2, &seq_timestamps2, &sid_err).await;
+                    // Redact stderr too — it goes to structured logs (ADR-013 §4.2).
+                    let redacted =
+                        rb_auth::redact_with_token(&line, Some(&live_token));
                     let event = AgentEvent {
                         tenant_id: tenant_id.to_string(),
                         session_id: sid_err.clone(),
                         seq,
                         kind: AgentEventKind::Stderr.into(),
-                        payload: line,
+                        payload: redacted.into_owned(),
                         emitted_at_ms: chrono::Utc::now().timestamp_millis(),
                     };
                     if let Err(e) = event_sender.try_send((tenant_id, event)) {
@@ -497,72 +565,13 @@ impl SessionManager {
 
         (stdout_handle, stderr_handle)
     }
-
-    async fn emit_lifecycle_event(
-        &self,
-        tenant_id: TenantId,
-        session_id: &str,
-        seq: i64,
-        kind: AgentEventKind,
-        payload: &str,
-        event_sender: &tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
-    ) {
-        let event = AgentEvent {
-            tenant_id: tenant_id.to_string(),
-            session_id: session_id.to_string(),
-            seq,
-            kind: kind.into(),
-            payload: payload.to_string(),
-            emitted_at_ms: chrono::Utc::now().timestamp_millis(),
-        };
-        if tokio::time::timeout(
-            Duration::from_secs(5),
-            event_sender.send((tenant_id, event)),
-        )
-        .await
-        .is_err()
-        {
-            tracing::warn!(session_id = %session_id, seq = seq, "Event channel full, dropped lifecycle event");
-            counter!("rb_agent_events_dropped_total", "reason" => "channel_full").increment(1);
-        }
-    }
-
-    async fn emit_terminated_event(
-        &self,
-        tenant_id: TenantId,
-        session_id: &str,
-        exit_code: i32,
-        duration_ms: i64,
-        reason: &str,
-        event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
-    ) {
-        let payload = serde_json::json!({
-            "exit_code": exit_code,
-            "duration_ms": duration_ms,
-            "reason": reason,
-        });
-        let event = AgentEvent {
-            tenant_id: tenant_id.to_string(),
-            session_id: session_id.to_string(),
-            seq: TERMINATED_SEQ,
-            kind: AgentEventKind::Terminated.into(),
-            payload: payload.to_string(),
-            emitted_at_ms: chrono::Utc::now().timestamp_millis(),
-        };
-        if tokio::time::timeout(
-            Duration::from_secs(5),
-            event_sender.send((tenant_id, event)),
-        )
-        .await
-        .is_err()
-        {
-            tracing::warn!(session_id = %session_id, "Event channel full, dropped terminated event");
-            counter!("rb_agent_events_dropped_total", "reason" => "channel_full").increment(1);
-        }
-    }
 }
 pub use crate::workspace_gc::spawn_workspace_gc;
 
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cap_tests.rs"]
+mod cap_tests;

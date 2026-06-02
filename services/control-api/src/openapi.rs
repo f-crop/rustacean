@@ -8,8 +8,8 @@ use utoipa::OpenApi;
 use crate::routes::admin::v1::audit_log;
 use crate::routes::agents::{events_history, events_ndjson};
 use crate::routes::{
-    admin, agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github,
-    health, ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete,
+    admin, agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, chat,
+    github, health, ingest, mcp, me, query, repos, tenants, tenants::delete as tenant_delete,
     tenants::members as tenant_members,
 };
 
@@ -75,6 +75,12 @@ use crate::routes::{
         events_history::session_events_history,
         events_ndjson::session_log_ndjson,
         mcp::mcp_handler,
+        chat::sessions::create_chat_session,
+        chat::sessions::get_chat_session,
+        chat::sessions::delete_chat_session,
+        chat::messages::post_chat_message,
+        chat::messages::list_chat_messages,
+        chat::events::chat_session_events,
     ),
     components(
         schemas(
@@ -150,6 +156,13 @@ use crate::routes::{
             agents::session_queries::SessionDetail,
             events_history::EventItem,
             events_history::HistoryResponse,
+            chat::sessions::CreateChatSessionRequest,
+            chat::sessions::CreateChatSessionResponse,
+            chat::sessions::ChatMessageDto,
+            chat::sessions::ChatSessionDto,
+            chat::messages::PostMessageRequest,
+            chat::messages::PostMessageResponse,
+            chat::messages::ListMessagesResponse,
         )
     ),
     tags(
@@ -166,7 +179,8 @@ use crate::routes::{
         (name = "query", description = "Code graph queries"),
         (name = "search", description = "Semantic code search"),
         (name = "agents", description = "Agent session management (ADR-009 Option B)"),
-        (name = "mcp", description = "Model Context Protocol endpoint (ADR-009)")
+        (name = "mcp", description = "Model Context Protocol endpoint (ADR-009)"),
+        (name = "chat", description = "Chat panel — session lifecycle and message stream (ADR-013)")
     )
 )]
 pub struct ApiDoc;

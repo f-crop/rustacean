@@ -32,7 +32,9 @@ pub async fn logout(
         // session cookies are eligible to log out. Match the convention used
         // by other session-only routes (`me`, `tenants`, `api_keys`).
         AuthContext::ExpiredSession => return Err(AppError::SessionExpired),
-        AuthContext::ApiKey(_) | AuthContext::Anonymous => return Err(AppError::Unauthorized),
+        AuthContext::ApiKey(_) | AuthContext::McpJwt(_) | AuthContext::Anonymous => {
+            return Err(AppError::Unauthorized);
+        }
     };
 
     let mut tx = state.pool.begin().await?;

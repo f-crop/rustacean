@@ -27,12 +27,78 @@ pub struct AgentProcess {
     pub runtime: AgentRuntime,
 }
 
+/// Static description of a runtime: used for registry validation and docs generation (ADR-013 §4.1).
+#[derive(Debug, Clone)]
+pub struct RuntimeManifest {
+    pub kind: AgentRuntime,
+    pub binary: &'static str,
+    /// Env vars that must be present for the runtime to function.
+    /// Read by S7 docs generation and future health checks; not yet consumed at startup.
+    #[allow(dead_code)]
+    pub required_env: &'static [&'static str],
+    pub capabilities: RuntimeCaps,
+}
+
+/// Supported capabilities declared by a runtime adapter.
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeCaps {
+    /// The runtime accepts multiple user turns over stdin within one session.
+    pub multi_turn: bool,
+    /// The runtime emits newline-delimited JSON on stdout.
+    pub streams_json: bool,
+}
+
+/// Result of the `health` liveness probe (ADR-013 §4.1).
+/// Not called by the binary yet — the idle reaper is future work.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeHealth {
+    Alive,
+    Dead,
+}
+
 #[async_trait]
 pub trait RuntimeAdapter: Send + Sync {
+    /// Static description of the runtime (binary, env deps, capabilities).
+    /// Drives registry validation — a new runtime adds exactly one impl + one registry entry.
+    fn manifest(&self) -> RuntimeManifest;
+
+    /// Spawn one supervised OS process for a session in an isolated workspace.
     async fn spawn(&self, ctx: &SessionCtx) -> Result<AgentProcess>;
+
+    /// Feed one user turn to a live process over stdin.
     async fn send_input(&self, proc: &mut AgentProcess, input: &str) -> Result<()>;
+
+    /// Graceful (SIGTERM) then forced (SIGKILL) termination.
     async fn terminate(&self, proc: &mut AgentProcess, force: bool) -> Result<()>;
+
+    /// Parse one stdout line into a typed event.
     fn parse_stdout_line(&self, line: &str) -> Option<ParsedLine>;
+
+    /// Liveness probe used by the idle/health reaper (ADR-013 §4.1).
+    /// Uses signal-0 on Unix: returns `Alive` if the OS process exists, `Dead` otherwise.
+    /// Not called by the binary yet — the idle reaper is future work.
+    #[allow(dead_code)]
+    async fn health(&self, proc: &AgentProcess) -> RuntimeHealth {
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::kill;
+            use nix::unistd::Pid;
+            match i32::try_from(proc.pid) {
+                Ok(pid_i32) => match kill(Pid::from_raw(pid_i32), None::<nix::sys::signal::Signal>)
+                {
+                    Ok(()) => RuntimeHealth::Alive,
+                    Err(_) => RuntimeHealth::Dead,
+                },
+                Err(_) => RuntimeHealth::Dead,
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = proc;
+            RuntimeHealth::Alive
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +120,39 @@ pub fn adapter_for_runtime(runtime: AgentRuntime) -> anyhow::Result<Box<dyn Runt
         AgentRuntime::Opencode => Ok(Box::new(opencode::OpencodeAdapter::new())),
         AgentRuntime::Pi => Ok(Box::new(pi::PiAdapter::new())),
         AgentRuntime::Unspecified => anyhow::bail!("Unspecified runtime received"),
+    }
+}
+
+#[cfg(test)]
+mod trait_tests {
+    use super::*;
+
+    #[test]
+    fn claude_code_manifest_fields() {
+        let m = claude_code::ClaudeCodeAdapter::new().manifest();
+        assert_eq!(m.kind, AgentRuntime::ClaudeCode);
+        assert_eq!(m.binary, "claude");
+        assert!(m.capabilities.multi_turn);
+        assert!(m.capabilities.streams_json);
+    }
+
+    #[test]
+    fn opencode_manifest_fields() {
+        let m = opencode::OpencodeAdapter::new().manifest();
+        assert_eq!(m.kind, AgentRuntime::Opencode);
+        assert_eq!(m.binary, "opencode");
+    }
+
+    #[test]
+    fn pi_manifest_fields() {
+        let m = pi::PiAdapter::new().manifest();
+        assert_eq!(m.kind, AgentRuntime::Pi);
+        assert_eq!(m.binary, "pi");
+    }
+
+    #[test]
+    fn runtime_health_variants_are_distinct() {
+        assert_ne!(RuntimeHealth::Alive, RuntimeHealth::Dead);
     }
 }
 

@@ -51,6 +51,9 @@ fn test_state() -> AppState {
         internal_secret: "test-internal-secret".to_owned(),
         session_create_rate_limiter: Arc::new(control_api::SessionCreateRateLimiter::new(10, 60)),
         tenant_session_count: Arc::new(control_api::TenantSessionCount::new()),
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     }
 }
 
@@ -354,7 +357,11 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         session_create_window_secs: 60,
         tenant_session_cap: 100,
         admin_token: None,
+        chat_panel_enabled: false,
         tempo_base_url: "http://localhost:3000".to_owned(),
+        mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: None,
     };
     let state = AppState {
         pool: pool.clone(),
@@ -378,6 +385,9 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         internal_secret: "test-internal-secret".to_owned(),
         session_create_rate_limiter: Arc::new(control_api::SessionCreateRateLimiter::new(10, 60)),
         tenant_session_count: Arc::new(control_api::TenantSessionCount::new()),
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     };
     Some((state, pool))
 }
@@ -542,53 +552,4 @@ async fn integration_login_rate_limit() {
     );
 }
 
-/// Signup response must set `rb_session` cookie with Secure + `HttpOnly` flags.
-#[tokio::test]
-async fn integration_signup_cookie_has_secure_flag() {
-    let Some((state, _pool)) = real_db_state().await else {
-        return;
-    };
-    let app = build_public(state);
-    let email = format!(
-        "integ-signup-secure-{}@test.example",
-        Uuid::new_v4().simple()
-    );
-    let password = "correct-horse-battery-staple";
-
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/auth/signup")
-                .header("content-type", "application/json")
-                .body(json_body(&serde_json::json!({
-                    "email": email,
-                    "password": password,
-                    "tenant_name": "Secure Cookie Test Tenant",
-                })))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), StatusCode::CREATED, "signup must return 201");
-
-    let cookie = resp
-        .headers()
-        .get("set-cookie")
-        .expect("Set-Cookie header must be present on signup")
-        .to_str()
-        .unwrap();
-    assert!(
-        cookie.contains("rb_session="),
-        "cookie must contain rb_session token"
-    );
-    assert!(
-        cookie.contains("Secure"),
-        "signup cookie must carry the Secure flag"
-    );
-    assert!(
-        cookie.contains("HttpOnly"),
-        "signup cookie must carry HttpOnly"
-    );
-}
+// integration_signup_cookie_has_secure_flag: moved to integration_cookie_tests.rs

@@ -75,7 +75,11 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         session_create_window_secs: 60,
         tenant_session_cap: 100,
         admin_token: None,
+        chat_panel_enabled: false,
         tempo_base_url: "http://localhost:3000".to_owned(),
+        mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: None,
     };
     let state = AppState {
         pool: pool.clone(),
@@ -99,6 +103,9 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         internal_secret: "test-internal-secret".to_owned(),
         session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     };
     Some((state, pool))
 }

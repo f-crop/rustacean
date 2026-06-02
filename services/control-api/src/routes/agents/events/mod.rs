@@ -79,7 +79,7 @@ pub async fn session_events(
         AuthContext::Session(_) => return Err(AppError::EmailNotVerified),
         AuthContext::ApiKey(info) => info.tenant_id,
         AuthContext::ExpiredSession => return Err(AppError::SessionExpired),
-        AuthContext::Anonymous => return Err(AppError::Unauthorized),
+        AuthContext::McpJwt(_) | AuthContext::Anonymous => return Err(AppError::Unauthorized),
     };
 
     let row: Option<(Uuid, Uuid, String)> = sqlx::query_as(
@@ -215,7 +215,7 @@ mod tests {
         let result: Result<Uuid, AppError> = match AuthContext::Anonymous {
             AuthContext::Session(_) | AuthContext::ApiKey(_) => unreachable!(),
             AuthContext::ExpiredSession => Err(AppError::SessionExpired),
-            AuthContext::Anonymous => Err(AppError::Unauthorized),
+            AuthContext::McpJwt(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
         };
         assert!(matches!(result, Err(AppError::Unauthorized)));
     }
@@ -225,7 +225,7 @@ mod tests {
         let result: Result<Uuid, AppError> = match AuthContext::ExpiredSession {
             AuthContext::Session(_) | AuthContext::ApiKey(_) => unreachable!(),
             AuthContext::ExpiredSession => Err(AppError::SessionExpired),
-            AuthContext::Anonymous => Err(AppError::Unauthorized),
+            AuthContext::McpJwt(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
         };
         assert!(matches!(result, Err(AppError::SessionExpired)));
     }

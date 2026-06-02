@@ -89,6 +89,23 @@ pub struct Config {
     /// Defaults to 100.
     pub tenant_session_cap: usize,
 
+    // --- Chat panel (ADR-013 §2) ---
+    /// `RB_CHAT_PANEL_ENABLED` — enables all `/v1/chat/*` routes. Default false.
+    pub chat_panel_enabled: bool,
+
+    // --- MCP JWT (ADR-013 §5.2) ---
+    /// `RB_MCP_JWT_SECRET` — HS256 signing secret for short-lived MCP session
+    /// tokens. Optional; chat routes requiring JWT mint return 503 when absent.
+    pub mcp_jwt_secret: Option<String>,
+    /// `RB_MCP_JWT_TTL_SECS` — token lifetime in seconds (default 900 = 15 min).
+    pub mcp_jwt_ttl_secs: u64,
+
+    // --- LLM key (ADR-013 §2, Q4 board decision) ---
+    /// `RB_LLM_API_KEY` — company-level LLM provider API key.
+    /// Loaded via `rb-secrets::from_env("RB")` at the call site.
+    /// This field stores the resolved value; it is never logged (`SecretValue`).
+    pub llm_api_key: Option<String>,
+
     // --- Admin bootstrap (REQ-AD-01, ADR-012 §S1) ---
     /// `RB_ADMIN_TOKEN` — shared bearer secret that gates all `/api/admin/v1/*`
     /// endpoints. Optional at boot so the service starts without it; admin
@@ -188,6 +205,14 @@ impl Config {
             admin_token: env::var("RB_ADMIN_TOKEN").ok().filter(|s| !s.is_empty()),
             tempo_base_url: env::var("RB_TEMPO_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".to_owned()),
+            chat_panel_enabled: env::var("RB_CHAT_PANEL_ENABLED")
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            mcp_jwt_secret: env::var("RB_MCP_JWT_SECRET").ok().filter(|s| !s.is_empty()),
+            mcp_jwt_ttl_secs: env::var("RB_MCP_JWT_TTL_SECS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(900),
+            llm_api_key: env::var("RB_LLM_API_KEY").ok().filter(|s| !s.is_empty()),
         })
     }
 
@@ -268,6 +293,18 @@ impl Config {
             }
         }
 
+        // RB_MCP_JWT_SECRET must be at least 32 bytes when set.
+        // HS256 requires a 256-bit key; shorter secrets weaken the HMAC guarantee.
+        if let Some(secret) = &self.mcp_jwt_secret {
+            if secret.len() < 32 {
+                errors.push(format!(
+                    "RB_MCP_JWT_SECRET is {} bytes; HS256 requires at least 32 bytes (256 bits). \
+                     Use `openssl rand -hex 32` to generate a suitable value.",
+                    secret.len()
+                ));
+            }
+        }
+
         // RB_INTERNAL_SECRET must be non-empty when internal routes are used.
         // The internal routes are always compiled in, so require the secret.
         if self.internal_secret.as_ref().is_none_or(String::is_empty) {
@@ -331,6 +368,10 @@ impl Config {
             tenant_session_cap: 100,
             admin_token: None,
             tempo_base_url: "http://localhost:3000".to_owned(),
+            chat_panel_enabled: false,
+            mcp_jwt_secret: Some("test-mcp-jwt-secret-for-unit-tests-only".to_owned()),
+            mcp_jwt_ttl_secs: 900,
+            llm_api_key: None,
         }
     }
 }
@@ -411,5 +452,27 @@ mod tests {
         c.gh_app_enc_key_b64 = Some("not base64 !!!".to_owned());
         let err = c.validate().expect_err("must reject malformed base64");
         assert!(err.to_string().contains("base64"));
+    }
+
+    #[test]
+    fn validate_mcp_jwt_secret_too_short_fails() {
+        let mut c = base();
+        c.mcp_jwt_secret = Some("tooshort".to_owned());
+        let err = c.validate().expect_err("must reject <32-byte secret");
+        assert!(err.to_string().contains("32 bytes"));
+    }
+
+    #[test]
+    fn validate_mcp_jwt_secret_sufficient_length_passes() {
+        let mut c = base();
+        c.mcp_jwt_secret = Some("a".repeat(32));
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_mcp_jwt_secret_absent_passes() {
+        let mut c = base();
+        c.mcp_jwt_secret = None;
+        assert!(c.validate().is_ok());
     }
 }

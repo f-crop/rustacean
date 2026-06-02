@@ -120,6 +120,10 @@ fn build_test_config_with_api_base(
         tenant_session_cap: 100,
         admin_token: None,
         tempo_base_url: "http://localhost:3000".to_owned(),
+        chat_panel_enabled: false,
+        mcp_jwt_secret: Some("test-mcp-jwt-secret-for-unit-tests-only".to_owned()),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: None,
     }
 }
 
@@ -164,6 +168,9 @@ fn build_state(pool: PgPool, config: Config) -> AppState {
         internal_secret: INTERNAL_SECRET.to_owned(),
         session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     }
 }
 

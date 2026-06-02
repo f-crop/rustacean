@@ -86,6 +86,13 @@ pub enum AppError {
     RuntimeNotConfigured,
     #[error("session is not currently running")]
     SessionNotRunning,
+    // --- Chat panel (ADR-013) ---
+    #[error("chat feature is not enabled on this instance")]
+    ChatFeatureDisabled,
+    #[error("chat session not found")]
+    ChatSessionNotFound,
+    #[error("chat session is not active")]
+    ChatSessionNotActive,
     #[error("redirect_uri origin does not match the allowed origin")]
     BadRedirectUri,
     #[error("admin user already exists; bootstrap is a one-time operation")]
@@ -274,6 +281,19 @@ impl IntoResponse for AppError {
                 StatusCode::CONFLICT,
                 "session_not_running",
                 "session is not currently running".to_owned(),
+            ),
+            AppError::ChatFeatureDisabled => {
+                (StatusCode::NOT_FOUND, "not_found", "not found".to_owned())
+            }
+            AppError::ChatSessionNotFound => (
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "chat session not found".to_owned(),
+            ),
+            AppError::ChatSessionNotActive => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "chat_session_not_active",
+                self.to_string(),
             ),
             AppError::BadRedirectUri => (
                 StatusCode::BAD_REQUEST,

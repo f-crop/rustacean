@@ -121,7 +121,11 @@ fn build_state_with_gh(pool: PgPool, gh_loader: Arc<GhAppLoader>) -> AppState {
         session_create_window_secs: 60,
         tenant_session_cap: 100,
         admin_token: None,
+        chat_panel_enabled: false,
         tempo_base_url: "http://localhost:3000".to_owned(),
+        mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: None,
     };
     AppState {
         pool,
@@ -145,6 +149,9 @@ fn build_state_with_gh(pool: PgPool, gh_loader: Arc<GhAppLoader>) -> AppState {
         internal_secret: "regression-test-internal".to_owned(),
         session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     }
 }
 

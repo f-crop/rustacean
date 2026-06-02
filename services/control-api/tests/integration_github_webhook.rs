@@ -120,6 +120,9 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         internal_secret: "test-internal-secret".to_owned(),
         session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     }
 }
 
@@ -147,6 +150,9 @@ fn state_without_gh() -> AppState {
         internal_secret: "test-internal-secret".to_owned(),
         session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     }
 }
 

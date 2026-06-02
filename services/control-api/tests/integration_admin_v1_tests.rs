@@ -64,6 +64,10 @@ fn lazy_config_with_token(db_url: &str) -> Config {
         tenant_session_cap: 100,
         admin_token: Some(ADMIN_TOKEN.to_owned()),
         tempo_base_url: "http://localhost:3000".to_owned(),
+        chat_panel_enabled: false,
+        mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: None,
     }
 }
 
@@ -99,6 +103,9 @@ fn build_state_from_pool(pool: PgPool, config: Config) -> AppState {
         internal_secret: "internal-test".to_owned(),
         session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     }
 }
 
@@ -140,7 +147,7 @@ async fn middleware_no_auth_header_returns_401() {
     // No body on 401 — invariant §S1 (never echo the token).
     let body = collect_body(resp.into_body()).await;
     assert!(
-        body.is_null() || body.as_object().map_or(true, |o| o.is_empty()),
+        body.is_null() || body.as_object().is_none_or(serde_json::Map::is_empty),
         "401 must return no body, got: {body}"
     );
 }

@@ -3,7 +3,7 @@ use axum::{
     http::{StatusCode, header, request::Parts},
 };
 use chrono::{DateTime, Utc};
-use rb_auth::sha256_hex;
+use rb_auth::{sha256_hex, verify_mcp_token};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::ToSchema;
@@ -61,6 +61,20 @@ pub struct ApiKeyInfo {
     pub scopes: Vec<Scope>,
 }
 
+/// Identity extracted from a verified MCP JWT (`aud="rb-mcp"`, ADR-013 §5.2).
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct McpJwtInfo {
+    pub tenant_id: Uuid,
+    pub user_id: Uuid,
+    /// `sub` claim — `chat_session_id` UUID.
+    pub chat_session_id: Uuid,
+    /// `scope` claim — typically `["read"]`.
+    pub scope: Vec<String>,
+    /// `jti` for audit correlation.
+    pub jti: String,
+}
+
 // ---------------------------------------------------------------------------
 // AuthContext
 // ---------------------------------------------------------------------------
@@ -69,6 +83,7 @@ pub struct ApiKeyInfo {
 ///
 /// - `Session` — resolved from `Cookie: rb_session=<token>`
 /// - `ApiKey`  — resolved from `Authorization: Bearer rb_live_<hex>`
+/// - `McpJwt`  — resolved from `Authorization: Bearer eyJ…` (short-lived MCP JWT, ADR-013 §5.2)
 /// - `Anonymous` — no valid credential present
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -76,6 +91,9 @@ pub struct ApiKeyInfo {
 pub enum AuthContext {
     Session(SessionInfo),
     ApiKey(ApiKeyInfo),
+    /// Verified MCP session JWT (ADR-013 §5.2). Read-scoped, tenant-bound,
+    /// ≤15 min TTL. Used by the runtime adapter's MCP calls.
+    McpJwt(McpJwtInfo),
     /// Session cookie matched a real session row but `expires_at <= now()`.
     /// Routes that require an active session should map this to `SessionExpired`
     /// (HTTP 401 `session_expired`) so the client can prompt re-login rather
@@ -91,15 +109,39 @@ impl FromRequestParts<AppState> for AuthContext {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        // API key via Bearer header takes precedence over session cookie.
+        // Bearer header takes precedence over session cookie.
         if let Some(token) = extract_bearer_token(parts) {
             if token.starts_with("rb_live_") {
                 if let Some(info) = lookup_api_key(&state.pool, &token).await {
                     return Ok(AuthContext::ApiKey(info));
                 }
-                // Token looks like an API key but failed lookup → stay Anonymous
-                // (don't fall through to cookie — the caller intended key auth).
+                // Token looks like an API key but failed lookup → Anonymous.
+                // Don't fall through to cookie — the caller intended key auth.
                 return Ok(AuthContext::Anonymous);
+            }
+
+            // JWT detection: base64url header starting with `eyJ`.
+            // Try MCP JWT path; fall through to Anonymous on any failure.
+            if token.starts_with("eyJ") && !state.mcp_jwt_secret.is_empty() {
+                match verify_mcp_token(&token, state.mcp_jwt_secret.as_bytes()) {
+                    Ok(claims) => {
+                        if let Ok(chat_session_id) = claims.sub.parse::<Uuid>() {
+                            return Ok(AuthContext::McpJwt(McpJwtInfo {
+                                tenant_id: claims.tenant_id,
+                                user_id: claims.user_id,
+                                chat_session_id,
+                                scope: claims.scope,
+                                jti: claims.jti,
+                            }));
+                        }
+                        // sub was not a valid UUID — treat as malformed
+                        return Ok(AuthContext::Anonymous);
+                    }
+                    Err(e) => {
+                        tracing::warn!("MCP JWT verification failed: {e}");
+                        return Ok(AuthContext::Anonymous);
+                    }
+                }
             }
         }
         if let Some(token) = extract_session_cookie(parts) {
@@ -271,7 +313,9 @@ pub fn require_verified_session(auth: AuthContext) -> Result<SessionInfo, AppErr
         AuthContext::Session(info) if info.email_verified => Ok(info),
         AuthContext::Session(_) => Err(AppError::EmailNotVerified),
         AuthContext::ExpiredSession => Err(AppError::SessionExpired),
-        AuthContext::ApiKey(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
+        AuthContext::ApiKey(_) | AuthContext::McpJwt(_) | AuthContext::Anonymous => {
+            Err(AppError::Unauthorized)
+        }
     }
 }
 
@@ -292,7 +336,8 @@ pub fn require_read_auth(auth: AuthContext) -> Result<Uuid, AppError> {
         AuthContext::Session(_) => Err(AppError::EmailNotVerified),
         AuthContext::ExpiredSession => Err(AppError::SessionExpired),
         AuthContext::ApiKey(info) => Ok(info.tenant_id),
-        AuthContext::Anonymous => Err(AppError::Unauthorized),
+        // McpJwt is scoped to /mcp only; general query endpoints use Session/ApiKey.
+        AuthContext::McpJwt(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
     }
 }
 
@@ -334,7 +379,8 @@ pub fn require_session_or_agent_key(auth: AuthContext) -> Result<AgentSessionAut
             user_id: info.user_id,
         }),
         AuthContext::ApiKey(_) => Err(AppError::InsufficientScope),
-        AuthContext::Anonymous => Err(AppError::Unauthorized),
+        // McpJwt is scoped to /mcp; agent-session start requires a human or agent key.
+        AuthContext::McpJwt(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
     }
 }
 // ---------------------------------------------------------------------------

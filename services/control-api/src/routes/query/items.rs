@@ -74,7 +74,7 @@ fn require_read_access(auth: AuthContext) -> Result<ReadAccess, AppError> {
             tenant_id: info.tenant_id,
         }),
         AuthContext::ApiKey(_) => Err(AppError::InsufficientScope),
-        AuthContext::Anonymous => Err(AppError::Unauthorized),
+        AuthContext::McpJwt(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
     }
 }
 
