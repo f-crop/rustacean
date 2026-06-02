@@ -9,7 +9,7 @@ pub mod sessions;
 
 pub use events::chat_session_events;
 pub use messages::{list_chat_messages, post_chat_message};
-pub use sessions::{create_chat_session, get_chat_session};
+pub use sessions::{create_chat_session, delete_chat_session, get_chat_session};
 
 #[cfg(test)]
 mod tests;

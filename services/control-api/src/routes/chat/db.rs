@@ -83,6 +83,26 @@ pub async fn db_get_chat_session(
     .ok_or(AppError::ChatSessionNotFound)
 }
 
+/// Mark a session as ended. Returns true if the row was found and updated,
+/// false if it was already in a terminal state (idempotent).
+pub async fn db_end_chat_session(
+    pool: &PgPool,
+    session_id: Uuid,
+    tenant_id: Uuid,
+) -> Result<bool, AppError> {
+    let result = sqlx::query(
+        "UPDATE control.chat_sessions \
+         SET status = 'ended', ended_at = now(), last_activity_at = now() \
+         WHERE id = $1 AND tenant_id = $2 AND status = 'active'",
+    )
+    .bind(session_id)
+    .bind(tenant_id)
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
+    Ok(result.rows_affected() > 0)
+}
+
 #[allow(dead_code)]
 pub async fn db_update_session_last_activity(
     pool: &PgPool,
