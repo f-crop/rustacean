@@ -516,8 +516,17 @@ impl SessionManager {
                             if let Err(e) = es.try_send((tenant_id, event)) {
                                 tracing::error!(session_id = %sid_stdout, error = %e, "Failed to send stdout event (channel full or closed)");
                             }
+                            // Relay path: redact the full line before SSE/DB relay (ADR-013 §6.3).
+                            let redacted_line =
+                                rb_auth::redact_with_token(&line, Some(&live_token_stdout));
+                            agent_runner::relay_stdout_events(
+                                &relay_sender,
+                                &sid_stdout,
+                                &tenant_id.to_string(),
+                                seq,
+                                &redacted_line,
+                            );
                         }
-                        agent_runner::relay_stdout_events(&relay_sender, &sid_stdout, &tenant_id.to_string(), seq, &line);
                     }
                 }
             }

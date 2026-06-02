@@ -123,6 +123,31 @@ fn stdout_pipeline_redacts_jwt_before_payload_stored() {
     );
 }
 
+/// ADR-013 §6.3 relay path: `redact_with_token` applied to the full raw stdout
+/// line strips JWTs before the line is forwarded to `relay_stdout_events` (and
+/// from there to SSE / DB).  This mirrors the fix that moved the relay call
+/// inside the `if let Some(parsed)` guard with a pre-redacted line.
+#[test]
+fn relay_path_redacts_jwt_before_sse_db() {
+    // Three-segment base64url token — same shape as the Kafka-path smoke test.
+    #[allow(clippy::const_is_empty)]
+    let fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzbW9rZS10ZXN0In0.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // gitleaks:allow
+
+    let raw_line = format!(r#"{{"type":"text","content":"token={fake_jwt}"}}"#);
+
+    let live_token = "live-session-token";
+    let redacted_line = rb_auth::redact_with_token(&raw_line, Some(live_token));
+
+    assert!(
+        !redacted_line.contains(fake_jwt),
+        "JWT must be stripped from the full line before relay; got: {redacted_line}"
+    );
+    assert!(
+        !redacted_line.contains("eyJ"),
+        "JWT header prefix must not appear in the relayed line; got: {redacted_line}"
+    );
+}
+
 /// Workspace traversal error must not touch the tenant counter (C1 regression:
 /// early-return paths before caps.acquire must leave the counter unchanged).
 #[tokio::test(flavor = "current_thread")]

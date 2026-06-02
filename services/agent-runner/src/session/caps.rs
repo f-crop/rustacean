@@ -91,7 +91,10 @@ impl SessionCaps {
                     "error_kind=rate_limit_exceeded: node session limit ({MAX_SESSIONS_PER_NODE}) reached"
                 )
             })?;
-        let mut counts = self.tenant_counts.lock().unwrap();
+        let mut counts = self
+            .tenant_counts
+            .lock()
+            .map_err(|e| anyhow::anyhow!("tenant_counts mutex poisoned: {e}"))?;
         let n = counts.entry(tenant_id).or_insert(0);
         if *n >= MAX_SESSIONS_PER_TENANT {
             counter!("rb_session_rejected_total", "reason" => "tenant_limit").increment(1);
@@ -109,9 +112,10 @@ impl SessionCaps {
     }
 
     pub fn release(&self, tenant_id: TenantId) {
-        let mut counts = self.tenant_counts.lock().unwrap();
-        if let Some(n) = counts.get_mut(&tenant_id) {
-            *n = n.saturating_sub(1);
+        if let Ok(mut counts) = self.tenant_counts.lock() {
+            if let Some(n) = counts.get_mut(&tenant_id) {
+                *n = n.saturating_sub(1);
+            }
         }
     }
 }
