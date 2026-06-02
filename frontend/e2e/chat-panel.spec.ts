@@ -1,0 +1,192 @@
+import { test, expect, type Page } from "@playwright/test";
+import {
+  mockAuthenticatedSession,
+  mockReposList,
+  REPOS_EMPTY_RESPONSE,
+} from "./fixtures/mock-api";
+import {
+  mockChatSessionsListAndCreate,
+  mockSendChatMessage,
+  mockChatStream,
+  CHAT_SESSION_ID,
+  FULL_EXCHANGE_SSE,
+  SESSION_ERROR_SSE,
+  AUDIT_WITH_TOOL_CALL,
+} from "./fixtures/chat-mock-api";
+
+const CHAT_URL = "/chat";
+
+// ---------------------------------------------------------------------------
+// Shared setup
+// ---------------------------------------------------------------------------
+
+async function setupChatPage(page: Page, sseBody = FULL_EXCHANGE_SSE): Promise<void> {
+  await mockAuthenticatedSession(page);
+  await mockReposList(page, REPOS_EMPTY_RESPONSE);
+  await mockChatSessionsListAndCreate(page);
+  await mockSendChatMessage(page);
+  await mockChatStream(page, CHAT_SESSION_ID, sseBody);
+}
+
+// Opens the chat page and clicks the "New chat session" button so a session
+// becomes active and MessageComposer is visible.
+async function openNewSession(page: Page): Promise<void> {
+  await page.goto(CHAT_URL);
+  await page.getByRole("button", { name: "New chat session" }).first().click();
+  await expect(page.getByRole("textbox", { name: "Chat message" })).toBeVisible();
+}
+
+// ---------------------------------------------------------------------------
+// Golden path — feature flag on (VITE_FEATURE_CHAT_PANEL=true at build time)
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — golden path", () => {
+  test("renders session sidebar and empty state when no sessions exist", async ({ page }) => {
+    await setupChatPage(page);
+    await page.goto(CHAT_URL);
+
+    await expect(page.getByRole("complementary", { name: "Chat sessions" })).toBeVisible();
+    await expect(page.getByText("No sessions yet. Click + New to start.")).toBeVisible();
+    await expect(
+      page.getByText("Select a session from the sidebar or start a new one."),
+    ).toBeVisible();
+  });
+
+  test("shows chat heading in header", async ({ page }) => {
+    await setupChatPage(page);
+    await page.goto(CHAT_URL);
+
+    await expect(page.getByRole("heading", { name: "Chat", level: 1 })).toBeVisible();
+  });
+
+  test("activates session and shows composer after clicking + New in sidebar", async ({ page }) => {
+    await setupChatPage(page);
+    await page.goto(CHAT_URL);
+
+    await page.getByRole("button", { name: "New chat session", exact: false }).first().click();
+
+    await expect(page.getByRole("textbox", { name: "Chat message" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+  });
+
+  test("renders user message, tool call, and text response from SSE stream", async ({ page }) => {
+    await setupChatPage(page);
+    await openNewSession(page);
+
+    // The SSE mock delivers events immediately on connect — wait for them to render.
+    await expect(
+      page.getByText("List files in the current directory"),
+    ).toBeVisible();
+    await expect(page.getByText("Here are the files in the current directory.")).toBeVisible();
+  });
+
+  test("renders MCP tool call block with Done badge after tool_result arrives", async ({
+    page,
+  }) => {
+    await setupChatPage(page);
+    await openNewSession(page);
+
+    // ToolCallBlock aria-label: "${name} tool call — ${statusLabel}"
+    await expect(
+      page.getByRole("button", { name: /list_directory tool call — Done/ }),
+    ).toBeVisible();
+  });
+
+  test("tool call block expands to reveal input and result JSON on click", async ({ page }) => {
+    await setupChatPage(page);
+    await openNewSession(page);
+
+    const toolBtn = page.getByRole("button", { name: /list_directory tool call/ });
+    await expect(toolBtn).toBeVisible();
+    await toolBtn.click();
+
+    await expect(toolBtn).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByText("Input")).toBeVisible();
+    await expect(page.getByText("Result")).toBeVisible();
+  });
+
+  test("session ID short-form appears in chat header after session is created", async ({
+    page,
+  }) => {
+    await setupChatPage(page);
+    await openNewSession(page);
+
+    // Header renders first 8 chars of session ID (title attr holds full ID)
+    await expect(page.getByTitle(CHAT_SESSION_ID)).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit visibility — verifies the activity page reflects chat tool-call audit rows
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — audit row visibility", () => {
+  test("activity page Total audit events card shows non-zero count with chat audit rows", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+
+    // Mock audit endpoint — include a chat tool-call audit event.
+    await page.route("**/v1/audit**", (route) =>
+      route.fulfill({ json: AUDIT_WITH_TOOL_CALL }),
+    );
+    // Stub other activity-page endpoints so they don't error.
+    await page.route("**/v1/repos**", (route) => route.fulfill({ json: { repos: [] } }));
+    await page.route("**/v1/tenants/*/ingestion-runs**", (route) =>
+      route.fulfill({ json: { runs: [] } }),
+    );
+    await page.route("**/v1/ingest/events**", (route) =>
+      route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "",
+      }),
+    );
+
+    await page.goto("/activity");
+
+    // SummaryCards renders "Total audit events" with the total count.
+    const summaryGrid = page.locator('[aria-label="Summary metrics"]');
+    await expect(summaryGrid).toBeVisible();
+    await expect(summaryGrid.getByText("Total audit events")).toBeVisible();
+    // Total is 1 (from AUDIT_WITH_TOOL_CALL.total).
+    await expect(summaryGrid.locator("p.text-2xl").nth(1)).toContainText("1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error paths
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — error paths", () => {
+  test("shows error alert when sending a message returns 500", async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page);
+    await mockChatStream(page, CHAT_SESSION_ID, "");
+
+    await page.route("**/v1/chat/sessions/*/messages", (route) =>
+      route.fulfill({ status: 500, json: { error: "Internal server error" } }),
+    );
+
+    await page.goto(CHAT_URL);
+    await page.getByRole("button", { name: "New chat session" }).first().click();
+    await expect(page.getByRole("textbox", { name: "Chat message" })).toBeVisible();
+
+    await page.getByRole("textbox", { name: "Chat message" }).fill("This will fail");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    await expect(page.getByRole("alert")).toBeVisible();
+  });
+
+  test("renders session.error SSE event as error transcript item", async ({ page }) => {
+    await setupChatPage(page, SESSION_ERROR_SSE);
+    await openNewSession(page);
+
+    // session.error delivers an error item with the message text.
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Session timed out" }),
+    ).toBeVisible();
+  });
+});
