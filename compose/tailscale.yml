@@ -53,6 +53,9 @@ services:
   kafka-ui:
     restart: unless-stopped
 
+  hindsight:
+    restart: unless-stopped
+
   agent-runner:
     restart: unless-stopped
 

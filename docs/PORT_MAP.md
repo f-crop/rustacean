@@ -34,6 +34,8 @@ docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/ta
 | 10443 | 443 | caddy | HTTPS | Reverse proxy HTTPS |
 | 18081 | 8081 | pgweb | HTTP | pgweb DB browser (read-only) |
 | 18082 | 8082 | kafka-ui | HTTP | Kafka UI |
+| 18888 | 8888 | hindsight | HTTP | Hindsight memory API + MCP server (`/mcp/rustacean/`) |
+| 19999 | 9999 | hindsight | HTTP | Hindsight Control Plane UI |
 | ${CLAUDE_SSH_HOST_PORT:-12222} | 22 | claude-login | SSH | Claude OAuth login sidecar — shares `claude-credentials` volume with agent-runner |
 
 ### Quick access via Tailscale
@@ -47,6 +49,8 @@ docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/ta
 | pgweb | http://100.87.157.74:18081 |
 | Kafka UI | http://100.87.157.74:18082 |
 | Neo4j browser | http://100.87.157.74:17474 |
+| Hindsight API/MCP | http://100.87.157.74:18888 |
+| Hindsight Control Plane | http://100.87.157.74:19999 |
 
 ---
 
