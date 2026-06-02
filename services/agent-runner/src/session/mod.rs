@@ -556,7 +556,6 @@ impl SessionManager {
 
         (stdout_handle, stderr_handle)
     }
-
 }
 pub use crate::workspace_gc::spawn_workspace_gc;
 
