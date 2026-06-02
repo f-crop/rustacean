@@ -293,6 +293,18 @@ impl Config {
             }
         }
 
+        // RB_MCP_JWT_SECRET must be at least 32 bytes when set.
+        // HS256 requires a 256-bit key; shorter secrets weaken the HMAC guarantee.
+        if let Some(secret) = &self.mcp_jwt_secret {
+            if secret.len() < 32 {
+                errors.push(format!(
+                    "RB_MCP_JWT_SECRET is {} bytes; HS256 requires at least 32 bytes (256 bits). \
+                     Use `openssl rand -hex 32` to generate a suitable value.",
+                    secret.len()
+                ));
+            }
+        }
+
         // RB_INTERNAL_SECRET must be non-empty when internal routes are used.
         // The internal routes are always compiled in, so require the secret.
         if self.internal_secret.as_ref().is_none_or(String::is_empty) {
@@ -440,5 +452,27 @@ mod tests {
         c.gh_app_enc_key_b64 = Some("not base64 !!!".to_owned());
         let err = c.validate().expect_err("must reject malformed base64");
         assert!(err.to_string().contains("base64"));
+    }
+
+    #[test]
+    fn validate_mcp_jwt_secret_too_short_fails() {
+        let mut c = base();
+        c.mcp_jwt_secret = Some("tooshort".to_owned());
+        let err = c.validate().expect_err("must reject <32-byte secret");
+        assert!(err.to_string().contains("32 bytes"));
+    }
+
+    #[test]
+    fn validate_mcp_jwt_secret_sufficient_length_passes() {
+        let mut c = base();
+        c.mcp_jwt_secret = Some("a".repeat(32));
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_mcp_jwt_secret_absent_passes() {
+        let mut c = base();
+        c.mcp_jwt_secret = None;
+        assert!(c.validate().is_ok());
     }
 }

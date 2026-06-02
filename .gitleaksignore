@@ -22,6 +22,10 @@ f2766fe82358b064039f904c216db236050c6e5a:compose/e2e.yml:generic-api-key:169
 # Test-only RB_INTERNAL_SECRET value in compose/board-smoke.yml; not a real credential.
 # Required by control-api config validation in the board smoke CI environment.
 f2766fe82358b064039f904c216db236050c6e5a:compose/board-smoke.yml:generic-api-key:111
+# `const SECRET` byte-string in crates/rb-auth/src/jwt.rs tests — used as the HS256
+# signing secret in round-trip/expiry unit tests only; value is synthetic and has no
+# production usage. Introduced in commit 8a379661.
+8a3796616fc647cd354c97e51dda941d00ae0a43:crates/rb-auth/src/jwt.rs:generic-api-key:153
 # JWT test fixtures in crates/rb-auth/src/redact.rs — the redaction unit tests need
 # a syntactically valid JWT-shaped string to assert that redact() strips it. These
 # are synthetic tokens (no valid signature, no production key) introduced in commits

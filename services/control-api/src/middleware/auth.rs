@@ -138,7 +138,7 @@ impl FromRequestParts<AppState> for AuthContext {
                         return Ok(AuthContext::Anonymous);
                     }
                     Err(e) => {
-                        tracing::debug!("MCP JWT verification failed: {e}");
+                        tracing::warn!("MCP JWT verification failed: {e}");
                         return Ok(AuthContext::Anonymous);
                     }
                 }
