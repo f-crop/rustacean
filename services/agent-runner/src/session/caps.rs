@@ -27,10 +27,6 @@ impl SessionCaps {
         Arc::clone(&self.tenant_counts)
     }
 
-    pub fn node_semaphore(&self) -> Arc<Semaphore> {
-        Arc::clone(&self.node_semaphore)
-    }
-
     /// Acquire node + tenant permits. Returns `Err` if either cap is exceeded.
     pub async fn acquire(
         &self,
