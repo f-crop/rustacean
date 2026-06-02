@@ -32,7 +32,7 @@ async function setupChatPage(page: Page, sseBody = FULL_EXCHANGE_SSE): Promise<v
 // becomes active and MessageComposer is visible.
 async function openNewSession(page: Page): Promise<void> {
   await page.goto(CHAT_URL);
-  await page.getByRole("button", { name: "New chat session" }).click();
+  await page.getByRole("button", { name: "New chat session" }).first().click();
   await expect(page.getByRole("textbox", { name: "Chat message" })).toBeVisible();
 }
 
@@ -171,7 +171,7 @@ test.describe("Chat panel — error paths", () => {
     );
 
     await page.goto(CHAT_URL);
-    await page.getByRole("button", { name: "New chat session" }).click();
+    await page.getByRole("button", { name: "New chat session" }).first().click();
     await expect(page.getByRole("textbox", { name: "Chat message" })).toBeVisible();
 
     await page.getByRole("textbox", { name: "Chat message" }).fill("This will fail");
