@@ -1,8 +1,7 @@
 //! Chat session lifecycle routes (ADR-013 §3).
 //!
-//! - `POST   /v1/chat/sessions`      — create session, mint MCP JWT, dispatch to agent-runner
-//! - `GET    /v1/chat/sessions/{id}` — fetch session with message history (tenant-scoped)
-//! - `DELETE /v1/chat/sessions/{id}` — terminate session
+//! - `POST /v1/chat/sessions`      — create session, mint MCP JWT, dispatch to agent-runner
+//! - `GET  /v1/chat/sessions/{id}` — fetch session with message history (tenant-scoped)
 
 use axum::{
     Json,
@@ -13,9 +12,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use rb_auth::{McpTokenClaims, mint_mcp_token};
 use rb_kafka::EventEnvelope;
-use rb_schemas::{
-    AgentSessionCommand, AgentSessionStart, AgentSessionTerminate, TenantId, agent_session_command,
-};
+use rb_schemas::{AgentSessionCommand, AgentSessionStart, TenantId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -27,8 +24,8 @@ use crate::{
 };
 
 use super::db::{
-    ChatMessageRow, ChatSessionRow, db_end_chat_session, db_get_chat_session,
-    db_insert_chat_session, db_list_chat_messages,
+    ChatMessageRow, ChatSessionRow, db_get_chat_session, db_insert_chat_session,
+    db_list_chat_messages,
 };
 
 const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
@@ -266,67 +263,4 @@ pub fn require_chat_auth(auth: AuthContext) -> Result<ChatCaller, AppError> {
         AuthContext::ApiKey(_) => Err(AppError::InsufficientScope),
         AuthContext::McpJwt(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
     }
-}
-
-// ---------------------------------------------------------------------------
-// DELETE /v1/chat/sessions/{id}
-// ---------------------------------------------------------------------------
-
-#[utoipa::path(
-    delete,
-    path = "/v1/chat/sessions/{id}",
-    params(("id" = Uuid, Path, description = "Chat session ID")),
-    responses(
-        (status = 202, description = "Termination accepted"),
-        (status = 401, description = "Authentication required"),
-        (status = 404, description = "Session not found or feature disabled"),
-        (status = 503, description = "Kafka unavailable"),
-    ),
-    tag = "chat"
-)]
-pub async fn delete_chat_session(
-    State(state): State<AppState>,
-    Path(session_id): Path<Uuid>,
-    auth: AuthContext,
-) -> Result<impl IntoResponse, AppError> {
-    if !state.config.chat_panel_enabled {
-        return Err(AppError::ChatFeatureDisabled);
-    }
-
-    let caller = require_chat_auth(auth)?;
-
-    // Verify ownership before any mutation.
-    let session = db_get_chat_session(&state.pool, session_id, caller.tenant_id).await?;
-
-    // Idempotent: already terminal.
-    if session.status != "active" {
-        return Ok(StatusCode::ACCEPTED);
-    }
-
-    // Mark ended synchronously so new messages are immediately rejected.
-    db_end_chat_session(&state.pool, session_id, caller.tenant_id).await?;
-
-    // Best-effort terminate command to agent-runner; session is already marked
-    // ended in DB so failures here do not leave it in an inconsistent state.
-    if let Some(producer) = state.agent_commands_producer.as_ref() {
-        let command = AgentSessionCommand {
-            session_id: session_id.to_string(),
-            command: Some(agent_session_command::Command::Terminate(
-                AgentSessionTerminate {
-                    force: false,
-                    reason: "user terminated chat session".into(),
-                },
-            )),
-        };
-        let tenant_id = TenantId::from(caller.tenant_id);
-        let envelope = EventEnvelope::new(tenant_id, command);
-        if let Err(e) = producer
-            .publish(TOPIC_AGENT_COMMANDS, session_id.as_bytes(), envelope)
-            .await
-        {
-            tracing::warn!(%session_id, "failed to publish chat session terminate: {e}");
-        }
-    }
-
-    Ok(StatusCode::ACCEPTED)
 }

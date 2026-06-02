@@ -40,7 +40,7 @@ FOR EACH ROW EXECUTE FUNCTION control.chat_sessions_tenant_id_immutable();
 CREATE TABLE control.chat_messages (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id  UUID        NOT NULL REFERENCES control.chat_sessions(id) ON DELETE CASCADE,
-    tenant_id   UUID        NOT NULL REFERENCES control.tenants(id) ON DELETE CASCADE,
+    tenant_id   UUID        NOT NULL,
     seq         INTEGER     NOT NULL,
     role        TEXT        NOT NULL CHECK (role IN ('user','assistant','system','tool')),
     body        TEXT        NOT NULL,

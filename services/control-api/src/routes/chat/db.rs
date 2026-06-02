@@ -83,24 +83,23 @@ pub async fn db_get_chat_session(
     .ok_or(AppError::ChatSessionNotFound)
 }
 
-/// Mark a session as ended. Returns true if the row was found and updated,
-/// false if it was already in a terminal state (idempotent).
-pub async fn db_end_chat_session(
+#[allow(dead_code)]
+pub async fn db_update_session_last_activity(
     pool: &PgPool,
     session_id: Uuid,
     tenant_id: Uuid,
-) -> Result<bool, AppError> {
-    let result = sqlx::query(
+) -> Result<(), AppError> {
+    sqlx::query(
         "UPDATE control.chat_sessions \
-         SET status = 'ended', ended_at = now(), last_activity_at = now() \
-         WHERE id = $1 AND tenant_id = $2 AND status = 'active'",
+         SET last_activity_at = now() \
+         WHERE id = $1 AND tenant_id = $2",
     )
     .bind(session_id)
     .bind(tenant_id)
     .execute(pool)
     .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
-    Ok(result.rows_affected() > 0)
+    .map(|_| ())
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))
 }
 
 // ---------------------------------------------------------------------------
@@ -115,14 +114,8 @@ pub async fn db_insert_chat_message(
     role: &str,
     body: &str,
 ) -> Result<i32, AppError> {
-    // Lock the session row first so concurrent message inserts for the same
-    // session serialize here rather than racing on the MAX(seq) subquery and
-    // hitting the UNIQUE(session_id, seq) constraint with a 500.
     let (seq,): (i32,) = sqlx::query_as(
         r"
-        WITH locked AS (
-            SELECT id FROM control.chat_sessions WHERE id = $2 FOR UPDATE
-        )
         INSERT INTO control.chat_messages (id, session_id, tenant_id, seq, role, body)
         SELECT $1, $2, $3,
                COALESCE((SELECT MAX(seq) FROM control.chat_messages WHERE session_id = $2), 0) + 1,
