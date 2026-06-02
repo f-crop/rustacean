@@ -97,3 +97,13 @@ export {
   useStageTimeline,
   stageTimelineQueryKey,
 } from "./useTraceViewer";
+export {
+  useChatSessions,
+  useCreateChatSession,
+  useSendChatMessage,
+  chatSessionsQueryKey,
+  type ChatSession,
+  type ListChatSessionsResponse,
+  type CreateChatSessionRequest,
+  type CreateChatSessionResponse,
+} from "./useChatSessions";
