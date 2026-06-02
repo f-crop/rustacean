@@ -1,4 +1,4 @@
-//! RUSAA-1801 — integration test: GET /api/admin/v1/audit-log surfaces ip + user_agent.
+//! RUSAA-1801 — integration test: GET /api/admin/v1/audit-log surfaces ip + `user_agent`.
 //!
 //! Verifies that the two fields added to `AuditLogRow` round-trip from the DB
 //! through the GET response DTO.
@@ -62,10 +62,10 @@ fn lazy_config_with_token(db_url: &str) -> Config {
         tenant_session_cap: 100,
         admin_token: Some(ADMIN_TOKEN.to_owned()),
         tempo_base_url: "http://localhost:3000".to_owned(),
-            chat_panel_enabled: false,
-            mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
-            mcp_jwt_ttl_secs: 900,
-            llm_api_key: None,
+        chat_panel_enabled: false,
+        mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: None,
     }
 }
 
@@ -101,8 +101,8 @@ fn build_state_from_pool(pool: PgPool, config: Config) -> AppState {
         internal_secret: "internal-test".to_owned(),
         session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
-            mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
-            mcp_jwt_ttl_secs: 900,
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
     }
 }
 

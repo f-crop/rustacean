@@ -1,7 +1,7 @@
 /// Integration tests for `X-Trace-Id` response header surfacing (ADR-012 §S4).
 ///
 /// These tests verify that every HTTP response from control-api carries the
-/// `X-Trace-Id` header when the OTel tracing stack is initialised, covering
+/// `X-Trace-Id` header when the `OTel` tracing stack is initialised, covering
 /// the round-trip requirement from ADR-012 §2.4.4 (S5 CI gate).
 use std::sync::Arc;
 
@@ -28,7 +28,7 @@ use rb_sse::{EventBus, SseConfig};
 
 static OTEL_INIT: OnceLock<()> = OnceLock::new();
 
-/// Initialises a minimal in-process OTel tracer (no OTLP exporter) so that
+/// Initialises a minimal in-process `OTel` tracer (no OTLP exporter) so that
 /// `OpenTelemetryLayer` is installed and `span_trace_id` returns a valid ID.
 fn init_test_otel() {
     OTEL_INIT.get_or_init(|| {

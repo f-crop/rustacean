@@ -222,7 +222,7 @@ async fn reclaim_succeeds_when_owner_tenant_deleted() {
 }
 
 /// Reclaim is blocked when the owner's installation has at least one active repo
-/// (archived_at IS NULL). The active owner must not lose their installation.
+/// (`archived_at IS NULL`). The active owner must not lose their installation.
 #[tokio::test]
 async fn reclaim_blocked_when_owner_has_active_repos() {
     let Some(pool) = connect().await else { return };

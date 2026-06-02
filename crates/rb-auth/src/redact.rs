@@ -169,7 +169,8 @@ mod tests {
     #[test]
     fn jwt_in_line_is_redacted() {
         // Build a synthetic three-part JWT-shaped string.
-        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        let jwt =
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         let line = format!("MCP config token={jwt} loaded");
         let out = redact(&line);
         assert!(!out.contains("eyJ"), "JWT must be redacted");
@@ -209,7 +210,8 @@ mod tests {
 
     #[test]
     fn live_token_verbatim_echo_is_caught() {
-        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        let jwt =
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
         let line = format!("model says: use token {jwt} for auth");
         let out = redact_with_token(&line, Some(jwt));
         assert!(!out.contains(jwt), "verbatim token must be stripped");

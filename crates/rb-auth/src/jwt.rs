@@ -58,6 +58,10 @@ pub struct MintedMcpClaims {
     pub user_id: Uuid,
     /// Read-only scope.
     pub scope: Vec<String>,
+    /// Token kind — `"human_chat"` for chat-session tokens (ADR-013 §5.2).
+    /// Allows audit systems to distinguish chat traffic from autonomous-agent
+    /// traffic without parsing the `sub` claim.
+    pub kind: String,
     pub iat: i64,
     pub exp: i64,
     /// JWT ID for audit correlation and optional denylist.
@@ -100,6 +104,7 @@ pub fn mint_mcp_token(
         tenant_id: claims.tenant_id,
         user_id: claims.user_id,
         scope: vec!["read".to_owned()],
+        kind: "human_chat".to_owned(),
         iat: now,
         #[allow(clippy::cast_possible_wrap)]
         exp: now + ttl_secs as i64,
@@ -203,5 +208,12 @@ mod tests {
         let decoded = verify_mcp_token(&token, SECRET).unwrap();
         assert_eq!(decoded.scope, vec!["read"]);
         assert!(!decoded.scope.contains(&"write".to_owned()));
+    }
+
+    #[test]
+    fn kind_is_human_chat() {
+        let token = mint_mcp_token(SECRET, TTL, make_claims()).unwrap();
+        let decoded = verify_mcp_token(&token, SECRET).unwrap();
+        assert_eq!(decoded.kind, "human_chat");
     }
 }

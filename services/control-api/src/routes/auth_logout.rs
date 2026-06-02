@@ -33,7 +33,7 @@ pub async fn logout(
         // by other session-only routes (`me`, `tenants`, `api_keys`).
         AuthContext::ExpiredSession => return Err(AppError::SessionExpired),
         AuthContext::ApiKey(_) | AuthContext::McpJwt(_) | AuthContext::Anonymous => {
-            return Err(AppError::Unauthorized)
+            return Err(AppError::Unauthorized);
         }
     };
 

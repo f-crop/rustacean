@@ -8,8 +8,6 @@
 //!
 //! DB-backed tests skip gracefully when `RB_DATABASE_URL` is not set.
 
-use std::sync::Arc;
-
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
@@ -25,6 +23,7 @@ async fn db_pool() -> Option<PgPool> {
         .ok()
 }
 
+#[allow(dead_code)]
 async fn seed_installation(pool: &PgPool, tenant_id: Uuid, github_installation_id: i64) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
@@ -62,6 +61,7 @@ fn random_install_id() -> i64 {
 ///
 /// Regression defence: cross-tenant install rebind.
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn cross_tenant_rebind_conflict_then_reclaim() {
     let Some(pool) = db_pool().await else {
         return; // skip: no DB
@@ -136,7 +136,7 @@ async fn cross_tenant_rebind_conflict_then_reclaim() {
     );
 
     // Verify: the conflict redirect URL encodes `install=conflict&reason=active`.
-    let conflict_url = format!("http://localhost:15173/repos?install=conflict&reason=active");
+    let conflict_url = "http://localhost:15173/repos?install=conflict&reason=active".to_string();
     assert!(
         conflict_url.contains("install=conflict"),
         "conflict redirect must carry 'install=conflict'"

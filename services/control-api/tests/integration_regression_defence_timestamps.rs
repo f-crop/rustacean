@@ -79,6 +79,7 @@ async fn cleanup_user(pool: &PgPool, user_id: Uuid, tenant_id: Uuid) {
 ///
 /// Regression defence: ingestion timestamp monotonicity.
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn ingestion_timestamp_monotonicity() {
     let Some(pool) = db_pool().await else {
         return; // skip: no DB
@@ -185,6 +186,7 @@ async fn ingestion_timestamp_monotonicity() {
     // Earlier stages get an earlier started_at; project_qdrant (last) gets the
     // largest finished_at, proving the run.finished_at cap is not typecheck-only.
     for (i, stage) in canonical_stages.iter().enumerate() {
+        #[allow(clippy::cast_possible_wrap)]
         let offset = i as i64;
 
         // Simulate `update_stage_run("running", ...)`: sets started_at via COALESCE.
@@ -283,6 +285,7 @@ async fn ingestion_timestamp_monotonicity() {
 
     // ── Assert 3: stage started_at is monotonically non-decreasing ───────────
 
+    #[allow(clippy::items_after_statements)]
     type StageRow = (String, Option<chrono::DateTime<chrono::Utc>>);
     let stage_rows: Vec<StageRow> = sqlx::query_as(
         "SELECT psr.stage, psr.started_at \

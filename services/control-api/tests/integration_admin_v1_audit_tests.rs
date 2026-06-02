@@ -1,11 +1,11 @@
 //! DB-backed integration tests for admin v1 audit-log invariants (ADR-012 §S1.6).
 //!
 //!   §S1.6.1 — Every endpoint writes exactly one audit row on every code path.
-//!   §S1.6.2 — Missing `X-Admin-Actor` → 400 + denied/missing_actor audit row.
+//!   §S1.6.2 — Missing `X-Admin-Actor` → 400 + denied/`missing_actor` audit row.
 //!   §S1.6.3 — `payload_summary` never contains raw token material.
 //!   §S1.6.4 — Impersonation JWT `exp` ≤ `now + 900 s` (server-enforced ceiling).
-//!   §S1.6.5 — force-delete is two-phase: phase-1 returns confirm_token; phase-2
-//!              executes only when confirm_token is present and valid.
+//!   §S1.6.5 — force-delete is two-phase: phase-1 returns `confirm_token`; phase-2
+//!              executes only when `confirm_token` is present and valid.
 //!
 //! Fast middleware tests (no DB) live in `integration_admin_v1_tests.rs`.
 //! All tests here skip when `RB_DATABASE_URL` is unset.
@@ -71,10 +71,10 @@ fn lazy_config_with_token(db_url: &str) -> Config {
         tenant_session_cap: 100,
         admin_token: Some(ADMIN_TOKEN.to_owned()),
         tempo_base_url: "http://localhost:3000".to_owned(),
-            chat_panel_enabled: false,
-            mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
-            mcp_jwt_ttl_secs: 900,
-            llm_api_key: None,
+        chat_panel_enabled: false,
+        mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
+        mcp_jwt_ttl_secs: 900,
+        llm_api_key: None,
     }
 }
 
@@ -110,8 +110,8 @@ fn build_state_from_pool(pool: PgPool, config: Config) -> AppState {
         internal_secret: "internal-test".to_owned(),
         session_create_rate_limiter: Arc::new(SessionCreateRateLimiter::default()),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
-            mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
-            mcp_jwt_ttl_secs: 900,
+        mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
+        mcp_jwt_ttl_secs: 900,
     }
 }
 
@@ -293,6 +293,7 @@ async fn inv3_audit_payload_never_contains_raw_token() {
 /// caller requests a longer duration (e.g. 9999 seconds).
 #[tokio::test]
 async fn inv4_impersonation_jwt_exp_ceiling_is_900s() {
+    use base64::Engine as _;
     let Some(pool) = real_db_pool().await else {
         return;
     };
@@ -345,8 +346,7 @@ async fn inv4_impersonation_jwt_exp_ceiling_is_900s() {
                 .header("content-type", "application/json")
                 // Request 9999 seconds — server must clamp to 900.
                 .body(Body::from(format!(
-                    r#"{{"user_id":"{}","duration_secs":9999}}"#,
-                    user_id
+                    r#"{{"user_id":"{user_id}","duration_secs":9999}}"#
                 )))
                 .unwrap(),
         )
@@ -367,7 +367,6 @@ async fn inv4_impersonation_jwt_exp_ceiling_is_900s() {
     // Extract exp from the JWT payload without verifying the signature.
     let parts: Vec<&str> = token.split('.').collect();
     assert_eq!(parts.len(), 3, "JWT must have 3 parts");
-    use base64::Engine as _;
     let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[1])
         .expect("decode payload base64");
@@ -404,10 +403,10 @@ async fn inv4_impersonation_jwt_exp_ceiling_is_900s() {
         .ok();
 }
 
-/// §S1.6.5 — force-delete is two-phase: phase-1 (no confirm_token) returns a
-/// `confirm_token` and snapshot; phase-2 requires the confirm_token.
+/// §S1.6.5 — force-delete is two-phase: phase-1 (no `confirm_token`) returns a
+/// `confirm_token` and snapshot; phase-2 requires the `confirm_token`.
 /// This test verifies that the phase-1 endpoint returns the expected shape
-/// and that a phase-2 call without a valid confirm_token is rejected.
+/// and that a phase-2 call without a valid `confirm_token` is rejected.
 #[tokio::test]
 async fn inv5_force_delete_is_two_phase() {
     let Some(pool) = real_db_pool().await else {

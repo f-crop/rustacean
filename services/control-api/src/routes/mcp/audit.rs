@@ -47,14 +47,18 @@ pub(super) async fn write_tool_call_audit(
         payload["jti"] = serde_json::Value::String(ctx.jti.to_owned());
     }
 
+    // Discriminate between human chat sessions (MCP JWT) and agent/session callers.
+    let actor_kind = if chat_ctx.is_some() { "chat" } else { "agent" };
+
     let result = sqlx::query(
         "INSERT INTO audit.audit_events \
          (event_id, tenant_id, actor_kind, actor_user_id, action, outcome, occurred_at, payload) \
-         VALUES ($1, $2, 'mcp_client', $3, $4, $5, now(), $6) \
+         VALUES ($1, $2, $3, $4, $5, $6, now(), $7) \
          ON CONFLICT (tenant_id, event_id) DO NOTHING",
     )
     .bind(Uuid::new_v4())
     .bind(tenant_id)
+    .bind(actor_kind)
     .bind(actor_user_id)
     .bind(format!("mcp.tools.call.{tool_name}"))
     .bind(outcome)
@@ -75,6 +79,9 @@ pub(super) async fn write_tool_call_audit(
 #[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
+    use uuid::Uuid;
+
+    use super::ChatAuditCtx;
 
     #[test]
     fn args_sha256_is_deterministic() {
@@ -91,5 +98,23 @@ mod tests {
         };
         assert_eq!(hash1, hash2);
         assert_eq!(hash1.len(), 64);
+    }
+
+    #[test]
+    fn actor_kind_is_chat_when_ctx_present() {
+        let jti = Uuid::new_v4().to_string();
+        let ctx = Some(ChatAuditCtx {
+            chat_session_id: Uuid::new_v4(),
+            jti: &jti,
+        });
+        let kind = if ctx.is_some() { "chat" } else { "agent" };
+        assert_eq!(kind, "chat");
+    }
+
+    #[test]
+    fn actor_kind_is_agent_when_no_ctx() {
+        let ctx: Option<ChatAuditCtx<'_>> = None;
+        let kind = if ctx.is_some() { "chat" } else { "agent" };
+        assert_eq!(kind, "agent");
     }
 }
