@@ -14,6 +14,85 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/admin/v1/audit-log": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List admin audit-log rows (operator-only, ADR-012 §S1.2).",
+        "description": "Returns up to `limit` rows (default 100, max 500) in descending\n`created_at` order.  Each row now includes the `ip` and `user_agent`\nfields that were captured at request time (RUSAA-1801).",
+        "operationId": "list_audit_log",
+        "parameters": [
+          {
+            "name": "tenant_id",
+            "in": "query",
+            "description": "Filter to a specific tenant; omit for global view.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "ISO-8601 lower bound (inclusive).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "ISO-8601 upper bound (exclusive).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum rows to return. Defaults to 100; max 500.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Admin audit-log rows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogResp"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid admin bearer token"
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -2499,6 +2578,95 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "AuditLogResp": {
+        "type": "object",
+        "required": [
+          "rows",
+          "total"
+        ],
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditLogRow"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "AuditLogRow": {
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "actor",
+          "action",
+          "request_id",
+          "outcome",
+          "payload_summary"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error_class": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "ip": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Client IP address extracted from `X-Forwarded-For` or peer address (nullable)."
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "payload_summary": {},
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "target_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "user_agent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "HTTP `User-Agent` header value (nullable)."
           }
         }
       },

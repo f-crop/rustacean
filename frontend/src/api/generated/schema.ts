@@ -4,6 +4,28 @@
  */
 
 export interface paths {
+    readonly "/api/admin/v1/audit-log": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List admin audit-log rows (operator-only, ADR-012 §S1.2).
+         * @description Returns up to `limit` rows (default 100, max 500) in descending
+         *     `created_at` order.  Each row now includes the `ip` and `user_agent`
+         *     fields that were captured at request time (RUSAA-1801).
+         */
+        readonly get: operations["list_audit_log"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/health": {
         readonly parameters: {
             readonly query?: never;
@@ -1159,6 +1181,31 @@ export interface components {
             /** Format: int64 */
             readonly total: number;
         };
+        readonly AuditLogResp: {
+            readonly rows: readonly components["schemas"]["AuditLogRow"][];
+            readonly total: number;
+        };
+        readonly AuditLogRow: {
+            readonly action: string;
+            readonly actor: string;
+            /** Format: date-time */
+            readonly created_at: string;
+            readonly error_class?: string | null;
+            /** Format: int64 */
+            readonly id: number;
+            /** @description Client IP address extracted from `X-Forwarded-For` or peer address (nullable). */
+            readonly ip?: string | null;
+            readonly outcome: string;
+            readonly payload_summary: unknown;
+            /** Format: uuid */
+            readonly request_id: string;
+            /** Format: uuid */
+            readonly target_user_id?: string | null;
+            /** Format: uuid */
+            readonly tenant_id?: string | null;
+            /** @description HTTP `User-Agent` header value (nullable). */
+            readonly user_agent?: string | null;
+        };
         readonly BuildInfoResponse: {
             /** @description `"true"` when the working tree had uncommitted changes at build time. */
             readonly dirty: string;
@@ -1779,6 +1826,42 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    readonly list_audit_log: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Filter to a specific tenant; omit for global view. */
+                readonly tenant_id?: string | null;
+                /** @description ISO-8601 lower bound (inclusive). */
+                readonly from?: string | null;
+                /** @description ISO-8601 upper bound (exclusive). */
+                readonly until?: string | null;
+                /** @description Maximum rows to return. Defaults to 100; max 500. */
+                readonly limit?: number | null;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Admin audit-log rows */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["AuditLogResp"];
+                };
+            };
+            /** @description Missing or invalid admin bearer token */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     readonly health_check: {
         readonly parameters: {
             readonly query?: never;
