@@ -4,8 +4,8 @@ use rb_schemas::AgentRuntime;
 use tokio::io::AsyncWriteExt;
 
 use super::{
-    AgentProcess, LineKind, ParsedLine, RuntimeAdapter, SessionCtx, build_base_command,
-    write_mcp_config,
+    AgentProcess, LineKind, ParsedLine, RuntimeAdapter, RuntimeCaps, RuntimeManifest, SessionCtx,
+    build_base_command, write_mcp_config,
 };
 
 const DEFAULT_CLAUDE_CONFIG_DIR: &str = "/home/loginuser/.claude";
@@ -20,6 +20,18 @@ impl ClaudeCodeAdapter {
 
 #[async_trait]
 impl RuntimeAdapter for ClaudeCodeAdapter {
+    fn manifest(&self) -> RuntimeManifest {
+        RuntimeManifest {
+            kind: rb_schemas::AgentRuntime::ClaudeCode,
+            binary: "claude",
+            required_env: &["ANTHROPIC_API_KEY"],
+            capabilities: RuntimeCaps {
+                multi_turn: true,
+                streams_json: true,
+            },
+        }
+    }
+
     async fn spawn(&self, ctx: &SessionCtx) -> Result<AgentProcess> {
         // Auth mode: prefer ANTHROPIC_API_KEY (direct API key); if absent, require
         // credentials.json written by `claude /login` in the SSH sidecar (OAuth/Max mode).

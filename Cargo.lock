@@ -48,6 +48,7 @@ dependencies = [
  "metrics",
  "metrics-util 0.18.0",
  "nix",
+ "rb-auth",
  "rb-build-info",
  "rb-kafka",
  "rb-metrics",

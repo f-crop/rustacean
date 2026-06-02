@@ -15,6 +15,7 @@ name = "agent_runner"
 path = "src/lib.rs"
 
 [dependencies]
+rb-auth       = { path = "../../crates/rb-auth",        version = "0.1.0" }
 rb-build-info = { path = "../../crates/rb-build-info", version = "0.1.0" }
 rb-kafka      = { path = "../../crates/rb-kafka",       version = "0.1.0" }
 rb-metrics    = { path = "../../crates/rb-metrics",     version = "0.1.0" }

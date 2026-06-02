@@ -11,7 +11,7 @@ use rb_schemas::{
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{ChildStderr, ChildStdout};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
@@ -23,6 +23,10 @@ mod seq;
 const PROCESS_TERMINATE_TIMEOUT_SECS: u64 = 30;
 const MAX_INITIAL_PROMPT_LEN: usize = 100_000;
 const MAX_TRACKED_SESSIONS: usize = 100_000;
+/// Per-tenant concurrent session cap (ADR-013 §4.3).
+const MAX_SESSIONS_PER_TENANT: usize = 20;
+/// Per-node concurrent session cap (ADR-013 §4.3).
+const MAX_SESSIONS_PER_NODE: usize = 200;
 
 /// Sentinel seq value for Terminated / natural-exit lifecycle events.
 /// Must match `lifecycle_event_seq("terminated")` in control-api/src/routes/agents/sessions.rs.
@@ -38,6 +42,10 @@ pub struct SessionManager {
     relay_sender: agent_runner::EventSender,
     /// SHA of the mcp-server-node bundle baked into the agent-runner image.
     mcp_sha: String,
+    /// Per-tenant active session counts (ADR-013 §4.3).
+    tenant_session_counts: Arc<Mutex<HashMap<TenantId, usize>>>,
+    /// Per-node session semaphore (ADR-013 §4.3).
+    node_session_semaphore: Arc<Semaphore>,
 }
 
 struct SessionHandle {
@@ -50,6 +58,8 @@ struct SessionHandle {
     /// `terminate_session` when an explicit termination wins the race.
     wait_handle: JoinHandle<()>,
     tenant_id: TenantId,
+    /// Holds the node-level semaphore permit for the duration of this session.
+    _node_permit: tokio::sync::OwnedSemaphorePermit,
 }
 
 fn safe_join(base: &std::path::Path, rel: &str) -> Result<PathBuf> {
@@ -94,6 +104,8 @@ impl SessionManager {
             http_client,
             relay_sender,
             mcp_sha,
+            tenant_session_counts: Arc::new(Mutex::new(HashMap::new())),
+            node_session_semaphore: Arc::new(Semaphore::new(MAX_SESSIONS_PER_NODE)),
         }
     }
 
@@ -109,6 +121,29 @@ impl SessionManager {
             anyhow::bail!(
                 "initial_prompt exceeds maximum length of {MAX_INITIAL_PROMPT_LEN} bytes"
             );
+        }
+
+        // Per-node concurrency limit (ADR-013 §4.3): try_acquire is non-blocking.
+        let node_permit = Arc::clone(&self.node_session_semaphore)
+            .try_acquire_owned()
+            .map_err(|_| {
+                counter!("rb_session_rejected_total", "reason" => "node_limit").increment(1);
+                anyhow::anyhow!(
+                    "error_kind=rate_limit_exceeded: node session limit ({MAX_SESSIONS_PER_NODE}) reached"
+                )
+            })?;
+
+        // Per-tenant concurrency limit (ADR-013 §4.3).
+        {
+            let mut counts = self.tenant_session_counts.lock().await;
+            let tenant_count = counts.entry(tenant_id).or_insert(0);
+            if *tenant_count >= MAX_SESSIONS_PER_TENANT {
+                counter!("rb_session_rejected_total", "reason" => "tenant_limit").increment(1);
+                anyhow::bail!(
+                    "error_kind=rate_limit_exceeded: tenant session limit ({MAX_SESSIONS_PER_TENANT}) reached"
+                );
+            }
+            *tenant_count += 1;
         }
 
         let workspace_path = safe_join(self.workspace_base.as_path(), &cmd.workspace_path)
@@ -127,6 +162,10 @@ impl SessionManager {
                 .with_context(|| format!("Failed to set 0700 on {}", workspace_path.display()))?;
         }
 
+        // Keep a copy of api_key for the redaction pass on stdout/stderr lines
+        // (ADR-013 §6.3): the JWT must not appear in any persisted event payload.
+        let live_token = cmd.api_key.clone();
+
         let ctx = SessionCtx {
             session_id: session_id.to_string(),
             tenant_id: tenant_id.to_string(),
@@ -143,6 +182,13 @@ impl SessionManager {
             Ok(p) => p,
             Err(e) => {
                 let _ = tokio::fs::remove_dir_all(&workspace_path).await;
+                // Decrement tenant count since we incremented it above but spawn failed.
+                {
+                    let mut counts = self.tenant_session_counts.lock().await;
+                    if let Some(n) = counts.get_mut(&tenant_id) {
+                        *n = n.saturating_sub(1);
+                    }
+                }
                 // Mark the session row `failed` before propagating so it does not
                 // accumulate as `pending` forever (per ADR-009 §5 / RUSAA-1179).
                 // control-api's PATCH path applies the failed_at/failure_reason
@@ -193,6 +239,7 @@ impl SessionManager {
             stderr,
             event_sender.clone(),
             adapter,
+            live_token,
         );
 
         let process_arc = Arc::new(Mutex::new(process));
@@ -208,6 +255,7 @@ impl SessionManager {
             self.control_api_base.clone(),
             self.http_client.clone(),
             event_sender.clone(),
+            Arc::clone(&self.tenant_session_counts),
         );
 
         {
@@ -227,6 +275,7 @@ impl SessionManager {
                     stderr_handle,
                     wait_handle,
                     tenant_id,
+                    _node_permit: node_permit,
                 },
             );
         }
@@ -308,6 +357,14 @@ impl SessionManager {
             let mut timestamps = self.seq_counter_timestamps.lock().await;
             counters.remove(session_id);
             timestamps.remove(session_id);
+        }
+
+        // Decrement per-tenant session count (ADR-013 §4.3).
+        {
+            let mut counts = self.tenant_session_counts.lock().await;
+            if let Some(n) = counts.get_mut(&handle.tenant_id) {
+                *n = n.saturating_sub(1);
+            }
         }
 
         // Abort I/O and wait handlers before taking the process lock so the
@@ -432,12 +489,14 @@ impl SessionManager {
         stderr: ChildStderr,
         event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
         adapter: Box<dyn RuntimeAdapter>,
+        live_token: String,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         let seq_counters = self.seq_counters.clone();
         let seq_timestamps = self.seq_counter_timestamps.clone();
         let relay_sender = self.relay_sender.clone();
         let sid_stdout = session_id.clone();
         let span_out = tracing::info_span!("stdout_handler", session_id = %sid_stdout);
+        let live_token_stdout = live_token.clone();
 
         let stdout_handle = tokio::spawn(
             {
@@ -449,12 +508,18 @@ impl SessionManager {
                     while let Ok(Some(line)) = lines.next_line().await {
                         let seq = seq::next_seq(&seq_counters, &seq_timestamps, &sid_stdout).await;
                         if let Some(parsed) = adapter.parse_stdout_line(&line) {
+                            // Redact before the payload reaches any durable store or relay
+                            // (ADR-013 §6.3): JWT, bearer tokens, rb_live_ keys, env-var names.
+                            let redacted = rb_auth::redact_with_token(
+                                &parsed.payload,
+                                Some(&live_token_stdout),
+                            );
                             let event = AgentEvent {
                                 tenant_id: tenant_id.to_string(),
                                 session_id: sid_stdout.clone(),
                                 seq,
                                 kind: AgentEventKind::Stdout.into(),
-                                payload: parsed.payload,
+                                payload: redacted.into_owned(),
                                 emitted_at_ms: chrono::Utc::now().timestamp_millis(),
                             };
                             if let Err(e) = es.try_send((tenant_id, event)) {
@@ -479,12 +544,15 @@ impl SessionManager {
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let seq = seq::next_seq(&seq_counters2, &seq_timestamps2, &sid_err).await;
+                    // Redact stderr too — it goes to structured logs (ADR-013 §4.2).
+                    let redacted =
+                        rb_auth::redact_with_token(&line, Some(&live_token));
                     let event = AgentEvent {
                         tenant_id: tenant_id.to_string(),
                         session_id: sid_err.clone(),
                         seq,
                         kind: AgentEventKind::Stderr.into(),
-                        payload: line,
+                        payload: redacted.into_owned(),
                         emitted_at_ms: chrono::Utc::now().timestamp_millis(),
                     };
                     if let Err(e) = event_sender.try_send((tenant_id, event)) {

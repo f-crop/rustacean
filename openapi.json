@@ -1004,6 +1004,205 @@
         }
       }
     },
+    "/v1/chat/sessions": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "create_chat_session",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChatSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Chat session created"
+          },
+          "400": {
+            "description": "Invalid runtime"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Feature not enabled"
+          },
+          "503": {
+            "description": "Kafka unavailable"
+          }
+        }
+      }
+    },
+    "/v1/chat/sessions/{id}": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "get_chat_session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session with message history"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access denied"
+          },
+          "404": {
+            "description": "Session not found or feature disabled"
+          }
+        }
+      }
+    },
+    "/v1/chat/sessions/{id}/events": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "chat_session_events",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of chat events"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Session not found or feature disabled"
+          }
+        }
+      }
+    },
+    "/v1/chat/sessions/{id}/messages": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "list_chat_messages",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "after_seq",
+            "in": "query",
+            "description": "Cursor: return messages after this seq",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (default 50, max 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated message list"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Session not found or feature disabled"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "post_chat_message",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Message appended and dispatched"
+          },
+          "400": {
+            "description": "Message body too large"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Session not found or feature disabled"
+          },
+          "422": {
+            "description": "Session is not active"
+          },
+          "503": {
+            "description": "Kafka unavailable"
+          }
+        }
+      }
+    },
     "/v1/github/callback": {
       "get": {
         "tags": [
@@ -2692,6 +2891,73 @@
           }
         }
       },
+      "ChatMessageDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "seq",
+          "role",
+          "body",
+          "created_at"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "ChatSessionDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "runtime",
+          "status",
+          "created_at",
+          "last_activity_at",
+          "messages"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_activity_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageDto"
+            }
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "ConnectRepoRequest": {
         "type": "object",
         "required": [
@@ -2829,6 +3095,34 @@
             "items": {
               "$ref": "#/components/schemas/Scope"
             }
+          }
+        }
+      },
+      "CreateChatSessionRequest": {
+        "type": "object",
+        "required": [
+          "runtime"
+        ],
+        "properties": {
+          "runtime": {
+            "type": "string",
+            "description": "Runtime to use: `\"claude_code\"`, `\"opencode\"`, or `\"pi\"`."
+          }
+        }
+      },
+      "CreateChatSessionResponse": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "status"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },
@@ -3270,6 +3564,24 @@
           }
         }
       },
+      "ListMessagesResponse": {
+        "type": "object",
+        "required": [
+          "messages",
+          "has_more"
+        ],
+        "properties": {
+          "has_more": {
+            "type": "boolean"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageDto"
+            }
+          }
+        }
+      },
       "ListReposResponse": {
         "type": "object",
         "required": [
@@ -3488,6 +3800,34 @@
           "path": {
             "type": "string",
             "description": "Relative path within the repository (e.g. `\"src/lib.rs\"`)."
+          }
+        }
+      },
+      "PostMessageRequest": {
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          }
+        }
+      },
+      "PostMessageResponse": {
+        "type": "object",
+        "required": [
+          "message_id",
+          "seq"
+        ],
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -4465,6 +4805,10 @@
     {
       "name": "mcp",
       "description": "Model Context Protocol endpoint (ADR-009)"
+    },
+    {
+      "name": "chat",
+      "description": "Chat panel — session lifecycle and message stream (ADR-013)"
     }
   ]
 }

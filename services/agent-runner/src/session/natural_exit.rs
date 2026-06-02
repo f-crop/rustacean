@@ -28,6 +28,7 @@ pub(super) fn spawn_natural_exit_handler(
     control_api_base: String,
     http_client: reqwest::Client,
     event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
+    tenant_session_counts: Arc<Mutex<HashMap<TenantId, usize>>>,
 ) -> JoinHandle<()> {
     let span = tracing::info_span!("natural_exit_handler", session_id = %session_id);
 
@@ -65,6 +66,14 @@ pub(super) fn spawn_natural_exit_handler(
                 timestamps.remove(&session_id);
             }
 
+            // Decrement per-tenant session count (S2 / ADR-013 §4.3).
+            {
+                let mut counts = tenant_session_counts.lock().await;
+                if let Some(n) = counts.get_mut(&tenant_id) {
+                    *n = n.saturating_sub(1);
+                }
+            }
+
             let exit_code = match exit_status {
                 Ok(status) => status.code().unwrap_or(-1),
                 Err(_) => -1,
@@ -74,10 +83,13 @@ pub(super) fn spawn_natural_exit_handler(
             let final_status = if exit_code == 0 {
                 "terminated"
             } else {
+                // Emit crash metric so operators can alert on `runtime_crashed` (ADR-013 §4.4).
+                counter!("rb_session_failed_total", "error_kind" => "runtime_crashed").increment(1);
                 "failed"
             };
-            let error_msg =
-                (exit_code != 0).then(|| format!("process exited with code {exit_code}"));
+            let error_msg = (exit_code != 0).then(|| {
+                format!("error_kind=runtime_crashed: process exited with code {exit_code}")
+            });
 
             let Ok(validated_id) = uuid::Uuid::parse_str(&session_id) else {
                 tracing::warn!(

@@ -203,6 +203,9 @@ fn make_stub_handle(
     process: Arc<Mutex<crate::adapters::AgentProcess>>,
     tenant_id: TenantId,
 ) -> SessionHandle {
+    // One-permit semaphore so the test handle holds a valid OwnedSemaphorePermit.
+    let sem = Arc::new(tokio::sync::Semaphore::new(1));
+    let permit = sem.try_acquire_owned().expect("fresh semaphore must yield a permit");
     SessionHandle {
         process,
         start_time: Instant::now(),
@@ -210,6 +213,7 @@ fn make_stub_handle(
         stderr_handle: tokio::spawn(async {}),
         wait_handle: tokio::spawn(async {}), // replaced after insertion in real code
         tenant_id,
+        _node_permit: permit,
     }
 }
 
@@ -250,6 +254,7 @@ async fn natural_exit_zero_sends_terminated_status() {
     }
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let tenant_counts = Arc::new(Mutex::new(HashMap::new()));
     let wait_handle = spawn_natural_exit_handler(
         session_id.clone(),
         tenant_id,
@@ -263,6 +268,7 @@ async fn natural_exit_zero_sends_terminated_status() {
             .build()
             .unwrap(),
         tx,
+        Arc::clone(&tenant_counts),
     );
 
     wait_handle.await.expect("natural exit handler panicked");

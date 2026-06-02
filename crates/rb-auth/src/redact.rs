@@ -112,23 +112,30 @@ fn is_b64url_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'='
 }
 
-/// Redact `Bearer <token>` (case-insensitive).
+/// Redact all `Bearer <token>` occurrences (case-insensitive) in a line.
 fn apply_bearer_pattern(buf: &mut String) {
     let lower = buf.to_ascii_lowercase();
     if !lower.contains("bearer ") {
         return;
     }
-    // Find first occurrence; replace just the token part after "Bearer ".
-    if let Some(pos) = lower.find("bearer ") {
-        let token_start = pos + 7;
-        let token_end = buf[token_start..]
+    // Loop to catch multiple occurrences per line.
+    let mut out = String::with_capacity(buf.len());
+    let mut rest_orig = buf.as_str();
+    let mut rest_lower = lower.as_str();
+    while let Some(pos) = rest_lower.find("bearer ") {
+        out.push_str(&rest_orig[..pos + 7]);
+        let after = &rest_orig[pos + 7..];
+        let tok_len = after
             .bytes()
             .take_while(|&b| !b.is_ascii_whitespace())
-            .count()
-            + token_start;
-        let prefix = buf[..pos + 7].to_owned();
-        let suffix = buf[token_end..].to_owned();
-        *buf = format!("{prefix}{REDACTED_BEARER}{suffix}");
+            .count();
+        out.push_str(REDACTED_BEARER);
+        rest_orig = &after[tok_len..];
+        rest_lower = &rest_lower[pos + 7 + tok_len..];
+    }
+    out.push_str(rest_orig);
+    if out != *buf {
+        *buf = out;
     }
 }
 
@@ -206,6 +213,15 @@ mod tests {
         let out = redact(line);
         assert!(!out.contains("RB_MCP_JWT_SECRET"));
         assert!(!out.contains("RB_AGENT_API_KEY"));
+    }
+
+    #[test]
+    fn bearer_multiple_occurrences_all_redacted() {
+        let line = "a=Bearer tokA and b=Bearer tokB end";
+        let out = redact(line);
+        assert!(!out.contains("tokA"), "first token must be redacted");
+        assert!(!out.contains("tokB"), "second token must be redacted");
+        assert_eq!(out.matches(REDACTED_BEARER).count(), 2);
     }
 
     #[test]

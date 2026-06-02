@@ -6,8 +6,8 @@ use rb_schemas::AgentRuntime;
 use tokio::io::AsyncWriteExt;
 
 use super::{
-    AgentProcess, LineKind, ParsedLine, RuntimeAdapter, SessionCtx, build_base_command,
-    write_mcp_config,
+    AgentProcess, LineKind, ParsedLine, RuntimeAdapter, RuntimeCaps, RuntimeManifest, SessionCtx,
+    build_base_command, write_mcp_config,
 };
 
 #[derive(Debug)]
@@ -155,6 +155,18 @@ impl OpencodeAdapter {
 
 #[async_trait]
 impl RuntimeAdapter for OpencodeAdapter {
+    fn manifest(&self) -> RuntimeManifest {
+        RuntimeManifest {
+            kind: rb_schemas::AgentRuntime::Opencode,
+            binary: "opencode",
+            required_env: &[],
+            capabilities: RuntimeCaps {
+                multi_turn: false,
+                streams_json: true,
+            },
+        }
+    }
+
     async fn spawn(&self, ctx: &SessionCtx) -> Result<AgentProcess> {
         // Resolve and validate the LLM routing mode before touching the filesystem
         // or spawning any subprocess. A misconfigured LiteLLM setup fails here,
