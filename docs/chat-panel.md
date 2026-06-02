@@ -4,7 +4,7 @@ The chat panel is an interactive coding assistant embedded in the Rustacean UI. 
 
 Chat sessions are flag-gated, tenant-scoped, and audited. The runtime process runs in an isolated workspace with a short-lived, read-only MCP credential.
 
-**ADR**: ADR-013 (Wave 9 — chat-panel architecture, runtime contract, MCP token model).
+**ADR**: [ADR-013](decisions/ADR-013-chat-panel-architecture.md) (Wave 9).
 **Builds on**: [ADR-009](decisions/ADR-009-agent-execution-architecture.md) (Wave 7 agent execution).
 
 ---
@@ -229,8 +229,11 @@ Chat data is stored in `control.chat_sessions` and `control.chat_messages`. Mess
 
 ## Related documentation
 
+- [Runtime Adapter Contract](runtime-adapter.md) — the `RuntimeAdapter` trait and how to author a new adapter
+- [MCP Chat Tokens](mcp-chat-tokens.md) — JWT claims, scope, lifecycle, and log-redaction contract
 - [Runtime Configuration](runtime-config.md) — operator runbook for configuring runtimes, resource limits, and LLM credentials
 - [API Reference — Chat endpoints](api-reference.md#chat-session-endpoints-wave-9) — REST API contract
 - [Getting Started — Use the chat panel](getting-started.md#8-use-the-chat-panel-wave-9) — end-user quickstart
+- [ADR-013](decisions/ADR-013-chat-panel-architecture.md) — Wave 9 chat-panel architecture decision record
 - [ADR-009](decisions/ADR-009-agent-execution-architecture.md) — Wave 7 agent execution architecture (substrate)
 - [Architecture](architecture.md) — system overview and topology diagram
