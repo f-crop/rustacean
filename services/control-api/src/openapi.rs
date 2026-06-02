@@ -5,6 +5,7 @@
 
 use utoipa::OpenApi;
 
+use crate::routes::admin::v1::audit_log;
 use crate::routes::agents::{events_history, events_ndjson};
 use crate::routes::{
     admin, agents, api_keys, audit, auth, auth_logout, auth_password_reset, auth_verify, github,
@@ -23,6 +24,7 @@ use crate::routes::{
         admin::github::app_manifest::post_app_manifest,
         admin::github::app_callback::get_app_callback,
         admin::github::app_status::get_app_status,
+        audit_log::list_audit_log,
         audit::list_audit_events,
         health::health_check,
         health::ready_check,
@@ -80,6 +82,8 @@ use crate::routes::{
             admin::github::app_manifest::AppManifestResponse,
             admin::github::app_status::AppStatusResponse,
             admin::github::app_status::AppSource,
+            audit_log::AuditLogRow,
+            audit_log::AuditLogResp,
             audit::AuditEventItem,
             audit::AuditListResponse,
             health::ProbeResponse,

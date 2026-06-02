@@ -99,6 +99,7 @@ impl GhApp {
     /// so production builds are unaffected.
     #[cfg(feature = "test-helpers")]
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new_with_api_base(
         app_id: i64,
         encoding_key: EncodingKey,
