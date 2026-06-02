@@ -22,3 +22,12 @@ f2766fe82358b064039f904c216db236050c6e5a:compose/e2e.yml:generic-api-key:169
 # Test-only RB_INTERNAL_SECRET value in compose/board-smoke.yml; not a real credential.
 # Required by control-api config validation in the board smoke CI environment.
 f2766fe82358b064039f904c216db236050c6e5a:compose/board-smoke.yml:generic-api-key:111
+# JWT test fixtures in crates/rb-auth/src/redact.rs — the redaction unit tests need
+# a syntactically valid JWT-shaped string to assert that redact() strips it. These
+# are synthetic tokens (no valid signature, no production key) introduced in commits
+# 8a37966 and 50d0895b. Inline // gitleaks:allow added to current file; fingerprints
+# suppress the original-introducing commits which cannot be retroactively annotated.
+8a3796616fc647cd354c97e51dda941d00ae0a43:crates/rb-auth/src/redact.rs:jwt:172
+8a3796616fc647cd354c97e51dda941d00ae0a43:crates/rb-auth/src/redact.rs:jwt:212
+50d0895b846d58fa304a8ce08b7fb8a385cf5409:crates/rb-auth/src/redact.rs:jwt:173
+50d0895b846d58fa304a8ce08b7fb8a385cf5409:crates/rb-auth/src/redact.rs:jwt:214

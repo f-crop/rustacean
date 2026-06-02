@@ -79,6 +79,7 @@ fn test_state() -> AppState {
         tenant_session_count: Arc::new(TenantSessionCount::new()),
         mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
         mcp_jwt_ttl_secs: 900,
+        llm_api_key: String::new(),
     }
 }
 

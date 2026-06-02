@@ -9,7 +9,7 @@
 //! 1. JWTs — three base64url segments starting with `eyJ`.
 //! 2. `Bearer <token>` (case-insensitive prefix).
 //! 3. `rb_live_<hex>` API key literals.
-//! 4. Env-var names `RB_MCP_JWT_SECRET`, `RB_AGENT_API_KEY`.
+//! 4. Env-var names `RB_MCP_JWT_SECRET`, `RB_AGENT_API_KEY`, `RB_LLM_API_KEY`.
 //! 5. The exact live-session JWT, if supplied by the caller.
 
 use std::borrow::Cow;
@@ -51,6 +51,7 @@ fn needs_scan(s: &str) -> bool {
         || s.to_ascii_lowercase().contains("bearer ")
         || s.contains("RB_MCP_JWT_SECRET")
         || s.contains("RB_AGENT_API_KEY")
+        || s.contains("RB_LLM_API_KEY")
 }
 
 fn apply_live_token(buf: &mut String, live_token: Option<&str>) {
@@ -156,7 +157,7 @@ fn apply_prefix_pattern(buf: &mut String) {
             *buf = out;
         }
     }
-    for name in ["RB_MCP_JWT_SECRET", "RB_AGENT_API_KEY"] {
+    for name in ["RB_MCP_JWT_SECRET", "RB_AGENT_API_KEY", "RB_LLM_API_KEY"] {
         if buf.contains(name) {
             *buf = buf.replace(name, REDACTED_SECRET);
         }
@@ -177,7 +178,7 @@ mod tests {
     fn jwt_in_line_is_redacted() {
         // Build a synthetic three-part JWT-shaped string.
         let jwt =
-            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"; // gitleaks:allow
         let line = format!("MCP config token={jwt} loaded");
         let out = redact(&line);
         assert!(!out.contains("eyJ"), "JWT must be redacted");
@@ -209,10 +210,11 @@ mod tests {
 
     #[test]
     fn env_var_names_are_redacted() {
-        let line = "env: RB_MCP_JWT_SECRET=abc RB_AGENT_API_KEY=xyz";
+        let line = "env: RB_MCP_JWT_SECRET=abc RB_AGENT_API_KEY=xyz RB_LLM_API_KEY=sk-test";
         let out = redact(line);
         assert!(!out.contains("RB_MCP_JWT_SECRET"));
         assert!(!out.contains("RB_AGENT_API_KEY"));
+        assert!(!out.contains("RB_LLM_API_KEY"));
     }
 
     #[test]
@@ -227,7 +229,7 @@ mod tests {
     #[test]
     fn live_token_verbatim_echo_is_caught() {
         let jwt =
-            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"; // gitleaks:allow
         let line = format!("model says: use token {jwt} for auth");
         let out = redact_with_token(&line, Some(jwt));
         assert!(!out.contains(jwt), "verbatim token must be stripped");
@@ -238,7 +240,7 @@ mod tests {
     fn redaction_negative_jwt_in_stdout_absent_from_captured_log() {
         // Regression test: a JWT injected into stdout must not appear
         // in the captured log sink after redact_with_token is applied.
-        let live_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZXNzaW9uIn0.abc123def456ghi789";
+        let live_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZXNzaW9uIn0.abc123def456ghi789"; // gitleaks:allow
         let stdout_line = format!("runtime echoed token={live_jwt}");
 
         // Simulate the stdio bridge: capture to a log sink via redact_with_token.

@@ -413,6 +413,9 @@ pub struct AppState {
     pub mcp_jwt_secret: String,
     /// JWT lifetime in seconds (default 900 = 15 min, `RB_MCP_JWT_TTL_SECS`).
     pub mcp_jwt_ttl_secs: u64,
+    /// Company-level LLM provider API key (`RB_LLM_API_KEY`, ADR-013 §2).
+    /// Empty string means key is not configured; chat routes return 503.
+    pub llm_api_key: String,
 }
 
 #[cfg(test)]
