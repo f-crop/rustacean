@@ -73,6 +73,7 @@ jobs:
         run: npx playwright test e2e/chat-panel.spec.ts --project=chat-smoke
         env:
           CI: "true"
+          PLAYWRIGHT_CHAT_SMOKE: "1"
 
       - name: Upload Playwright report on failure
         if: failure() && steps.changes.outputs.chat == 'true'

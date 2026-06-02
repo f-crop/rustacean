@@ -49,15 +49,18 @@ export default defineConfig({
         ]
       : []),
     // Dedicated project for the chat-smoke CI job.
-    // chat-panel.spec.ts is excluded from the main chromium project because it
-    // requires VITE_FEATURE_CHAT_PANEL=true at build time; the smoke job builds
-    // with that flag set and targets this project explicitly.
-    {
-      name: "chat-smoke",
-      testMatch: "**/chat-panel.spec.ts",
-      use: { ...devices["Desktop Chrome"] },
-      retries: process.env.CI ? 2 : 0,
-    },
+    // Only registered when PLAYWRIGHT_CHAT_SMOKE=1 so the main CI run
+    // (which does not set that env var) never picks up chat-panel.spec.ts.
+    ...(process.env.PLAYWRIGHT_CHAT_SMOKE
+      ? [
+          {
+            name: "chat-smoke",
+            testMatch: "**/chat-panel.spec.ts",
+            use: { ...devices["Desktop Chrome"] },
+            retries: process.env.CI ? 2 : 0,
+          },
+        ]
+      : []),
     // Quarantine bucket: flaky chat tests, 5 retries in CI.
     // Run explicitly: npx playwright test --project=chat-quarantine
     {
