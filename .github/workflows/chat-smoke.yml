@@ -70,7 +70,7 @@ jobs:
 
       - name: Run chat panel smoke spec
         if: steps.changes.outputs.chat == 'true'
-        run: npx playwright test e2e/chat-panel.spec.ts --project=chromium
+        run: npx playwright test e2e/chat-panel.spec.ts --project=chat-smoke
         env:
           CI: "true"
 
