@@ -500,6 +500,70 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/v1/chat/sessions": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        readonly post: operations["create_chat_session"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/chat/sessions/{id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["get_chat_session"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/chat/sessions/{id}/events": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["chat_session_events"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/v1/chat/sessions/{id}/messages": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get: operations["list_chat_messages"];
+        readonly put?: never;
+        readonly post: operations["post_chat_message"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/v1/github/callback": {
         readonly parameters: {
             readonly query?: never;
@@ -1217,6 +1281,27 @@ export interface components {
             /** @description Commit timestamp captured at compile time (`RB_BUILD_TIMESTAMP`). */
             readonly timestamp: string;
         };
+        readonly ChatMessageDto: {
+            readonly body: string;
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: uuid */
+            readonly id: string;
+            readonly role: string;
+            /** Format: int32 */
+            readonly seq: number;
+        };
+        readonly ChatSessionDto: {
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: uuid */
+            readonly id: string;
+            /** Format: date-time */
+            readonly last_activity_at: string;
+            readonly messages: readonly components["schemas"]["ChatMessageDto"][];
+            readonly runtime: string;
+            readonly status: string;
+        };
         readonly ConnectRepoRequest: {
             /** @description Default branch override. If omitted, the value is fetched from GitHub. */
             readonly default_branch?: string | null;
@@ -1263,6 +1348,15 @@ export interface components {
             readonly key: string;
             readonly name: string;
             readonly scopes: readonly components["schemas"]["Scope"][];
+        };
+        readonly CreateChatSessionRequest: {
+            /** @description Runtime to use: `"claude_code"`, `"opencode"`, or `"pi"`. */
+            readonly runtime: string;
+        };
+        readonly CreateChatSessionResponse: {
+            /** Format: uuid */
+            readonly session_id: string;
+            readonly status: string;
         };
         readonly CreateSessionRequest: {
             readonly initial_prompt?: string;
@@ -1440,6 +1534,10 @@ export interface components {
         readonly ListMembersResponse: {
             readonly members: readonly components["schemas"]["MemberItem"][];
         };
+        readonly ListMessagesResponse: {
+            readonly has_more: boolean;
+            readonly messages: readonly components["schemas"]["ChatMessageDto"][];
+        };
         readonly ListReposResponse: {
             /** Format: int32 */
             readonly page: number;
@@ -1509,6 +1607,15 @@ export interface components {
             readonly line_start?: number | null;
             /** @description Relative path within the repository (e.g. `"src/lib.rs"`). */
             readonly path: string;
+        };
+        readonly PostMessageRequest: {
+            readonly body: string;
+        };
+        readonly PostMessageResponse: {
+            /** Format: uuid */
+            readonly message_id: string;
+            /** Format: int32 */
+            readonly seq: number;
         };
         /** @description Simple status envelope used by `/ready`. */
         readonly ProbeResponse: {
@@ -2787,6 +2894,233 @@ export interface operations {
             };
             /** @description Token expired, already used, or not found (invalid_token) */
             readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly create_chat_session: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["CreateChatSessionRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Chat session created */
+            readonly 202: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid runtime */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Feature not enabled */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Kafka unavailable */
+            readonly 503: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly get_chat_session: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Chat session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Session with message history */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Access denied */
+            readonly 403: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or feature disabled */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly chat_session_events: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Chat session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description SSE stream of chat events */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or feature disabled */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly list_chat_messages: {
+        readonly parameters: {
+            readonly query?: {
+                /** @description Cursor: return messages after this seq */
+                readonly after_seq?: number;
+                /** @description Page size (default 50, max 200) */
+                readonly limit?: number;
+            };
+            readonly header?: never;
+            readonly path: {
+                /** @description Chat session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Paginated message list */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or feature disabled */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly post_chat_message: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Chat session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["PostMessageRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Message appended and dispatched */
+            readonly 202: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Message body too large */
+            readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or feature disabled */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session is not active */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Kafka unavailable */
+            readonly 503: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
