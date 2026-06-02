@@ -138,13 +138,11 @@ pub async fn db_insert_chat_message(
         AppError::Internal(anyhow::anyhow!("DB insert failed"))
     })?;
 
-    sqlx::query(
-        "UPDATE control.chat_sessions SET last_activity_at = now() WHERE id = $1",
-    )
-    .bind(session_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB activity update: {e}")))?;
+    sqlx::query("UPDATE control.chat_sessions SET last_activity_at = now() WHERE id = $1")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB activity update: {e}")))?;
 
     tx.commit()
         .await

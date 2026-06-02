@@ -220,5 +220,9 @@ async fn concurrent_message_inserts_have_unique_seq() {
     }
 
     seqs.sort_unstable();
-    assert_eq!(seqs, (1..=(N as i32)).collect::<Vec<_>>(), "seq values must be 1..=N with no gaps or duplicates");
+    assert_eq!(
+        seqs,
+        (1..=(N as i32)).collect::<Vec<_>>(),
+        "seq values must be 1..=N with no gaps or duplicates"
+    );
 }
