@@ -1,9 +1,9 @@
 mod api_key;
 mod error;
 mod hasher;
-pub mod jwt;
+mod jwt;
 mod rate_limiter;
-pub mod redact;
+mod redact;
 mod token;
 
 pub use api_key::ApiKey;
