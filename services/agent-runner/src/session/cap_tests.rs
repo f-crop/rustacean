@@ -59,7 +59,8 @@ async fn per_tenant_limit_rejects_excess_sessions() {
     let manager = make_manager(addr, &tmp);
     let tenant_id = TenantId::from(uuid::Uuid::new_v4());
     {
-        let mut counts = manager.caps.tenant_counts().lock_owned().await;
+        let tc = manager.caps.tenant_counts();
+        let mut counts = tc.lock().unwrap();
         counts.insert(tenant_id, super::caps::MAX_SESSIONS_PER_TENANT);
     }
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
@@ -76,13 +77,50 @@ async fn per_tenant_limit_rejects_excess_sessions() {
     assert!(err.to_string().contains("rate_limit_exceeded"));
     assert!(err.to_string().contains("tenant"));
     // Counter must still be exactly MAX — not leaked upward (C1 regression).
-    let counts = manager.caps.tenant_counts().lock_owned().await;
+    let tc = manager.caps.tenant_counts();
+    let counts = tc.lock().unwrap();
     assert_eq!(
         counts.get(&tenant_id).copied().unwrap_or(0),
         super::caps::MAX_SESSIONS_PER_TENANT,
         "tenant counter must not be incremented on a rejected session"
     );
     server_handle.abort();
+}
+
+/// ADR-013 §6.3 integration smoke: the parse → redact pipeline (same two
+/// steps `spawn_output_handlers` applies to every stdout line) strips a
+/// JWT-bearing payload before it can reach any durable store.
+///
+/// Exercises `ClaudeCodeAdapter::parse_stdout_line` + `rb_auth::redact_with_token`
+/// together — the same chain used in the live stdio bridge.
+#[test]
+fn stdout_pipeline_redacts_jwt_before_payload_stored() {
+    use crate::adapters::RuntimeAdapter as _;
+
+    // Three-segment base64url token matching the JWT shape the redactor targets.
+    // Not a real credential — purely exercises the §6.3 redaction contract.
+    #[allow(clippy::const_is_empty)]
+    let fake_jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzbW9rZS10ZXN0In0.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // gitleaks:allow
+
+    // One claude stream-json line containing the JWT in the content field.
+    let raw_line = format!(r#"{{"type":"text","content":"token={fake_jwt}"}}"#);
+
+    let adapter = crate::adapters::claude_code::ClaudeCodeAdapter::new();
+    let parsed = adapter
+        .parse_stdout_line(&raw_line)
+        .expect("stream-json line must parse to Some(ParsedLine)");
+
+    let live_token = "live-session-token";
+    let redacted = rb_auth::redact_with_token(&parsed.payload, Some(live_token));
+
+    assert!(
+        !redacted.contains(fake_jwt),
+        "JWT must be redacted before the payload is stored; got: {redacted}"
+    );
+    assert!(
+        !redacted.contains("eyJ"),
+        "JWT header prefix must not appear after redaction; got: {redacted}"
+    );
 }
 
 /// Workspace traversal error must not touch the tenant counter (C1 regression:
@@ -110,11 +148,52 @@ async fn tenant_counter_not_leaked_on_workspace_error() {
         err.to_string().contains("Rejected workspace_path"),
         "expected workspace rejection error; got: {err}"
     );
-    let counts = manager.caps.tenant_counts().lock_owned().await;
+    let tc = manager.caps.tenant_counts();
+    let counts = tc.lock().unwrap();
     assert_eq!(
         counts.get(&tenant_id).copied().unwrap_or(0),
         0,
         "tenant counter must be 0 when session setup fails before caps.acquire"
     );
+    server_handle.abort();
+}
+
+/// `TenantCountGuard` rolls back the per-tenant counter when dropped without
+/// defuse (C1 regression: any setup-window `?` return must not leave the
+/// tenant permanently blocked after `MAX_SESSIONS_PER_TENANT` failures).
+#[tokio::test(flavor = "current_thread")]
+async fn tenant_count_guard_rolls_back_on_drop() {
+    let (addr, server_handle) = noop_server().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let manager = make_manager(addr, &tmp);
+    let tenant_id = TenantId::from(uuid::Uuid::new_v4());
+
+    // Acquire: count goes from 0 → 1.
+    let (_permit, guard) = manager
+        .caps
+        .acquire(tenant_id)
+        .expect("fresh tenant must acquire");
+    {
+        let tc = manager.caps.tenant_counts();
+        let counts = tc.lock().unwrap();
+        assert_eq!(
+            counts.get(&tenant_id).copied().unwrap_or(0),
+            1,
+            "count must be 1 immediately after acquire"
+        );
+    }
+
+    // Drop without defuse: count must return to 0 (setup-failure rollback).
+    drop(guard);
+    {
+        let tc = manager.caps.tenant_counts();
+        let counts = tc.lock().unwrap();
+        assert_eq!(
+            counts.get(&tenant_id).copied().unwrap_or(0),
+            0,
+            "count must roll back to 0 when guard drops without defuse"
+        );
+    }
+
     server_handle.abort();
 }

@@ -8,6 +8,9 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
+// tenant_session_counts uses std::sync::Mutex (not tokio) to allow the
+// TenantCountGuard Drop impl to release the count without an async runtime.
+
 use super::SessionHandle;
 
 /// Spawns a background task that waits for the child process to exit naturally
@@ -28,7 +31,7 @@ pub(super) fn spawn_natural_exit_handler(
     control_api_base: String,
     http_client: reqwest::Client,
     event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
-    tenant_session_counts: Arc<Mutex<HashMap<TenantId, usize>>>,
+    tenant_session_counts: Arc<std::sync::Mutex<HashMap<TenantId, usize>>>,
 ) -> JoinHandle<()> {
     let span = tracing::info_span!("natural_exit_handler", session_id = %session_id);
 
@@ -67,10 +70,13 @@ pub(super) fn spawn_natural_exit_handler(
             }
 
             // Decrement per-tenant session count (S2 / ADR-013 §4.3).
+            // std::sync::Mutex::lock is used here (not tokio) to stay consistent
+            // with TenantCountGuard which must release without an async runtime.
             {
-                let mut counts = tenant_session_counts.lock().await;
-                if let Some(n) = counts.get_mut(&tenant_id) {
-                    *n = n.saturating_sub(1);
+                if let Ok(mut counts) = tenant_session_counts.lock() {
+                    if let Some(n) = counts.get_mut(&tenant_id) {
+                        *n = n.saturating_sub(1);
+                    }
                 }
             }
 

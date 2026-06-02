@@ -54,6 +54,10 @@ struct SessionHandle {
     tenant_id: TenantId,
     /// Holds the node-level semaphore permit for the duration of this session.
     _node_permit: tokio::sync::OwnedSemaphorePermit,
+    /// Defused RAII guard; kept alive so that Drop ordering is explicit.
+    /// The actual decrement at session-end is performed by `caps.release()` /
+    /// `natural_exit` — the guard is defused before insertion into the map.
+    _tenant_guard: caps::TenantCountGuard,
 }
 
 fn safe_join(base: &std::path::Path, rel: &str) -> Result<PathBuf> {
@@ -148,8 +152,10 @@ impl SessionManager {
         let adapter = adapter_for_runtime(runtime)?;
 
         // Acquire AFTER all fallible validation so early-return error paths
-        // cannot leak the tenant counter (C1: RUSAA-1812).
-        let node_permit = match self.caps.acquire(tenant_id).await {
+        // cannot leak the tenant counter.  The returned TenantCountGuard is
+        // RAII: any `?` return between here and sessions.insert() drops the
+        // guard, which rolls back the counter automatically.
+        let (node_permit, mut tenant_guard) = match self.caps.acquire(tenant_id) {
             Ok(p) => p,
             Err(e) => {
                 let _ = tokio::fs::remove_dir_all(&workspace_path).await;
@@ -161,7 +167,8 @@ impl SessionManager {
             Ok(p) => p,
             Err(e) => {
                 let _ = tokio::fs::remove_dir_all(&workspace_path).await;
-                self.caps.release(tenant_id).await;
+                // tenant_guard drops here → rolls back tenant counter ✓
+                // node_permit drops here → releases node semaphore ✓
                 // Mark the session row `failed` before propagating so it does not
                 // accumulate as `pending` forever (per ADR-009 §5 / RUSAA-1179).
                 // control-api's PATCH path applies the failed_at/failure_reason
@@ -245,11 +252,15 @@ impl SessionManager {
                     let mut proc = process_arc.lock().await;
                     let _ = proc.child.start_kill();
                 }
-                self.caps.release(tenant_id).await;
+                // tenant_guard drops here (still armed) → rolls back tenant counter.
+                // node_permit drops here → releases node semaphore.
                 anyhow::bail!(
                     "Maximum number of concurrent sessions ({MAX_TRACKED_SESSIONS}) exceeded"
                 );
             }
+            // Commit session: defuse the guard so Drop doesn't double-decrement
+            // when the handle is eventually removed from the map.
+            tenant_guard.defuse();
             sessions.insert(
                 session_id.to_string(),
                 SessionHandle {
@@ -260,6 +271,7 @@ impl SessionManager {
                     wait_handle,
                     tenant_id,
                     _node_permit: node_permit,
+                    _tenant_guard: tenant_guard,
                 },
             );
         }
@@ -343,7 +355,7 @@ impl SessionManager {
             timestamps.remove(session_id);
         }
 
-        self.caps.release(handle.tenant_id).await;
+        self.caps.release(handle.tenant_id);
 
         // Abort I/O and wait handlers before taking the process lock so the
         // natural-exit handler cannot win the cleanup race after we removed

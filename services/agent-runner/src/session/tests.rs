@@ -216,6 +216,7 @@ fn make_stub_handle(
         wait_handle: tokio::spawn(async {}), // replaced after insertion in real code
         tenant_id,
         _node_permit: permit,
+        _tenant_guard: caps::TenantCountGuard::new_defused_for_test(),
     }
 }
 
@@ -256,7 +257,7 @@ async fn natural_exit_zero_sends_terminated_status() {
     }
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
-    let tenant_counts = Arc::new(Mutex::new(HashMap::new()));
+    let tenant_counts = Arc::new(std::sync::Mutex::new(HashMap::<TenantId, usize>::new()));
     let wait_handle = spawn_natural_exit_handler(
         session_id.clone(),
         tenant_id,
@@ -333,7 +334,7 @@ async fn natural_exit_nonzero_sends_failed_status() {
     }
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
-    let tenant_counts = Arc::new(Mutex::new(HashMap::new()));
+    let tenant_counts = Arc::new(std::sync::Mutex::new(HashMap::<TenantId, usize>::new()));
     let wait_handle = spawn_natural_exit_handler(
         session_id.clone(),
         tenant_id,
@@ -398,7 +399,7 @@ async fn natural_exit_noop_when_session_already_removed() {
     let tenant_id = TenantId::from(uuid::Uuid::new_v4());
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
-    let tenant_counts = Arc::new(Mutex::new(HashMap::new()));
+    let tenant_counts = Arc::new(std::sync::Mutex::new(HashMap::<TenantId, usize>::new()));
     let wait_handle = spawn_natural_exit_handler(
         session_id.clone(),
         tenant_id,
@@ -473,9 +474,9 @@ async fn crash_recovery_sigkill_marks_session_failed() {
     }
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
-    let tenant_counts = Arc::new(Mutex::new(HashMap::new()));
+    let tenant_counts = Arc::new(std::sync::Mutex::new(HashMap::<TenantId, usize>::new()));
     // Pre-populate tenant count so the handler can decrement it.
-    tenant_counts.lock().await.insert(tenant_id, 1usize);
+    tenant_counts.lock().unwrap().insert(tenant_id, 1usize);
 
     let wait_handle = spawn_natural_exit_handler(
         session_id.clone(),
@@ -544,7 +545,7 @@ async fn crash_recovery_sigkill_marks_session_failed() {
     );
 
     // Tenant count must be decremented back to 0 after the crash.
-    let counts = tenant_counts.lock().await;
+    let counts = tenant_counts.lock().unwrap();
     assert_eq!(
         counts.get(&tenant_id).copied().unwrap_or(0),
         0,
