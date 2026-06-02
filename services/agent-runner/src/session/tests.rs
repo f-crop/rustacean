@@ -554,73 +554,7 @@ async fn crash_recovery_sigkill_marks_session_failed() {
     server_handle.abort();
 }
 
-// ---------------------------------------------------------------------
-// S2 / RUSAA-1812: per-tenant concurrency limit (ADR-013 §4.3)
-// ---------------------------------------------------------------------
-
-/// Verifies that `start_session` rejects a new session once the per-tenant
-/// limit is saturated, and that the count is correct before/after.
-#[tokio::test(flavor = "current_thread")]
-async fn per_tenant_limit_rejects_excess_sessions() {
-    use rb_schemas::{AgentRuntime, AgentSessionStart};
-
-    let (addr, _captured, server_handle) = spawn_status_capture_server().await;
-    let tmp = tempfile::tempdir().unwrap();
-
-    let relay_sender = agent_runner::spawn(agent_runner::RelayConfig {
-        capacity: agent_runner::DEFAULT_CAPACITY,
-        batch_size: agent_runner::DEFAULT_BATCH_SIZE,
-        flush_interval: Duration::from_millis(agent_runner::DEFAULT_FLUSH_INTERVAL_MS),
-        control_api_base: format!("http://{addr}"),
-        http_client: reqwest::Client::builder()
-            .timeout(Duration::from_secs(2))
-            .build()
-            .unwrap(),
-    });
-    let manager = SessionManager::new(
-        tmp.path().to_path_buf(),
-        format!("http://{addr}"),
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(2))
-            .build()
-            .unwrap(),
-        relay_sender,
-        "test-mcp-sha".to_string(),
-    );
-
-    let tenant_id = TenantId::from(uuid::Uuid::new_v4());
-
-    // Saturate the tenant counter by injecting directly into the internal map.
-    // (We can't actually spawn 20 claude-code sessions in a unit test.)
-    {
-        let mut counts = manager.tenant_session_counts.lock().await;
-        counts.insert(tenant_id, super::MAX_SESSIONS_PER_TENANT);
-    }
-
-    let (tx, _rx) = tokio::sync::mpsc::channel(16);
-    let start = AgentSessionStart {
-        runtime: AgentRuntime::Pi as i32,
-        workspace_path: format!("rusaa1812-tenant-limit-{}", uuid::Uuid::new_v4()),
-        api_key: "test-key".to_owned(),
-        initial_prompt: "hello".to_owned(),
-    };
-
-    let err = manager
-        .start_session(&start, tenant_id, &uuid::Uuid::new_v4().to_string(), tx)
-        .await
-        .unwrap_err();
-
-    assert!(
-        err.to_string().contains("rate_limit_exceeded"),
-        "expected rate_limit_exceeded error, got: {err}"
-    );
-    assert!(
-        err.to_string().contains("tenant"),
-        "error must name the tenant limit, got: {err}"
-    );
-
-    server_handle.abort();
-}
+// per_tenant_limit_rejects_excess_sessions — moved to cap_tests.rs
 
 // ---------------------------------------------------------------------
 // MCP SHA pairing — mismatch detection logic, warn-only

@@ -584,3 +584,7 @@ pub use crate::workspace_gc::spawn_workspace_gc;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cap_tests.rs"]
+mod cap_tests;
