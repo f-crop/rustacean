@@ -77,7 +77,6 @@ use crate::routes::{
         mcp::mcp_handler,
         chat::sessions::create_chat_session,
         chat::sessions::get_chat_session,
-        chat::sessions::delete_chat_session,
         chat::messages::post_chat_message,
         chat::messages::list_chat_messages,
         chat::events::chat_session_events,
