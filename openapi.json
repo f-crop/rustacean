@@ -1071,6 +1071,38 @@
             "description": "Session not found or feature disabled"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "delete_chat_session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Chat session ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Termination accepted"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Session not found or feature disabled"
+          },
+          "503": {
+            "description": "Kafka unavailable"
+          }
+        }
       }
     },
     "/v1/chat/sessions/{id}/events": {

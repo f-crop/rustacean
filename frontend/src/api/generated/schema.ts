@@ -526,7 +526,7 @@ export interface paths {
         readonly get: operations["get_chat_session"];
         readonly put?: never;
         readonly post?: never;
-        readonly delete?: never;
+        readonly delete: operations["delete_chat_session"];
         readonly options?: never;
         readonly head?: never;
         readonly patch?: never;
@@ -2986,6 +2986,48 @@ export interface operations {
             };
             /** @description Session not found or feature disabled */
             readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly delete_chat_session: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                /** @description Chat session ID */
+                readonly id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Termination accepted */
+            readonly 202: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Session not found or feature disabled */
+            readonly 404: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Kafka unavailable */
+            readonly 503: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
