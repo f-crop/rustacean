@@ -74,7 +74,7 @@ fn require_read_access(auth: AuthContext) -> Result<Uuid, AppError> {
         AuthContext::ExpiredSession => Err(AppError::SessionExpired),
         AuthContext::ApiKey(info) if info.scopes.contains(&Scope::Read) => Ok(info.tenant_id),
         AuthContext::ApiKey(_) => Err(AppError::InsufficientScope),
-        AuthContext::Anonymous => Err(AppError::Unauthorized),
+        AuthContext::McpJwt(_) | AuthContext::Anonymous => Err(AppError::Unauthorized),
     }
 }
 

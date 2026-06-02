@@ -8,6 +8,21 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// Optional chat-context carried by MCP JWT callers.
+///
+/// Present when a runtime adapter calls `/mcp` with a short-lived JWT
+/// (ADR-013 §5.2); absent for API-key / session auth.
+pub(super) struct ChatAuditCtx<'a> {
+    /// Chat session UUID from the JWT `sub` claim.
+    pub chat_session_id: Uuid,
+    /// JWT ID for audit correlation.
+    pub jti: &'a str,
+}
+
+/// Write one row to `audit.audit_events` for a `tools/call` invocation.
+///
+/// - `chat_ctx` — audit correlation fields for MCP-JWT callers; `None` for
+///   API-key / session-auth callers.
 pub(super) async fn write_tool_call_audit(
     pool: &PgPool,
     tenant_id: Uuid,
@@ -15,12 +30,22 @@ pub(super) async fn write_tool_call_audit(
     tool_name: &str,
     args: &serde_json::Value,
     outcome: &str,
+    chat_ctx: Option<ChatAuditCtx<'_>>,
 ) {
     let args_sha256 = {
         let mut h = Sha256::new();
         h.update(args.to_string().as_bytes());
         format!("{:x}", h.finalize())
     };
+
+    let mut payload = serde_json::json!({
+        "tool": tool_name,
+        "args_sha256": args_sha256,
+    });
+    if let Some(ctx) = &chat_ctx {
+        payload["chat_session_id"] = serde_json::Value::String(ctx.chat_session_id.to_string());
+        payload["jti"] = serde_json::Value::String(ctx.jti.to_owned());
+    }
 
     let result = sqlx::query(
         "INSERT INTO audit.audit_events \
@@ -33,7 +58,7 @@ pub(super) async fn write_tool_call_audit(
     .bind(actor_user_id)
     .bind(format!("mcp.tools.call.{tool_name}"))
     .bind(outcome)
-    .bind(serde_json::json!({ "tool": tool_name, "args_sha256": args_sha256 }))
+    .bind(payload)
     .execute(pool)
     .await;
 

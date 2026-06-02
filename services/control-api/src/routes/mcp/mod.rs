@@ -137,8 +137,7 @@ async fn handle_tools_call(
     headers: HeaderMap,
     rpc: JsonRpcRequest,
 ) -> McpResult {
-    let (session_tenant_id, actor_user_id) =
-        validate_session(state, auth, &headers, rpc.id.clone())?;
+    let ctx = validate_session(state, auth, &headers, rpc.id.clone())?;
 
     let params: ToolCallParams = match rpc
         .params
@@ -158,8 +157,8 @@ async fn handle_tools_call(
     let args = params.arguments.unwrap_or(serde_json::json!({}));
 
     let tool_result = match params.name.as_str() {
-        "search_items" => dispatch::dispatch_search_items(state, session_tenant_id, &args).await,
-        "get_item" => dispatch::dispatch_get_item(state, session_tenant_id, &args).await,
+        "search_items" => dispatch::dispatch_search_items(state, ctx.tenant_id, &args).await,
+        "get_item" => dispatch::dispatch_get_item(state, ctx.tenant_id, &args).await,
         _ => {
             return Err(rpc_err(rpc.id, TOOL_NOT_FOUND, "unknown tool"));
         }
@@ -170,20 +169,28 @@ async fn handle_tools_call(
         Err(e) => {
             tracing::warn!(
                 tool = %params.name,
-                tenant_id = %session_tenant_id,
+                tenant_id = %ctx.tenant_id,
                 "MCP tool call failed: {e:?}"
             );
             (rb_mcp::ToolCallResult::error(format!("{e:?}")), "error")
         }
     };
 
+    let jti_buf = ctx.jti.clone();
+    let chat_ctx = ctx.chat_session_id.and_then(|chat_session_id| {
+        jti_buf.as_deref().map(|jti| audit::ChatAuditCtx {
+            chat_session_id,
+            jti,
+        })
+    });
     audit::write_tool_call_audit(
         &state.pool,
-        session_tenant_id,
-        actor_user_id,
+        ctx.tenant_id,
+        ctx.actor_user_id,
         &params.name,
         &args,
         outcome,
+        chat_ctx,
     )
     .await;
 
@@ -202,8 +209,20 @@ fn require_auth_tenant(auth: AuthContext) -> Result<Uuid, ()> {
         {
             Ok(info.tenant_id)
         }
+        // MCP JWT (ADR-013 §5.2): short-lived, tenant-bound, read-scoped.
+        AuthContext::McpJwt(info) => Ok(info.tenant_id),
         _ => Err(()),
     }
+}
+
+/// Context returned by `validate_session` for a `tools/call` invocation.
+struct McpCallCtx {
+    tenant_id: Uuid,
+    actor_user_id: Option<Uuid>,
+    /// Present when the caller authenticated via MCP JWT (chat session).
+    chat_session_id: Option<Uuid>,
+    /// JWT ID for audit correlation; present with MCP JWT callers.
+    jti: Option<String>,
 }
 
 #[allow(clippy::result_large_err)]
@@ -212,13 +231,27 @@ fn validate_session(
     auth: AuthContext,
     headers: &HeaderMap,
     req_id: Option<serde_json::Value>,
-) -> Result<(Uuid, Option<Uuid>), Response> {
-    let (auth_tenant_id, actor_user_id) = match auth {
-        AuthContext::Session(info) if info.email_verified => (info.tenant_id, Some(info.user_id)),
+) -> Result<McpCallCtx, Response> {
+    let (auth_tenant_id, actor_user_id, chat_session_id, jti) = match auth {
+        AuthContext::Session(info) if info.email_verified => {
+            (info.tenant_id, Some(info.user_id), None, None)
+        }
         AuthContext::ApiKey(info)
             if info.scopes.contains(&Scope::Read) || info.scopes.contains(&Scope::Agent) =>
         {
-            (info.tenant_id, Some(info.user_id))
+            (info.tenant_id, Some(info.user_id), None, None)
+        }
+        // MCP JWT (ADR-013 §5.2): short-lived read-scoped JWT issued per chat session.
+        AuthContext::McpJwt(info) => {
+            if !info.scope.contains(&"read".to_owned()) {
+                return Err(rpc_err(req_id, UNAUTHORIZED_MCP, "insufficient_scope"));
+            }
+            (
+                info.tenant_id,
+                Some(info.user_id),
+                Some(info.chat_session_id),
+                Some(info.jti),
+            )
         }
         _ => {
             return Err(rpc_err(req_id, UNAUTHORIZED_MCP, "unauthorized"));
@@ -245,7 +278,12 @@ fn validate_session(
             );
             Err(rpc_err(req_id, TENANT_DRIFT, "tenant mismatch"))
         }
-        Some(session_tenant) => Ok((session_tenant, actor_user_id)),
+        Some(session_tenant) => Ok(McpCallCtx {
+            tenant_id: session_tenant,
+            actor_user_id,
+            chat_session_id,
+            jti,
+        }),
     }
 }
 

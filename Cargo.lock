@@ -3946,6 +3946,7 @@ dependencies = [
  "argon2",
  "chrono",
  "dashmap",
+ "jsonwebtoken",
  "rand 0.9.4",
  "rb-schemas",
  "rb-tenant",

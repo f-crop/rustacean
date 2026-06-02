@@ -156,6 +156,8 @@ pub async fn run(config: Config) -> Result<()> {
             config.session_create_window_secs,
         )),
         tenant_session_count: Arc::new(TenantSessionCount::new()),
+        mcp_jwt_secret: config.mcp_jwt_secret.clone().unwrap_or_default(),
+        mcp_jwt_ttl_secs: config.mcp_jwt_ttl_secs,
     };
 
     // Spawn the periodic reconciler that heals ingestion runs left in `queued`

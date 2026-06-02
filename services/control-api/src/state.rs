@@ -408,6 +408,11 @@ pub struct AppState {
     pub session_create_rate_limiter: Arc<SessionCreateRateLimiter>,
     /// Per-tenant active session counter (REQ-MC-02 tenant cap).
     pub tenant_session_count: Arc<TenantSessionCount>,
+    /// HS256 signing secret for short-lived MCP session JWTs (ADR-013 §5.2).
+    /// Empty string disables JWT auth path on `/mcp`.
+    pub mcp_jwt_secret: String,
+    /// JWT lifetime in seconds (default 900 = 15 min, `RB_MCP_JWT_TTL_SECS`).
+    pub mcp_jwt_ttl_secs: u64,
 }
 
 #[cfg(test)]

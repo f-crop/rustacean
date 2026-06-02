@@ -96,7 +96,7 @@ pub async fn session_log_ndjson(
         AuthContext::Session(_) => return Err(AppError::EmailNotVerified),
         AuthContext::ApiKey(info) => info.tenant_id,
         AuthContext::ExpiredSession => return Err(AppError::SessionExpired),
-        AuthContext::Anonymous => return Err(AppError::Unauthorized),
+        AuthContext::McpJwt(_) | AuthContext::Anonymous => return Err(AppError::Unauthorized),
     };
 
     // Verify the session exists and belongs to the caller's tenant.
