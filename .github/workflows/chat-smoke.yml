@@ -1,0 +1,85 @@
+name: Chat Panel Smoke Tests
+
+# Runs on every PR that touches the chat gateway backend, chat routes, or
+# the chat frontend panel.  The job is always reported (required check) but
+# skips the expensive Playwright step when no relevant files changed.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chat-smoke:
+    name: chat-smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Detect whether chat-relevant files changed.
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            chat:
+              - 'services/chat-runtime/**'
+              - 'services/control-api/src/routes/chat/**'
+              - 'frontend/src/pages/ChatPage.tsx'
+              - 'frontend/src/components/chat/**'
+              - 'frontend/src/api/hooks/useChatSessions.ts'
+              - 'frontend/src/hooks/useChatStream.ts'
+              - 'frontend/src/lib/chat-api.ts'
+              - 'frontend/e2e/chat-panel.spec.ts'
+              - 'frontend/e2e/fixtures/chat-mock-api.ts'
+              - '.github/workflows/chat-smoke.yml'
+
+      - name: Skip — no chat-relevant files changed
+        if: steps.changes.outputs.chat != 'true'
+        run: echo "No chat-relevant files changed — skipping chat smoke test."
+
+      - uses: actions/setup-node@v4
+        if: steps.changes.outputs.chat == 'true'
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        if: steps.changes.outputs.chat == 'true'
+        run: npm ci
+
+      - name: Install Playwright browsers (Chromium only)
+        if: steps.changes.outputs.chat == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend bundle (chat flag on)
+        if: steps.changes.outputs.chat == 'true'
+        run: npm run build
+        env:
+          VITE_FEATURE_CHAT_PANEL: "true"
+          VITE_TEMPO_URL: http://localhost:3200
+
+      - name: Run chat panel smoke spec
+        if: steps.changes.outputs.chat == 'true'
+        run: npx playwright test e2e/chat-panel.spec.ts --project=chromium
+        env:
+          CI: "true"
+
+      - name: Upload Playwright report on failure
+        if: failure() && steps.changes.outputs.chat == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-smoke-report-${{ github.run_id }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7

@@ -29,19 +29,31 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+      // Quarantine specs run under their own project with elevated retries.
+      testIgnore: "**/quarantine/**",
     },
     ...(isNightly
       ? [
           {
             name: "firefox",
             use: { ...devices["Desktop Firefox"] },
+            testIgnore: "**/quarantine/**",
           },
           {
             name: "webkit",
             use: { ...devices["Desktop Safari"] },
+            testIgnore: "**/quarantine/**",
           },
         ]
       : []),
+    // Quarantine bucket: flaky chat tests, 5 retries in CI.
+    // Run explicitly: npx playwright test --project=chat-quarantine
+    {
+      name: "chat-quarantine",
+      testDir: "./e2e/quarantine/chat",
+      use: { ...devices["Desktop Chrome"] },
+      retries: process.env.CI ? 5 : 1,
+    },
   ],
   outputDir: "test-results",
 });
