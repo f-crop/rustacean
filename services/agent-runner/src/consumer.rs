@@ -11,6 +11,7 @@ use rb_schemas::{
 };
 use tokio::task::JoinHandle;
 
+use crate::adapters::adapter_for_runtime;
 use crate::session::{SessionManager, spawn_workspace_gc};
 
 /// Returns the SHA baked into the installed `rustbrain-mcp` bundle.
@@ -54,12 +55,37 @@ pub struct ConsumerCtx {
     producer: Arc<Producer<AgentEvent>>,
 }
 
+/// Logs the manifest of every registered runtime adapter (ADR-013 §4.1).
+/// Called once at startup so missing/misconfigured adapters surface immediately.
+fn log_runtime_registry() {
+    for runtime in [
+        rb_schemas::AgentRuntime::ClaudeCode,
+        rb_schemas::AgentRuntime::Opencode,
+        rb_schemas::AgentRuntime::Pi,
+    ] {
+        match adapter_for_runtime(runtime) {
+            Ok(adapter) => {
+                let m = adapter.manifest();
+                tracing::info!(
+                    runtime = ?m.kind,
+                    binary = m.binary,
+                    multi_turn = m.capabilities.multi_turn,
+                    streams_json = m.capabilities.streams_json,
+                    "runtime adapter registered"
+                );
+            }
+            Err(e) => tracing::warn!(runtime = ?runtime, "runtime adapter unavailable: {e}"),
+        }
+    }
+}
+
 pub fn spawn(
     consumer: Consumer<AgentSessionCommand>,
     workspace_base: PathBuf,
     control_api_base: String,
     http_client: reqwest::Client,
 ) -> Result<ConsumerHandle> {
+    log_runtime_registry();
     let relay_sender = agent_runner::spawn(agent_runner::RelayConfig {
         capacity: agent_runner::DEFAULT_CAPACITY,
         batch_size: agent_runner::DEFAULT_BATCH_SIZE,

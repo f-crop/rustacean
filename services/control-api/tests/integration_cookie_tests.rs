@@ -1,4 +1,4 @@
-//! Cookie security flag assertions — extracted from integration_tests.rs to keep
+//! Cookie security flag assertions — extracted from `integration_tests.rs` to keep
 //! that file under the 600-line cap.
 
 use std::sync::Arc;

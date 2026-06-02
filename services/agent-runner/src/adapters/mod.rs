@@ -32,6 +32,9 @@ pub struct AgentProcess {
 pub struct RuntimeManifest {
     pub kind: AgentRuntime,
     pub binary: &'static str,
+    /// Env vars that must be present for the runtime to function.
+    /// Read by S7 docs generation and future health checks; not yet consumed at startup.
+    #[allow(dead_code)]
     pub required_env: &'static [&'static str],
     pub capabilities: RuntimeCaps,
 }
@@ -46,6 +49,8 @@ pub struct RuntimeCaps {
 }
 
 /// Result of the `health` liveness probe (ADR-013 §4.1).
+/// Not called by the binary yet — the idle reaper is future work.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeHealth {
     Alive,
@@ -72,6 +77,8 @@ pub trait RuntimeAdapter: Send + Sync {
 
     /// Liveness probe used by the idle/health reaper (ADR-013 §4.1).
     /// Uses signal-0 on Unix: returns `Alive` if the OS process exists, `Dead` otherwise.
+    /// Not called by the binary yet — the idle reaper is future work.
+    #[allow(dead_code)]
     async fn health(&self, proc: &AgentProcess) -> RuntimeHealth {
         #[cfg(unix)]
         {
@@ -113,6 +120,39 @@ pub fn adapter_for_runtime(runtime: AgentRuntime) -> anyhow::Result<Box<dyn Runt
         AgentRuntime::Opencode => Ok(Box::new(opencode::OpencodeAdapter::new())),
         AgentRuntime::Pi => Ok(Box::new(pi::PiAdapter::new())),
         AgentRuntime::Unspecified => anyhow::bail!("Unspecified runtime received"),
+    }
+}
+
+#[cfg(test)]
+mod trait_tests {
+    use super::*;
+
+    #[test]
+    fn claude_code_manifest_fields() {
+        let m = claude_code::ClaudeCodeAdapter::new().manifest();
+        assert_eq!(m.kind, AgentRuntime::ClaudeCode);
+        assert_eq!(m.binary, "claude");
+        assert!(m.capabilities.multi_turn);
+        assert!(m.capabilities.streams_json);
+    }
+
+    #[test]
+    fn opencode_manifest_fields() {
+        let m = opencode::OpencodeAdapter::new().manifest();
+        assert_eq!(m.kind, AgentRuntime::Opencode);
+        assert_eq!(m.binary, "opencode");
+    }
+
+    #[test]
+    fn pi_manifest_fields() {
+        let m = pi::PiAdapter::new().manifest();
+        assert_eq!(m.kind, AgentRuntime::Pi);
+        assert_eq!(m.binary, "pi");
+    }
+
+    #[test]
+    fn runtime_health_variants_are_distinct() {
+        assert_ne!(RuntimeHealth::Alive, RuntimeHealth::Dead);
     }
 }
 

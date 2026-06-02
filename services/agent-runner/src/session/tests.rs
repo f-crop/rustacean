@@ -205,7 +205,9 @@ fn make_stub_handle(
 ) -> SessionHandle {
     // One-permit semaphore so the test handle holds a valid OwnedSemaphorePermit.
     let sem = Arc::new(tokio::sync::Semaphore::new(1));
-    let permit = sem.try_acquire_owned().expect("fresh semaphore must yield a permit");
+    let permit = sem
+        .try_acquire_owned()
+        .expect("fresh semaphore must yield a permit");
     SessionHandle {
         process,
         start_time: Instant::now(),
@@ -331,6 +333,7 @@ async fn natural_exit_nonzero_sends_failed_status() {
     }
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let tenant_counts = Arc::new(Mutex::new(HashMap::new()));
     let wait_handle = spawn_natural_exit_handler(
         session_id.clone(),
         tenant_id,
@@ -344,6 +347,7 @@ async fn natural_exit_nonzero_sends_failed_status() {
             .build()
             .unwrap(),
         tx,
+        Arc::clone(&tenant_counts),
     );
 
     wait_handle.await.expect("natural exit handler panicked");
@@ -394,6 +398,7 @@ async fn natural_exit_noop_when_session_already_removed() {
     let tenant_id = TenantId::from(uuid::Uuid::new_v4());
 
     let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let tenant_counts = Arc::new(Mutex::new(HashMap::new()));
     let wait_handle = spawn_natural_exit_handler(
         session_id.clone(),
         tenant_id,
@@ -407,6 +412,7 @@ async fn natural_exit_noop_when_session_already_removed() {
             .build()
             .unwrap(),
         tx,
+        Arc::clone(&tenant_counts),
     );
 
     wait_handle.await.expect("natural exit handler panicked");
@@ -417,6 +423,200 @@ async fn natural_exit_noop_when_session_already_removed() {
         g.is_empty(),
         "no HTTP calls expected when session is already removed; captured: {:?}",
         *g
+    );
+
+    server_handle.abort();
+}
+
+// ---------------------------------------------------------------------
+// S2 / RUSAA-1812: crash recovery — SIGKILL → failed status (ADR-013 §4.4)
+// ---------------------------------------------------------------------
+
+/// Kills a running child process externally (SIGKILL) and verifies that the
+/// natural-exit handler detects the crash, marks the session `failed`, and
+/// surfaces an `error_kind=runtime_crashed` payload.
+#[tokio::test(flavor = "current_thread")]
+async fn crash_recovery_sigkill_marks_session_failed() {
+    use std::process::Stdio;
+
+    let (addr, captured, server_handle) = spawn_status_capture_server().await;
+
+    // Spawn a long-running process so we can kill it mid-flight.
+    let mut cmd = tokio::process::Command::new("/bin/sleep");
+    cmd.arg("60")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let child = cmd.spawn().unwrap();
+    let pid = child.id().unwrap();
+    let process = crate::adapters::AgentProcess {
+        child,
+        pid,
+        runtime: rb_schemas::AgentRuntime::ClaudeCode,
+    };
+
+    let sessions: Arc<Mutex<HashMap<String, SessionHandle>>> = Arc::new(Mutex::new(HashMap::new()));
+    let seq_counters = Arc::new(Mutex::new(HashMap::new()));
+    let seq_timestamps = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
+    let process_arc = Arc::new(Mutex::new(process));
+    let session_uuid = uuid::Uuid::new_v4();
+    let session_id = session_uuid.to_string();
+    let tenant_id = TenantId::from(uuid::Uuid::new_v4());
+
+    {
+        let mut map = sessions.lock().await;
+        map.insert(
+            session_id.clone(),
+            make_stub_handle(Arc::clone(&process_arc), tenant_id),
+        );
+    }
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let tenant_counts = Arc::new(Mutex::new(HashMap::new()));
+    // Pre-populate tenant count so the handler can decrement it.
+    tenant_counts.lock().await.insert(tenant_id, 1usize);
+
+    let wait_handle = spawn_natural_exit_handler(
+        session_id.clone(),
+        tenant_id,
+        Arc::clone(&process_arc),
+        Arc::clone(&sessions),
+        seq_counters,
+        seq_timestamps,
+        format!("http://{addr}"),
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap(),
+        tx,
+        Arc::clone(&tenant_counts),
+    );
+
+    // Simulate crash: SIGKILL the child from outside the supervisor.
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::{Signal, kill};
+        use nix::unistd::Pid;
+        let pid_i32 = i32::try_from(pid).expect("PID fits i32");
+        kill(Pid::from_raw(pid_i32), Signal::SIGKILL).expect("SIGKILL must succeed");
+    }
+
+    wait_handle.await.expect("natural exit handler panicked");
+
+    // The PATCH must report `status=failed` with the runtime_crashed error.
+    let expected_path = format!("/internal/agent/sessions/{session_uuid}/status");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        {
+            let g = captured.lock().await;
+            if g.iter().any(|(rl, body)| {
+                rl.starts_with("PATCH ")
+                    && rl.contains(&expected_path)
+                    && body.contains("\"status\":\"failed\"")
+            }) {
+                break;
+            }
+        }
+        if tokio::time::Instant::now() > deadline {
+            let g = captured.lock().await;
+            panic!(
+                "expected PATCH {expected_path} with status=failed; captured: {:?}",
+                *g
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    let g = captured.lock().await;
+    let failed = g
+        .iter()
+        .find(|(rl, body)| {
+            rl.starts_with("PATCH ")
+                && rl.contains(&expected_path)
+                && body.contains("\"status\":\"failed\"")
+        })
+        .expect("failed PATCH must be present");
+    assert!(
+        failed.1.contains("runtime_crashed"),
+        "error payload must contain runtime_crashed; got: {}",
+        failed.1
+    );
+
+    // Tenant count must be decremented back to 0 after the crash.
+    let counts = tenant_counts.lock().await;
+    assert_eq!(
+        counts.get(&tenant_id).copied().unwrap_or(0),
+        0,
+        "tenant session count must be 0 after crash"
+    );
+
+    server_handle.abort();
+}
+
+// ---------------------------------------------------------------------
+// S2 / RUSAA-1812: per-tenant concurrency limit (ADR-013 §4.3)
+// ---------------------------------------------------------------------
+
+/// Verifies that `start_session` rejects a new session once the per-tenant
+/// limit is saturated, and that the count is correct before/after.
+#[tokio::test(flavor = "current_thread")]
+async fn per_tenant_limit_rejects_excess_sessions() {
+    use rb_schemas::{AgentRuntime, AgentSessionStart};
+
+    let (addr, _captured, server_handle) = spawn_status_capture_server().await;
+    let tmp = tempfile::tempdir().unwrap();
+
+    let relay_sender = agent_runner::spawn(agent_runner::RelayConfig {
+        capacity: agent_runner::DEFAULT_CAPACITY,
+        batch_size: agent_runner::DEFAULT_BATCH_SIZE,
+        flush_interval: Duration::from_millis(agent_runner::DEFAULT_FLUSH_INTERVAL_MS),
+        control_api_base: format!("http://{addr}"),
+        http_client: reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap(),
+    });
+    let manager = SessionManager::new(
+        tmp.path().to_path_buf(),
+        format!("http://{addr}"),
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap(),
+        relay_sender,
+        "test-mcp-sha".to_string(),
+    );
+
+    let tenant_id = TenantId::from(uuid::Uuid::new_v4());
+
+    // Saturate the tenant counter by injecting directly into the internal map.
+    // (We can't actually spawn 20 claude-code sessions in a unit test.)
+    {
+        let mut counts = manager.tenant_session_counts.lock().await;
+        counts.insert(tenant_id, super::MAX_SESSIONS_PER_TENANT);
+    }
+
+    let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let start = AgentSessionStart {
+        runtime: AgentRuntime::Pi as i32,
+        workspace_path: format!("rusaa1812-tenant-limit-{}", uuid::Uuid::new_v4()),
+        api_key: "test-key".to_owned(),
+        initial_prompt: "hello".to_owned(),
+    };
+
+    let err = manager
+        .start_session(&start, tenant_id, &uuid::Uuid::new_v4().to_string(), tx)
+        .await
+        .unwrap_err();
+
+    assert!(
+        err.to_string().contains("rate_limit_exceeded"),
+        "expected rate_limit_exceeded error, got: {err}"
+    );
+    assert!(
+        err.to_string().contains("tenant"),
+        "error must name the tenant limit, got: {err}"
     );
 
     server_handle.abort();
@@ -436,8 +636,9 @@ fn mcp_sha_mismatch_detected_when_both_shas_known_and_differ() {
 
 #[test]
 fn mcp_sha_no_mismatch_when_shas_are_equal() {
-    let sha = "aaaa1111bbbb2222cccc3333dddd4444eeee5555";
-    let mismatch = sha != "unknown" && sha != "unknown" && sha != sha;
+    let runner_sha = "aaaa1111bbbb2222cccc3333dddd4444eeee5555";
+    let mcp_sha = runner_sha; // same SHA — no mismatch expected
+    let mismatch = runner_sha != "unknown" && mcp_sha != "unknown" && runner_sha != mcp_sha;
     assert!(!mismatch, "identical SHAs must not mismatch");
 }
 
