@@ -239,6 +239,67 @@ LiteLLM is not included in `compose/dev.yml` — it runs as an external service 
 
 ---
 
+## 8. Use the chat panel (Wave 9)
+
+The chat panel lets you interact with an AI coding assistant that has read access to your ingested codebase via MCP tools. It requires the agent runtime ([§7](#7-agent-runtime-setup-wave-7)) to be set up first.
+
+### Enable the feature flag
+
+The chat panel is off by default. Enable it on `control-api`:
+
+```bash
+# Add to compose/dev.yml under control-api → environment:
+RB_CHAT_PANEL_ENABLED=true
+
+# Restart control-api to pick up the flag
+docker compose -f compose/dev.yml restart control-api
+```
+
+### Start a chat session
+
+**Option A — using the UI**
+
+1. Open `http://localhost:15173` and log in.
+2. Click **Chat** in the sidebar navigation.
+3. Select a runtime (`claude_code` or `opencode`) and type a message.
+4. Watch the assistant's response stream in real time.
+
+**Option B — curl end-to-end**
+
+```bash
+# Create a chat session
+curl -s -b cookies.txt -X POST http://localhost:8080/v1/chat/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"runtime":"claude_code"}' | jq .
+# → {"id":"<session-id>","status":"active","runtime":"claude_code",...}
+
+# Send a message
+curl -s -b cookies.txt -X POST \
+  http://localhost:8080/v1/chat/sessions/<session-id>/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"body":"Find all implementations of RuntimeAdapter"}' | jq .
+
+# Stream the response (SSE)
+curl -s -b cookies.txt -N \
+  http://localhost:8080/v1/chat/sessions/<session-id>/events
+# → data: {"type":"message","body":"I found 3 implementations..."}
+
+# End the session
+curl -s -b cookies.txt -X POST \
+  http://localhost:8080/v1/chat/sessions/<session-id>/end
+```
+
+### Prerequisites
+
+- A running dev stack with `control-api` and `agent-runner` healthy.
+- At least one repository ingested (the chat uses your codebase data).
+- For `claude_code` runtime: Claude credentials set up via the `claude-login` sidecar ([§7](#7-agent-runtime-setup-wave-7)).
+- For `opencode` runtime: LiteLLM configured ([§7](#7-agent-runtime-setup-wave-7)).
+
+For detailed configuration: [chat-panel.md](chat-panel.md) · [runtime-config.md](runtime-config.md).
+
+---
+
 ## Next steps
 
 - **Architecture deep-dive**: [architecture.md](architecture.md) — system overview, crate layout, agent execution topology

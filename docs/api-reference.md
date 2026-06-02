@@ -36,6 +36,9 @@ The control-api service reads all configuration from environment variables. None
 | `RB_OLLAMA_URL` | — | no | Ollama HTTP base URL (e.g. `http://ollama:11434`). Search endpoint returns 503 when absent. |
 | `RB_EMBEDDING_MODEL` | `nomic-embed-text` | no | Ollama model for query embedding. Must match the model used by `embed-worker`. |
 | `RUST_LOG` | — | no | Log filter (e.g. `info,control_api=debug`) |
+| `RB_CHAT_PANEL_ENABLED` | `false` | no | Enable the chat panel feature flag. When `false`, `/v1/chat/*` routes return 404. |
+| `RB_MCP_JWT_SECRET` | — | no | HS256 signing key for MCP session JWTs (required when chat is enabled). See [runtime-config.md](runtime-config.md). |
+| `RB_MCP_JWT_TTL_SECS` | `900` | no | MCP JWT lifetime in seconds. |
 
 ---
 
@@ -1147,6 +1150,227 @@ Streamable HTTP JSON-RPC 2.0 endpoint implementing the [Model Context Protocol](
 | `run_query` | Raw Cypher query (requires `admin` scope) |
 
 See the `rb-mcp` crate and [ADR-009 §6.2](decisions/ADR-009-agent-execution-architecture.md) for tool schemas and security model.
+
+**Wave 9 addition**: the `/mcp` endpoint also accepts a short-lived JWT (`aud=rb-mcp`) as the Bearer token. Chat sessions use this path instead of long-lived API keys. The JWT carries `tenant_id`, `user_id`, and `scope:["read"]` — `run_query` is rejected with `-32601 insufficient_scope`. See [Chat Panel — Security model](chat-panel.md#security-model).
+
+---
+
+## Chat session endpoints (Wave 9)
+
+The chat panel provides an interactive coding assistant that uses MCP read tools against the tenant's codebase. Sessions are flag-gated (`RB_CHAT_PANEL_ENABLED=true`). All chat endpoints return 404 when the flag is off.
+
+See [chat-panel.md](chat-panel.md) for the full user guide and [runtime-config.md](runtime-config.md) for operator configuration.
+
+### POST /v1/chat/sessions
+
+Create a new chat session. The gateway mints a session-scoped MCP JWT, dispatches a runtime-start command via Kafka, and returns the session metadata.
+
+**Auth required**: verified session **or** API key with `agent` or `admin` scope
+
+**Request**
+```json
+{
+  "runtime": "claude_code"
+}
+```
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `runtime` | string | One of `claude_code`, `opencode`, `pi`. Defaults to `AGENT_DEFAULT_RUNTIME` if omitted. |
+
+**Response 201**
+```json
+{
+  "id": "a1b2c3d4-...",
+  "status": "active",
+  "runtime": "claude_code",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "created_at": "2026-06-02T14:30:00Z"
+}
+```
+
+**Response 404** — `RB_CHAT_PANEL_ENABLED` is `false`
+**Response 429** — per-tenant session cap or rate limit exceeded
+
+### GET /v1/chat/sessions
+
+List chat sessions for the current tenant, ordered by `created_at` descending.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Query parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `status` | string? | — | Filter by status: `active`, `ended`, `failed` |
+| `limit` | int | 20 | Max results (1–100) |
+| `cursor` | string? | — | Opaque pagination cursor |
+
+**Response 200**
+```json
+{
+  "sessions": [
+    {
+      "id": "a1b2c3d4-...",
+      "status": "active",
+      "runtime": "claude_code",
+      "created_at": "2026-06-02T14:30:00Z",
+      "last_activity_at": "2026-06-02T14:35:00Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+### GET /v1/chat/sessions/{id}
+
+Get a single chat session by ID.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Response 200**
+```json
+{
+  "id": "a1b2c3d4-...",
+  "status": "active",
+  "runtime": "claude_code",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "created_at": "2026-06-02T14:30:00Z",
+  "last_activity_at": "2026-06-02T14:35:00Z",
+  "ended_at": null
+}
+```
+
+**Response 404** — session not found or belongs to another tenant
+
+### POST /v1/chat/sessions/{id}/messages
+
+Send a user message to an active chat session. The gateway dispatches the message to the runtime process over Kafka. The runtime's response streams back via the SSE events endpoint.
+
+**Auth required**: verified session **or** API key with `agent` or `admin` scope
+
+**Request**
+```json
+{
+  "body": "Find all implementations of RuntimeAdapter"
+}
+```
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `body` | string | The user's message. Must not be empty. |
+
+**Response 202** — message accepted and dispatched
+```json
+{
+  "seq": 3,
+  "role": "user",
+  "created_at": "2026-06-02T14:35:00Z"
+}
+```
+
+**Response 400** — `invalid_input` (empty body)
+**Response 404** — session not found
+**Response 409** — session is not in `active` status
+
+### GET /v1/chat/sessions/{id}/events
+
+**SSE event stream.** Long-lived connection that pushes chat events as they arrive. Connect with `EventSource` or the `useEventSource` React hook. Supports reconnection via `Last-Event-ID`.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Content-Type**: `text/event-stream`
+
+**Query parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `from_sequence` | int? | — | Resume from a specific message sequence number |
+
+**Event types**:
+
+| Type | Description |
+|------|-------------|
+| `message` | Assistant text (streamed token-by-token) |
+| `tool_call_started` | Runtime began an MCP tool call |
+| `tool_call_completed` | MCP tool call finished (includes result summary) |
+| `session_completed` | Session ended normally |
+| `session_failed` | Session ended with an error (`error_kind` in data) |
+
+**Example SSE frames**:
+```
+id: 4
+event: tool_call_started
+data: {"tool":"search_items","args_preview":"RuntimeAdapter"}
+
+id: 5
+event: tool_call_completed
+data: {"tool":"search_items","result_count":3,"duration_ms":42}
+
+id: 6
+event: message
+data: {"body":"I found 3 implementations of RuntimeAdapter..."}
+```
+
+### POST /v1/chat/sessions/{id}/end
+
+End an active chat session. Terminates the runtime process and marks the session as `ended`.
+
+**Auth required**: verified session **or** API key with `agent` or `admin` scope
+
+**Response 200**
+```json
+{
+  "id": "a1b2c3d4-...",
+  "status": "ended",
+  "ended_at": "2026-06-02T14:40:00Z"
+}
+```
+
+**Response 404** — session not found
+**Response 409** — session is already ended or failed
+
+### GET /v1/chat/sessions/{id}/messages
+
+List all messages in a chat session (paginated). Useful for replaying a conversation after reconnect.
+
+**Auth required**: verified session **or** API key with `read` scope
+
+**Query parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | int | 50 | Max messages per page (1–200) |
+| `cursor` | string? | — | Opaque pagination cursor |
+
+**Response 200**
+```json
+{
+  "messages": [
+    {
+      "id": "...",
+      "seq": 1,
+      "role": "user",
+      "body": "Find all implementations of RuntimeAdapter",
+      "created_at": "2026-06-02T14:31:00Z"
+    },
+    {
+      "id": "...",
+      "seq": 2,
+      "role": "assistant",
+      "body": "I found 3 implementations...",
+      "created_at": "2026-06-02T14:31:05Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `messages[].seq` | int | Monotonic sequence number within the session |
+| `messages[].role` | string | `user`, `assistant`, `system`, or `tool` |
+| `messages[].body` | string | Post-redaction message text |
 
 ---
 
