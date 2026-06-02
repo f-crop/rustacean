@@ -17,6 +17,7 @@ export const routes = {
   agentSessionReplay: "/agents/$sessionId",
   adminGithub: "/admin/github",
   trace: "/trace/$traceId",
+  chat: "/chat",
 } as const;
 
 export type RoutePath = (typeof routes)[keyof typeof routes];

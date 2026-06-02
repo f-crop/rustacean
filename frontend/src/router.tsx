@@ -10,6 +10,7 @@ import { z } from "zod";
 import { AppShell, GlobalSuspenseFallback } from "@/components/AppShell";
 import { ActivityPage } from "@/pages/ActivityPage";
 import { TraceViewerPage } from "@/pages/TraceViewerPage";
+import { ChatPage } from "@/pages/ChatPage";
 import { AgentExecutionPage } from "@/pages/AgentExecutionPage";
 import { AgentSessionDetailPage } from "@/pages/AgentSessionDetailPage";
 import { SessionReplayPage } from "@/pages/SessionReplayPage";
@@ -183,6 +184,19 @@ const traceRoute = createRoute({
   component: TraceViewerPage,
 });
 
+const chatRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: routes.chat,
+  beforeLoad: () => {
+    // Feature flag check: VITE_FEATURE_CHAT_PANEL must be "true" at build/run time.
+    // When rb-feature-resolver (S5) ships this will be replaced with a per-tenant API check.
+    if (import.meta.env.VITE_FEATURE_CHAT_PANEL !== "true") {
+      throw redirect({ to: routes.repos, replace: true });
+    }
+  },
+  component: ChatPage,
+});
+
 const catchAllRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
@@ -211,6 +225,7 @@ const routeTree = rootRoute.addChildren([
   agentSessionReplayRoute,
   adminGithubRoute,
   traceRoute,
+  chatRoute,
   catchAllRoute,
 ]);
 
