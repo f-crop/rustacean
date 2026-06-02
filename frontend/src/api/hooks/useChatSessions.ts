@@ -57,9 +57,11 @@ export function useCreateChatSession(tenantId: string) {
   });
 }
 
-export function useSendChatMessage(sessionId: string) {
-  return useMutation<SendMessageResponse, ApiError, SendMessageRequest>({
-    mutationFn: async (body) => {
+export type SendMessageVariables = SendMessageRequest & { sessionId: string };
+
+export function useSendChatMessage() {
+  return useMutation<SendMessageResponse, ApiError, SendMessageVariables>({
+    mutationFn: async ({ sessionId, ...body }) => {
       const { data, error, response } = await chatApiClient.sendMessage(sessionId, body);
       if (error || !data) {
         throw toApiError(response.status, error, response);

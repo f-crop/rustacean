@@ -45,7 +45,7 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
 
   const sessions = useChatSessions(tenantId);
   const createSession = useCreateChatSession(tenantId);
-  const sendMessage = useSendChatMessage(activeSessionId ?? "");
+  const sendMessage = useSendChatMessage();
 
   const { events, readyState } = useChatStream(activeSessionId);
 
@@ -62,10 +62,10 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     if (!activeSessionId) {
       const result = await createSession.mutateAsync({ runtime: "claude_code" });
       setActiveSessionId(result.session_id);
-      await sendMessage.mutateAsync({ content });
+      await sendMessage.mutateAsync({ sessionId: result.session_id, content });
       return;
     }
-    await sendMessage.mutateAsync({ content });
+    await sendMessage.mutateAsync({ sessionId: activeSessionId, content });
   };
 
   const sessionList = sessions.data?.sessions ?? [];

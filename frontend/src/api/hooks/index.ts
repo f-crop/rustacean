@@ -106,4 +106,5 @@ export {
   type ListChatSessionsResponse,
   type CreateChatSessionRequest,
   type CreateChatSessionResponse,
+  type SendMessageVariables,
 } from "./useChatSessions";
