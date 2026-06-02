@@ -155,7 +155,7 @@ pub fn verify_mcp_token(token: &str, secret: &[u8]) -> Result<MintedMcpClaims, J
 mod tests {
     use super::*;
 
-    const SECRET: &[u8] = b"test-mcp-jwt-secret-must-be-long-enough-for-hs256"; // gitleaks:allow
+    const SECRET: &[u8] = b"test-mcp-jwt-secret-must-be-long-enough-for-hs256"; // gitleaks:allow — test-only HS256 fixture, not a real secret
     const TTL: u64 = 900;
 
     fn make_claims() -> McpTokenClaims {
