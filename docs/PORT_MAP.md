@@ -25,6 +25,7 @@ docker compose --env-file compose/tailscale.env -f compose/dev.yml -f compose/ta
 | 14318 | 4318 | otel-collector | HTTP | OTLP HTTP receiver |
 | 13200 | 3200 | tempo | HTTP | Grafana Tempo |
 | 19090 | 9090 | prometheus | HTTP | Prometheus scrape + query |
+| 19091 | 9091 | pushgateway | HTTP | Prometheus Pushgateway (full.yml) |
 | 13000 | 3000 | grafana | HTTP | Grafana dashboards |
 | 21434 | 11434 | ollama | HTTP | Ollama LLM API |
 | 18080 | 8080 | control-api | HTTP | Rustbrain control plane API |
