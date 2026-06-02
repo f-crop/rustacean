@@ -83,25 +83,6 @@ pub async fn db_get_chat_session(
     .ok_or(AppError::ChatSessionNotFound)
 }
 
-#[allow(dead_code)]
-pub async fn db_update_session_last_activity(
-    pool: &PgPool,
-    session_id: Uuid,
-    tenant_id: Uuid,
-) -> Result<(), AppError> {
-    sqlx::query(
-        "UPDATE control.chat_sessions \
-         SET last_activity_at = now() \
-         WHERE id = $1 AND tenant_id = $2",
-    )
-    .bind(session_id)
-    .bind(tenant_id)
-    .execute(pool)
-    .await
-    .map(|_| ())
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))
-}
-
 // ---------------------------------------------------------------------------
 // Message helpers
 // ---------------------------------------------------------------------------
@@ -114,6 +95,28 @@ pub async fn db_insert_chat_message(
     role: &str,
     body: &str,
 ) -> Result<i32, AppError> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB txn begin: {e}")))?;
+
+    // Acquire a row-level lock on the session so concurrent inserts on the same
+    // session queue here instead of racing on the MAX(seq) subquery.
+    let locked: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM control.chat_sessions \
+         WHERE id = $1 AND tenant_id = $2 \
+         FOR UPDATE",
+    )
+    .bind(session_id)
+    .bind(tenant_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB lock: {e}")))?;
+
+    if locked.is_none() {
+        return Err(AppError::ChatSessionNotFound);
+    }
+
     let (seq,): (i32,) = sqlx::query_as(
         r"
         INSERT INTO control.chat_messages (id, session_id, tenant_id, seq, role, body)
@@ -128,12 +131,25 @@ pub async fn db_insert_chat_message(
     .bind(tenant_id)
     .bind(role)
     .bind(body)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
         tracing::error!("failed to insert chat_message: {e}");
         AppError::Internal(anyhow::anyhow!("DB insert failed"))
     })?;
+
+    sqlx::query(
+        "UPDATE control.chat_sessions SET last_activity_at = now() WHERE id = $1",
+    )
+    .bind(session_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB activity update: {e}")))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB txn commit: {e}")))?;
+
     Ok(seq)
 }
 

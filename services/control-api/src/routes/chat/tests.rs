@@ -1,9 +1,12 @@
 //! Handler-level unit tests for the chat routes (ADR-013 §3).
 //!
-//! Tests cover: feature-flag 404, auth happy/sad paths, and tenant isolation.
+//! Tests cover: feature-flag 404, auth happy/sad paths, tenant isolation,
+//! and concurrent message insert correctness.
 
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 use crate::{
@@ -11,7 +14,19 @@ use crate::{
     middleware::auth::{ApiKeyInfo, AuthContext, McpJwtInfo, Scope, SessionInfo},
 };
 
+use super::db::db_insert_chat_message;
 use super::sessions::require_chat_auth;
+
+/// Connect to the real Postgres instance.
+/// Returns `None` when `RB_DATABASE_URL` is absent — callers skip gracefully.
+async fn test_pool() -> Option<PgPool> {
+    let url = std::env::var("RB_DATABASE_URL").ok()?;
+    PgPoolOptions::new()
+        .max_connections(4)
+        .connect(&url)
+        .await
+        .ok()
+}
 
 fn make_verified_session(tenant_id: Uuid, user_id: Uuid) -> AuthContext {
     AuthContext::Session(SessionInfo {
@@ -143,4 +158,67 @@ fn chat_session_not_found_is_tenant_scoped() {
     // query level (see db.rs:db_get_chat_session).
     let resp = AppError::ChatSessionNotFound.into_response();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent message inserts must produce unique seq values (no race)
+// Requires RB_DATABASE_URL; skipped gracefully when absent.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn concurrent_message_inserts_have_unique_seq() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+
+    let tenant_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO control.tenants (id, slug, name, schema_name) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(tenant_id)
+    .bind(format!("chat-conc-{}", tenant_id.simple()))
+    .bind("Chat Concurrency Test Tenant")
+    .bind(format!("chat_conc_{}", tenant_id.simple()))
+    .execute(&pool)
+    .await
+    .expect("insert tenant");
+
+    let session_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO control.chat_sessions (id, tenant_id, runtime, trace_id) \
+         VALUES ($1, $2, 'claude_code', $3)",
+    )
+    .bind(session_id)
+    .bind(tenant_id)
+    .bind(format!("trace-{}", session_id))
+    .execute(&pool)
+    .await
+    .expect("insert session");
+
+    const N: usize = 8;
+    let handles: Vec<_> = (0..N)
+        .map(|_| {
+            let pool = pool.clone();
+            tokio::spawn(async move {
+                db_insert_chat_message(
+                    &pool,
+                    Uuid::new_v4(),
+                    session_id,
+                    tenant_id,
+                    "user",
+                    "concurrent test message",
+                )
+                .await
+            })
+        })
+        .collect();
+
+    let mut seqs: Vec<i32> = Vec::with_capacity(N);
+    for h in handles {
+        let seq = h.await.expect("task panicked").expect("DB insert failed");
+        seqs.push(seq);
+    }
+
+    seqs.sort_unstable();
+    assert_eq!(seqs, (1..=(N as i32)).collect::<Vec<_>>(), "seq values must be 1..=N with no gaps or duplicates");
 }
