@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use metrics::counter;
 use rb_schemas::{
     AgentEvent, AgentEventKind, AgentRuntime, AgentSessionInput, AgentSessionStart,
     AgentSessionTerminate, TenantId,
@@ -18,6 +17,7 @@ use tracing::Instrument;
 use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runtime};
 
 mod caps;
+mod events;
 mod natural_exit;
 mod seq;
 
@@ -276,7 +276,7 @@ impl SessionManager {
             );
         }
 
-        self.emit_lifecycle_event(
+        events::emit_lifecycle_event(
             tenant_id,
             session_id,
             0,
@@ -409,7 +409,7 @@ impl SessionManager {
             );
         }
 
-        self.emit_terminated_event(
+        events::emit_terminated_event(
             handle.tenant_id,
             session_id,
             exit_code,
@@ -557,59 +557,6 @@ impl SessionManager {
         (stdout_handle, stderr_handle)
     }
 
-    async fn emit_lifecycle_event(
-        &self,
-        tenant_id: TenantId,
-        session_id: &str,
-        seq: i64,
-        kind: AgentEventKind,
-        payload: &str,
-        event_sender: &tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
-    ) {
-        let ev = AgentEvent {
-            tenant_id: tenant_id.to_string(),
-            session_id: session_id.to_string(),
-            seq,
-            kind: kind.into(),
-            payload: payload.to_string(),
-            emitted_at_ms: chrono::Utc::now().timestamp_millis(),
-        };
-        if tokio::time::timeout(Duration::from_secs(5), event_sender.send((tenant_id, ev)))
-            .await
-            .is_err()
-        {
-            tracing::warn!(session_id = %session_id, "Event channel full, dropped event");
-            counter!("rb_agent_events_dropped_total", "reason" => "channel_full").increment(1);
-        }
-    }
-
-    async fn emit_terminated_event(
-        &self,
-        tenant_id: TenantId,
-        session_id: &str,
-        exit_code: i32,
-        duration_ms: i64,
-        reason: &str,
-        event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
-    ) {
-        let payload =
-            serde_json::json!({"exit_code":exit_code,"duration_ms":duration_ms,"reason":reason});
-        let ev = AgentEvent {
-            tenant_id: tenant_id.to_string(),
-            session_id: session_id.to_string(),
-            seq: TERMINATED_SEQ,
-            kind: AgentEventKind::Terminated.into(),
-            payload: payload.to_string(),
-            emitted_at_ms: chrono::Utc::now().timestamp_millis(),
-        };
-        if tokio::time::timeout(Duration::from_secs(5), event_sender.send((tenant_id, ev)))
-            .await
-            .is_err()
-        {
-            tracing::warn!(session_id = %session_id, "Event channel full, dropped terminated event");
-            counter!("rb_agent_events_dropped_total", "reason" => "channel_full").increment(1);
-        }
-    }
 }
 pub use crate::workspace_gc::spawn_workspace_gc;
 
