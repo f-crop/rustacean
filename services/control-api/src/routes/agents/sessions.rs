@@ -436,97 +436,165 @@ pub async fn patch_session_status(
     }
 
     // SECURITY: Verify the session belongs to the claimed tenant.
-    // This prevents an attacker with the internal secret from updating arbitrary sessions.
-    let row: Option<(Uuid,)> =
+    // Chat sessions live in control.chat_sessions (migration 021); try agents table first
+    // and fall back to the chat table so both session kinds share this callback path.
+    let agent_row: Option<(Uuid,)> =
         sqlx::query_as("SELECT tenant_id FROM agents.agent_sessions WHERE id = $1")
             .bind(session_id)
             .fetch_optional(&state.pool)
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
 
-    let (session_tenant_id,) = row.ok_or(AppError::NotFound)?;
-    if session_tenant_id != req.tenant_id {
+    if let Some((session_tenant_id,)) = agent_row {
+        if session_tenant_id != req.tenant_id {
+            return Err(AppError::Unauthorized);
+        }
+
+        // Agent session path: update agents.agent_sessions, emit lifecycle event.
+        let result = if req.status == "failed" {
+            sqlx::query(
+                "UPDATE agents.agent_sessions
+                 SET status = $1, pid = $2, exit_code = $3,
+                     failed_at = now(),
+                     failure_reason = COALESCE($6, failure_reason)
+                 WHERE id = $4 AND tenant_id = $5
+                   AND status NOT IN ('terminated', 'cancelled', 'failed', 'completed')",
+            )
+            .bind(&req.status)
+            .bind(req.pid)
+            .bind(req.exit_code)
+            .bind(session_id)
+            .bind(req.tenant_id)
+            .bind(req.error.as_deref())
+            .execute(&state.pool)
+            .await
+        } else {
+            sqlx::query(
+                "UPDATE agents.agent_sessions
+                 SET status = $1, pid = $2, exit_code = $3
+                 WHERE id = $4 AND tenant_id = $5
+                   AND status NOT IN ('terminated', 'cancelled', 'failed')",
+            )
+            .bind(&req.status)
+            .bind(req.pid)
+            .bind(req.exit_code)
+            .bind(session_id)
+            .bind(req.tenant_id)
+            .execute(&state.pool)
+            .await
+        }
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
+
+        if result.rows_affected() > 0 {
+            if TERMINAL_STATUSES.contains(&req.status.as_str()) {
+                let _ = state.agent_registry.remove(&session_id);
+                state.tenant_session_count.decrement(&req.tenant_id);
+                revoke_session_api_key(&state.pool, session_id).await;
+            }
+
+            if let Some(event_type) = lifecycle_event_type(&req.status) {
+                let seq = lifecycle_event_seq(&req.status);
+                let payload = lifecycle_event_payload(&req);
+                let payload_str = payload.to_string();
+
+                if let Err(e) = sqlx::query(
+                    "INSERT INTO agents.agent_events \
+                     (session_id, tenant_id, event_type, sequence, payload) \
+                     VALUES ($1, $2, $3, $4, $5::jsonb)",
+                )
+                .bind(session_id)
+                .bind(req.tenant_id)
+                .bind(event_type)
+                .bind(seq)
+                .bind(&payload_str)
+                .execute(&state.pool)
+                .await
+                {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        status = %req.status,
+                        "agent_events insert failed: {e}"
+                    );
+                }
+
+                let tenant_id = TenantId::from(req.tenant_id);
+                let sse_data = serde_json::json!({
+                    "session_id": session_id,
+                    "event_type": event_type,
+                    "sequence": seq,
+                    "payload": payload,
+                });
+                if let Ok(data) = serde_json::to_string(&sse_data) {
+                    state.sse_bus.publish_raw(&tenant_id, "session.event", data);
+                }
+            }
+        }
+
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    patch_chat_session_status(&state, session_id, &req).await
+}
+
+/// Chat-session fallback for [`patch_session_status`].
+///
+/// Called when `agents.agent_sessions` has no row for `session_id` — validates ownership
+/// against `control.chat_sessions`, updates the chat status for terminal transitions, and
+/// fans out the lifecycle event to the SSE bus.  No `agent_registry` / session-count
+/// side-effects because chat sessions are not counted against the agent concurrency limit.
+async fn patch_chat_session_status(
+    state: &AppState,
+    session_id: Uuid,
+    req: &PatchSessionStatusRequest,
+) -> Result<StatusCode, AppError> {
+    let chat_row: Option<(Uuid,)> =
+        sqlx::query_as("SELECT tenant_id FROM control.chat_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+
+    let (chat_tenant_id,) = chat_row.ok_or(AppError::NotFound)?;
+    if chat_tenant_id != req.tenant_id {
         return Err(AppError::Unauthorized);
     }
 
-    // The `status NOT IN (...)` guard makes terminal states sticky.  Without it a
-    // late callback could overwrite `failed` with `running` or similar.
-    let result = if req.status == "failed" {
+    // Map agent-runner status → chat_sessions.status.
+    // "terminated" → "ended"; "failed" → "failed"; others are non-terminal, skip update.
+    let chat_status = match req.status.as_str() {
+        "terminated" => Some("ended"),
+        "failed" => Some("failed"),
+        _ => None,
+    };
+
+    if let Some(cs) = chat_status {
         sqlx::query(
-            "UPDATE agents.agent_sessions
-             SET status = $1, pid = $2, exit_code = $3,
-                 failed_at = now(),
-                 failure_reason = COALESCE($6, failure_reason)
-             WHERE id = $4 AND tenant_id = $5
-               AND status NOT IN ('terminated', 'cancelled', 'failed', 'completed')",
+            "UPDATE control.chat_sessions
+             SET status = $1, ended_at = now(), last_activity_at = now()
+             WHERE id = $2 AND tenant_id = $3
+               AND status = 'active'",
         )
-        .bind(&req.status)
-        .bind(req.pid)
-        .bind(req.exit_code)
-        .bind(session_id)
-        .bind(req.tenant_id)
-        .bind(req.error.as_deref())
-        .execute(&state.pool)
-        .await
-    } else {
-        sqlx::query(
-            "UPDATE agents.agent_sessions
-             SET status = $1, pid = $2, exit_code = $3
-             WHERE id = $4 AND tenant_id = $5
-               AND status NOT IN ('terminated', 'cancelled', 'failed')",
-        )
-        .bind(&req.status)
-        .bind(req.pid)
-        .bind(req.exit_code)
+        .bind(cs)
         .bind(session_id)
         .bind(req.tenant_id)
         .execute(&state.pool)
         .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("chat session update failed: {e}")))?;
     }
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
-    if result.rows_affected() > 0 {
-        if TERMINAL_STATUSES.contains(&req.status.as_str()) {
-            let _ = state.agent_registry.remove(&session_id);
-            state.tenant_session_count.decrement(&req.tenant_id);
-            revoke_session_api_key(&state.pool, session_id).await;
-        }
+    if let Some(event_type) = lifecycle_event_type(&req.status) {
+        let seq = lifecycle_event_seq(&req.status);
+        let payload = lifecycle_event_payload(req);
 
-        if let Some(event_type) = lifecycle_event_type(&req.status) {
-            let seq = lifecycle_event_seq(&req.status);
-            let payload = lifecycle_event_payload(&req);
-            let payload_str = payload.to_string();
-
-            if let Err(e) = sqlx::query(
-                "INSERT INTO agents.agent_events \
-                 (session_id, tenant_id, event_type, sequence, payload) \
-                 VALUES ($1, $2, $3, $4, $5::jsonb)",
-            )
-            .bind(session_id)
-            .bind(req.tenant_id)
-            .bind(event_type)
-            .bind(seq)
-            .bind(&payload_str)
-            .execute(&state.pool)
-            .await
-            {
-                tracing::warn!(
-                    session_id = %session_id,
-                    status = %req.status,
-                    "agent_events insert failed: {e}"
-                );
-            }
-
-            let tenant_id = TenantId::from(req.tenant_id);
-            let sse_data = serde_json::json!({
-                "session_id": session_id,
-                "event_type": event_type,
-                "sequence": seq,
-                "payload": payload,
-            });
-            if let Ok(data) = serde_json::to_string(&sse_data) {
-                state.sse_bus.publish_raw(&tenant_id, "session.event", data);
-            }
+        let tenant_id = TenantId::from(req.tenant_id);
+        let sse_data = serde_json::json!({
+            "session_id": session_id,
+            "event_type": event_type,
+            "sequence": seq,
+            "payload": payload,
+        });
+        if let Ok(data) = serde_json::to_string(&sse_data) {
+            state.sse_bus.publish_raw(&tenant_id, "session.event", data);
         }
     }
 

@@ -73,19 +73,79 @@ pub async fn ingest_session_events(
     }
 
     // SECURITY: verify the session exists and belongs to the claimed tenant.
-    let row: Option<(Uuid,)> =
+    // Chat sessions live in control.chat_sessions (migration 021); agent sessions live in
+    // agents.agent_sessions. Try the agent table first; if not found, fall back to the chat
+    // table. This keeps the existing agent path unchanged while unblocking chat event relay.
+    let agent_row: Option<(Uuid,)> =
         sqlx::query_as("SELECT tenant_id FROM agents.agent_sessions WHERE id = $1")
             .bind(session_id)
             .fetch_optional(&state.pool)
             .await
             .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
 
-    let (session_tenant_id,) = row.ok_or(AppError::NotFound)?;
-    if session_tenant_id != req.tenant_id {
+    if let Some((session_tenant_id,)) = agent_row {
+        if session_tenant_id != req.tenant_id {
+            return Err(AppError::Unauthorized);
+        }
+        return ingest_agent_session_events(&state, session_id, &req).await;
+    }
+
+    // Chat session fallback: validate against control.chat_sessions.
+    // Chat events are NOT inserted into agents.agent_events — they persist via
+    // control.chat_messages through the db_insert_chat_message path. Here we only
+    // fan-out to the SSE bus so the frontend receives streaming tokens.
+    let chat_row: Option<(Uuid,)> =
+        sqlx::query_as("SELECT tenant_id FROM control.chat_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
+
+    let (chat_tenant_id,) = chat_row.ok_or(AppError::NotFound)?;
+    if chat_tenant_id != req.tenant_id {
         return Err(AppError::Unauthorized);
     }
 
-    // Prepare parallel arrays for the unnest bulk-insert.
+    // Fan-out to the SSE bus without a DB insert — sequences are synthetic (1-based).
+    let tenant_id = TenantId::from(req.tenant_id);
+    let mut fanned_out: usize = 0;
+    for (seq, ev) in req.events.iter().enumerate() {
+        let et = event_type(ev);
+        let payload_value: serde_json::Value = ev
+            .to_payload_json()
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(serde_json::Value::Null);
+
+        let seq_i64 = i64::try_from(seq + 1).unwrap_or(i64::MAX);
+        let sse_data = serde_json::json!({
+            "session_id": session_id,
+            "event_type": et,
+            "sequence": seq_i64,
+            "payload": payload_value,
+        });
+
+        if let Ok(data) = serde_json::to_string(&sse_data) {
+            state.sse_bus.publish_raw(&tenant_id, "session.event", data);
+            fanned_out += 1;
+        }
+    }
+
+    Ok((
+        StatusCode::OK,
+        Json(IngestEventsResponse {
+            inserted: fanned_out,
+        }),
+    ))
+}
+
+/// Agent-session path for [`ingest_session_events`]: bulk-inserts events into
+/// `agents.agent_events` and fans each row out to the per-tenant SSE bus.
+async fn ingest_agent_session_events(
+    state: &AppState,
+    session_id: Uuid,
+    req: &IngestEventsRequest,
+) -> Result<(StatusCode, Json<IngestEventsResponse>), AppError> {
     let n = req.events.len();
     let mut event_types: Vec<&str> = Vec::with_capacity(n);
     let mut payloads: Vec<String> = Vec::with_capacity(n);
@@ -98,11 +158,8 @@ pub async fn ingest_session_events(
         );
     }
 
-    // Single-statement bulk insert: sequences start from MAX(non-negative sequence) + 1.
-    // The CTE evaluates once so all rows in the batch see the same base value.
-    //
+    // Single-statement bulk insert. Sequences start from MAX(non-negative sequence) + 1.
     // Lifecycle sentinels use i64::MIN+1 / i64::MIN+2; stream-json events use ≥ 1.
-    // The `sequence >= 0` filter excludes lifecycle sentinels from the MAX scan.
     let rows: Vec<(i64,)> = sqlx::query_as(
         r"
         WITH base AS (
@@ -133,7 +190,6 @@ pub async fn ingest_session_events(
 
     let inserted = rows.len();
 
-    // Fan-out to the per-tenant SSE bus — one frame per inserted row.
     let tenant_id = TenantId::from(req.tenant_id);
     for ((ev, et), (seq,)) in req.events.iter().zip(event_types.iter()).zip(rows.iter()) {
         let payload_value: serde_json::Value = ev
