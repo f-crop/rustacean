@@ -140,6 +140,22 @@ HS256, signed with `RB_MCP_JWT_SECRET`, claims `{sid, tenant_id, user_id, scope:
 
 This ensures a bug in the redaction layer cannot leak a secret to a durable store or relay. The `AssertUnwindSafe` wrapper is acceptable here because `redact_with_token` holds no interior-mutable state — a panic leaves no partially-mutated shared data.
 
+### 6.3 Log-redaction contract
+
+Function: `rb_secrets::redact(s: &str) -> Cow<str>` (with companion `rb_secrets::redact_with_token(s: &str, live_token: Option<&str>) -> Cow<str>` for the live-session JWT seed).
+
+Applied to every runtime stdout byte before it reaches `chat_messages.body`, `agent_events.data`, an SSE frame, or a structured log line.
+
+Patterns redacted:
+1. JWTs — three base64url segments starting with `eyJ` → `<redacted:jwt>`.
+2. `Bearer <token>` (case-insensitive prefix) → `<redacted:bearer>`.
+3. The exact live-session JWT, when supplied via `live_token` → `<redacted:jwt>`.
+4. Env-var prefixes `RB_MCP_JWT_SECRET`, `RB_AGENT_API_KEY`, `RB_LLM_API_KEY` → `<redacted:secret>`.
+
+Fail-closed: if the redactor panics on a line, the caller drops that line and emits a structured log with `error_kind="redaction_failed"`. No raw fallback.
+
+**S5 acceptance:** the log-redactor lives in `rb-secrets` (`rb_secrets::redact`). Unit tests cover each of the four patterns in §6.3 and the fail-closed no-panic contract. The caller-side line-drop + `error_kind="redaction_failed"` behaviour is exercised by an integration test under `services/agent-runner`.
+
 ---
 
 ## 7. Persistence schema

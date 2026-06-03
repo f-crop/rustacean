@@ -20,6 +20,7 @@ rb-build-info = { path = "../../crates/rb-build-info", version = "0.1.0" }
 rb-kafka      = { path = "../../crates/rb-kafka",       version = "0.1.0" }
 rb-metrics    = { path = "../../crates/rb-metrics",     version = "0.1.0" }
 rb-schemas    = { path = "../../crates/rb-schemas",     version = "0.1.0" }
+rb-secrets    = { path = "../../crates/rb-secrets",     version = "0.1.0" }
 rb-tracing    = { path = "../../crates/rb-tracing",     version = "0.1.0" }
 
 anyhow.workspace = true
