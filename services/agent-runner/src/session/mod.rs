@@ -19,6 +19,7 @@ use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runt
 mod caps;
 mod events;
 mod natural_exit;
+mod redact;
 mod seq;
 
 const PROCESS_TERMINATE_TIMEOUT_SECS: u64 = 30;
@@ -499,26 +500,40 @@ impl SessionManager {
                     while let Ok(Some(line)) = lines.next_line().await {
                         let seq = seq::next_seq(&seq_counters, &seq_timestamps, &sid_stdout).await;
                         if let Some(parsed) = adapter.parse_stdout_line(&line) {
-                            // Redact before the payload reaches any durable store or relay
-                            // (ADR-013 §6.3): JWT, bearer tokens, rb_live_ keys, env-var names.
-                            let redacted = rb_auth::redact_with_token(
-                                &parsed.payload,
-                                Some(&live_token_stdout),
-                            );
+                            // Redact payload before relay (ADR-013 §6.3); fail-closed: panic → drop line.
+                            let Some(redacted_payload) = redact::redact_guarded(
+                                std::panic::AssertUnwindSafe(|| {
+                                    rb_auth::redact_with_token(
+                                        &parsed.payload,
+                                        Some(&live_token_stdout),
+                                    )
+                                    .into_owned()
+                                }),
+                                &sid_stdout,
+                            ) else {
+                                continue;
+                            };
                             let event = AgentEvent {
                                 tenant_id: tenant_id.to_string(),
                                 session_id: sid_stdout.clone(),
                                 seq,
                                 kind: AgentEventKind::Stdout.into(),
-                                payload: redacted.into_owned(),
+                                payload: redacted_payload,
                                 emitted_at_ms: chrono::Utc::now().timestamp_millis(),
                             };
                             if let Err(e) = es.try_send((tenant_id, event)) {
                                 tracing::error!(session_id = %sid_stdout, error = %e, "Failed to send stdout event (channel full or closed)");
                             }
-                            // Relay path: redact the full line before SSE/DB relay (ADR-013 §6.3).
-                            let redacted_line =
-                                rb_auth::redact_with_token(&line, Some(&live_token_stdout));
+                            // Redact raw line before SSE/DB relay (ADR-013 §6.3); fail-closed.
+                            let Some(redacted_line) = redact::redact_guarded(
+                                std::panic::AssertUnwindSafe(|| {
+                                    rb_auth::redact_with_token(&line, Some(&live_token_stdout))
+                                        .into_owned()
+                                }),
+                                &sid_stdout,
+                            ) else {
+                                continue;
+                            };
                             agent_runner::relay_stdout_events(
                                 &relay_sender,
                                 &sid_stdout,
@@ -544,15 +559,21 @@ impl SessionManager {
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let seq = seq::next_seq(&seq_counters2, &seq_timestamps2, &sid_err).await;
-                    // Redact stderr too — it goes to structured logs (ADR-013 §4.2).
-                    let redacted =
-                        rb_auth::redact_with_token(&line, Some(&live_token));
+                    // Redact stderr before structured logs (ADR-013 §4.2/§6.3); fail-closed.
+                    let Some(redacted) = redact::redact_guarded(
+                        std::panic::AssertUnwindSafe(|| {
+                            rb_auth::redact_with_token(&line, Some(&live_token)).into_owned()
+                        }),
+                        &sid_err,
+                    ) else {
+                        continue;
+                    };
                     let event = AgentEvent {
                         tenant_id: tenant_id.to_string(),
                         session_id: sid_err.clone(),
                         seq,
                         kind: AgentEventKind::Stderr.into(),
-                        payload: redacted.into_owned(),
+                        payload: redacted,
                         emitted_at_ms: chrono::Utc::now().timestamp_millis(),
                     };
                     if let Err(e) = event_sender.try_send((tenant_id, event)) {
@@ -566,12 +587,12 @@ impl SessionManager {
         (stdout_handle, stderr_handle)
     }
 }
+
 pub use crate::workspace_gc::spawn_workspace_gc;
 
 #[cfg(test)]
-#[path = "tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "cap_tests.rs"]
 mod cap_tests;
+#[cfg(test)]
+mod redact_tests;
+#[cfg(test)]
+mod tests;
