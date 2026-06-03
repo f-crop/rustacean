@@ -19,6 +19,7 @@ use crate::adapters::{AgentProcess, RuntimeAdapter, SessionCtx, adapter_for_runt
 mod caps;
 mod events;
 mod natural_exit;
+mod redact;
 mod seq;
 
 const PROCESS_TERMINATE_TIMEOUT_SECS: u64 = 30;
@@ -499,10 +500,8 @@ impl SessionManager {
                     while let Ok(Some(line)) = lines.next_line().await {
                         let seq = seq::next_seq(&seq_counters, &seq_timestamps, &sid_stdout).await;
                         if let Some(parsed) = adapter.parse_stdout_line(&line) {
-                            // Redact before the payload reaches any durable store or relay
-                            // (ADR-013 §6.3): JWT, bearer tokens, rb_live_ keys, env-var names.
-                            // Fail-closed: if redact panics, drop the line and log error_kind=redaction_failed.
-                            let Some(redacted_payload) = redact_guarded(
+                            // Redact payload before relay (ADR-013 §6.3); fail-closed: panic → drop line.
+                            let Some(redacted_payload) = redact::redact_guarded(
                                 std::panic::AssertUnwindSafe(|| {
                                     rb_auth::redact_with_token(
                                         &parsed.payload,
@@ -525,8 +524,8 @@ impl SessionManager {
                             if let Err(e) = es.try_send((tenant_id, event)) {
                                 tracing::error!(session_id = %sid_stdout, error = %e, "Failed to send stdout event (channel full or closed)");
                             }
-                            // Relay path: redact the full line before SSE/DB relay (ADR-013 §6.3).
-                            let Some(redacted_line) = redact_guarded(
+                            // Redact raw line before SSE/DB relay (ADR-013 §6.3); fail-closed.
+                            let Some(redacted_line) = redact::redact_guarded(
                                 std::panic::AssertUnwindSafe(|| {
                                     rb_auth::redact_with_token(&line, Some(&live_token_stdout))
                                         .into_owned()
@@ -560,9 +559,8 @@ impl SessionManager {
                 let mut lines = reader.lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let seq = seq::next_seq(&seq_counters2, &seq_timestamps2, &sid_err).await;
-                    // Redact stderr too — it goes to structured logs (ADR-013 §4.2/§6.3).
-                    // Fail-closed: if redact panics, drop the line and log error_kind=redaction_failed.
-                    let Some(redacted) = redact_guarded(
+                    // Redact stderr before structured logs (ADR-013 §4.2/§6.3); fail-closed.
+                    let Some(redacted) = redact::redact_guarded(
                         std::panic::AssertUnwindSafe(|| {
                             rb_auth::redact_with_token(&line, Some(&live_token)).into_owned()
                         }),
@@ -587,26 +585,6 @@ impl SessionManager {
         );
 
         (stdout_handle, stderr_handle)
-    }
-}
-/// Invoke `f` and catch any panic from within the redaction call.
-///
-/// On success returns `Some(redacted)`. On panic returns `None` and emits a
-/// structured `tracing::error!` with `error_kind="redaction_failed"` — the
-/// caller must drop the offending line (ADR-013 §6.3 fail-closed contract).
-fn redact_guarded<F>(f: F, session_id: &str) -> Option<String>
-where
-    F: FnOnce() -> String + std::panic::UnwindSafe,
-{
-    if let Ok(s) = std::panic::catch_unwind(f) {
-        Some(s)
-    } else {
-        tracing::error!(
-            session_id = %session_id,
-            error_kind = "redaction_failed",
-            "redact_with_token panicked; dropping line (ADR-013 §6.3 fail-closed)"
-        );
-        None
     }
 }
 
