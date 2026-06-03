@@ -326,3 +326,112 @@ Port reference for verification steps (tailscale env):
 |------|-----|
 | Auth login / SSE stream | http://localhost:10080 (Caddy proxy) |
 | Grafana / Tempo | http://localhost:13000 |
+
+---
+
+## Wave 9: Chat panel operations
+
+The chat panel (Wave 9) adds an interactive coding assistant that runs runtime processes inside `agent-runner`. This section covers operator tasks specific to the chat subsystem.
+
+### Feature flag
+
+The chat panel is disabled by default. Enable it on `control-api`:
+
+```bash
+# compose/dev.yml — control-api environment
+RB_CHAT_PANEL_ENABLED=true
+
+docker compose -f compose/dev.yml restart control-api
+```
+
+Verify the flag is active:
+
+```bash
+curl -s http://localhost:8080/health | jq '.features.chat_panel'
+# → true
+```
+
+### MCP JWT secret management
+
+Chat sessions use a short-lived JWT signed with `RB_MCP_JWT_SECRET`. This secret lives in `rb-secrets`.
+
+```bash
+# Rotate the JWT signing key:
+# 1. Generate a new secret
+openssl rand -base64 32
+
+# 2. Set it in compose/dev.yml (control-api environment)
+RB_MCP_JWT_SECRET=<new-secret>
+
+# 3. Restart control-api (mints new tokens immediately)
+docker compose -f compose/dev.yml restart control-api
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RB_MCP_JWT_SECRET` | — (**required** when chat enabled) | HS256 signing key for MCP chat tokens |
+| `RB_MCP_JWT_TTL_SECS` | `900` | Token TTL in seconds (15 min) |
+| `RB_MCP_JWT_REFRESH_SECS` | `120` | Re-mint window before expiry |
+
+Key rotation is hitless: set a new secret with a new `kid`; the verifier accepts both during a grace period equal to the old TTL.
+
+### Runtime process inspection
+
+Each chat session runs one OS process inside the `agent-runner` container.
+
+```bash
+# List live runtime processes
+docker compose -f compose/dev.yml exec agent-runner ps aux | grep -E 'claude|opencode'
+
+# Check active chat sessions in the database
+docker compose -f compose/dev.yml exec postgres psql -U rustbrain -c \
+  "SELECT id, runtime, status, last_activity_at FROM control.chat_sessions WHERE status = 'active';"
+
+# Count sessions per tenant
+docker compose -f compose/dev.yml exec postgres psql -U rustbrain -c \
+  "SELECT tenant_id, count(*) FROM control.chat_sessions WHERE status = 'active' GROUP BY tenant_id;"
+```
+
+### Common failure modes
+
+#### Chat session returns 503 / feature not available
+
+**Cause**: `RB_CHAT_PANEL_ENABLED` is not set or set to `false`.
+
+**Fix**: Set the flag and restart control-api.
+
+#### JWT verification fails on `/mcp` calls
+
+**Symptom**: Runtime logs show `JwtError::InvalidSignature` or `JwtError::ExpiredToken`.
+
+**Cause**: `RB_MCP_JWT_SECRET` mismatch between control-api (minter) and the `/mcp` verifier (same process, but check for stale env after a partial restart), or the token expired because the session was idle longer than `RB_MCP_JWT_TTL_SECS`.
+
+**Fix**: Ensure `RB_MCP_JWT_SECRET` is identical across a full restart. For expired tokens, the gateway auto-refreshes on the next user message.
+
+#### Runtime process OOM-killed
+
+**Symptom**: `session_failed{error_kind="runtime_oom"}` in agent-runner logs.
+
+**Cause**: The runtime process exceeded the 1 GiB memory limit (cgroup v2 `memory.max`).
+
+**Fix**: This is expected for memory-intensive operations. The user sees a typed error and can retry. If frequent, consider raising the limit in the cgroup configuration.
+
+#### Orphaned runtime processes
+
+**Symptom**: `ps aux` shows runtime processes with no matching active `chat_session`.
+
+**Cause**: Supervisor crash or unclean shutdown.
+
+**Fix**: The existing `workspace_gc` reaper cleans up orphaned workspaces. For processes, restart `agent-runner`:
+
+```bash
+docker compose -f compose/dev.yml restart agent-runner
+```
+
+#### Redaction failure (line dropped)
+
+**Symptom**: `error_kind="redaction_failed"` events in agent-runner logs; user sees missing lines in the transcript.
+
+**Cause**: The redaction pass encountered an error processing a runtime output line. The line was dropped (fail-closed) rather than persisted with raw credentials.
+
+**Fix**: Check agent-runner logs for the specific redaction error. This is a safety mechanism — the dropped line may have contained sensitive data.

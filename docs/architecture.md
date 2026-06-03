@@ -392,3 +392,5 @@ Architecture decisions are captured as ADRs in [`docs/decisions/`](decisions/).
 | [ADR-009](decisions/ADR-009-agent-execution-architecture.md) | Agent Execution Architecture | Accepted (rev 6) — MCP server, agent session lifecycle, runtime adapters (Claude Code, OpenCode, Pi), LiteLLM gateway, per-tenant rate limits |
 | [ADR-010](decisions/ADR-010-github-app-tenant-install.md) | Tenant-scoped GitHub App install + orphan-reclaim | Accepted — self-healing atomic CTE reclaim for cross-tenant installation collisions |
 | [ADR-011](decisions/ADR-011-dev-stack-auto-rebuild.md) | Dev-stack auto-rebuild watcher | Accepted — selective per-path rebuilds via post-merge git hook, user systemd service, build-SHA provenance |
+| [ADR-012](decisions/ADR-012-wave8-hardening-polish.md) | Wave 8 Hardening & Polish | Accepted — admin endpoints, observability, synthetic load, drift detection |
+| [ADR-013](decisions/ADR-013-chat-panel-architecture.md) | Chat-Panel Architecture, Runtime Contract & MCP Token Model | Proposed (Wave 9) — interactive chat panel, generalized runtime adapter, short-lived MCP JWT, log-redaction contract |
