@@ -194,18 +194,20 @@ impl RuntimeAdapter for OpencodeAdapter {
             cmd.args(["run", "--", &ctx.initial_prompt]);
         }
 
-        let child = cmd.spawn().context("Failed to spawn opencode process")?;
+        let mut child = cmd.spawn().context("Failed to spawn opencode process")?;
         let pid = child.id().context("Failed to get process ID")?;
+        let stdin = child.stdin.take();
 
         Ok(AgentProcess {
             child,
             pid,
             runtime: AgentRuntime::Opencode,
+            stdin,
         })
     }
 
     async fn send_input(&self, proc: &mut AgentProcess, input: &str) -> Result<()> {
-        if let Some(stdin) = proc.child.stdin.as_mut() {
+        if let Some(stdin) = proc.stdin.as_mut() {
             stdin.write_all(input.as_bytes()).await?;
             stdin.write_all(b"\n").await?;
             stdin.flush().await?;

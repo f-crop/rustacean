@@ -4,7 +4,7 @@ use std::process::Stdio;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use rb_schemas::AgentRuntime;
-use tokio::process::{Child, Command};
+use tokio::process::{Child, ChildStdin, Command};
 
 pub mod claude_code;
 pub mod opencode;
@@ -25,6 +25,12 @@ pub struct AgentProcess {
     pub child: Child,
     pub pid: u32,
     pub runtime: AgentRuntime,
+    /// Stdin extracted from `child` at spawn time.  tokio ≥1.52 drops
+    /// `child.stdin` inside `Child::wait()`, which would send EOF to the
+    /// subprocess and cause Claude to exit code 1 (RUSAA-1870).  Extracting
+    /// it here prevents `wait()` from closing the pipe while `send_input` is
+    /// still writing to it.
+    pub stdin: Option<ChildStdin>,
 }
 
 /// Static description of a runtime: used for registry validation and docs generation (ADR-013 §4.1).
@@ -330,5 +336,43 @@ mod tests {
             err.to_string().contains("must use http://"),
             "expected SSRF validation error, got: {err}"
         );
+    }
+
+    /// Regression test for RUSAA-1870: tokio ≥1.52 `Child::wait()` drops
+    /// `child.stdin`, causing Claude to read EOF and exit 1.  Extracting stdin
+    /// into `AgentProcess::stdin` before `wait()` prevents the close.
+    #[tokio::test]
+    async fn extracted_stdin_survives_child_wait() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut cmd = tokio::process::Command::new("/bin/cat");
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let mut child = cmd.spawn().expect("/bin/cat must be available");
+        let mut stdout = child.stdout.take().unwrap();
+        // Simulate the AgentProcess::spawn pattern: extract stdin before wait().
+        let mut stdin = child.stdin.take().expect("stdin must be piped");
+
+        // child.stdin is now None — tokio's wait() cannot drop our handle.
+        let wait_task = tokio::spawn(async move { child.wait().await });
+
+        // Write while the wait task is live — must not fail (RUSAA-1870).
+        stdin
+            .write_all(b"hello\n")
+            .await
+            .expect("write to extracted stdin must succeed");
+        drop(stdin); // close → cat exits naturally
+
+        let mut buf = String::new();
+        stdout.read_to_string(&mut buf).await.unwrap();
+        assert_eq!(
+            buf, "hello\n",
+            "cat must echo the line written after wait started"
+        );
+
+        let status = wait_task.await.unwrap().unwrap();
+        assert_eq!(status.code(), Some(0), "cat must exit 0 after stdin closes");
     }
 }
