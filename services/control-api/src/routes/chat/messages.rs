@@ -28,7 +28,7 @@ const MESSAGE_BODY_MAX_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PostMessageRequest {
-    pub body: String,
+    pub content: String,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -64,7 +64,7 @@ pub async fn post_chat_message(
 
     let caller = require_chat_auth(auth)?;
 
-    if req.body.len() > MESSAGE_BODY_MAX_BYTES {
+    if req.content.len() > MESSAGE_BODY_MAX_BYTES {
         return Err(AppError::InvalidInput);
     }
 
@@ -81,7 +81,7 @@ pub async fn post_chat_message(
         session_id,
         caller.tenant_id,
         "user",
-        &req.body,
+        &req.content,
     )
     .await?;
 
@@ -94,7 +94,7 @@ pub async fn post_chat_message(
     let command = AgentSessionCommand {
         session_id: session_id.to_string(),
         command: Some(agent_session_command::Command::Input(AgentSessionInput {
-            input: req.body,
+            input: req.content,
         })),
     };
 
