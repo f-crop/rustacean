@@ -96,6 +96,21 @@ See [mcp-chat-tokens.md](../mcp-chat-tokens.md) for the full token specification
 
 HS256, signed with `RB_MCP_JWT_SECRET`, claims `{sid, tenant_id, user_id, scope:["read"], exp}`. 15 min TTL, re-minted on activity.
 
+### 5.1 Key management
+
+**Entropy requirement.** `RB_MCP_JWT_SECRET` must be a cryptographically random value of ≥ 256 bits (32 bytes), loaded exclusively via `rb-secrets::from_env("RB_MCP_JWT_SECRET")`. Inline literals, `.env` commits, and plaintext database columns are prohibited.
+
+**Distinctness.** `RB_MCP_JWT_SECRET` must be distinct from every other signing key in the system — `RB_GITHUB_APP_PRIVATE_KEY`, session-token secrets, and all future keys. Sharing a key across authentication boundaries is prohibited.
+
+**Rotation procedure.** The `kid` (key ID) header in each JWT (see token shape above in §5) is the rotation hook:
+
+1. Generate a new random value; assign it `kid = N+1`.
+2. Deploy the new value **alongside** the old one. The verifier (`rb-auth::jwt::verify`) must support **at least two simultaneous `kid` values** during the overlap window; tokens signed by either key must verify successfully.
+3. The overlap window equals `RB_MCP_JWT_TTL_SECS` (default 900 s) — the maximum in-flight JWT lifetime. Once the window passes, no token signed with the old key remains valid.
+4. Remove the old value. The verifier reverts to accepting only the current `kid`.
+
+**Operational note.** Secrets loaded via `rb-secrets::from_env` are read at mint time. A forced session kill is not required: all old-key tokens expire naturally within one TTL window.
+
 ---
 
 ## 6. Threat model (Security-Engineer-owned)
@@ -109,6 +124,7 @@ HS256, signed with `RB_MCP_JWT_SECRET`, claims `{sid, tenant_id, user_id, scope:
 | T5 | SSRF via MCP URL | Existing `http(s)`-scheme guard |
 | T6 | Tenant switch mid-session | `McpSessionStore` drift rejection |
 | T7 | Resource exhaustion / fork-bomb | cgroup caps, concurrency limits, wall-clock + idle caps |
+| T8 | Weak or shared JWT signing key | `RB_MCP_JWT_SECRET` ≥ 256-bit random, distinct from all other keys, loaded via `rb-secrets::from_env`; rotation per §5.1 |
 
 ---
 
