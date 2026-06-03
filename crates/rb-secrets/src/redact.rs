@@ -5,12 +5,20 @@
 //! frame, or a structured log line. Redaction is fail-closed: if this
 //! panics the caller must drop the line and emit `error_kind="redaction_failed"`.
 //!
-//! Patterns redacted:
+//! Patterns redacted (applied after percent-decoding the input):
 //! 1. JWTs — three base64url segments starting with `eyJ`.
 //! 2. `Bearer <token>` (case-insensitive prefix).
 //! 3. `rb_live_<hex>` API key literals.
 //! 4. Env-var names `RB_MCP_JWT_SECRET`, `RB_AGENT_API_KEY`, `RB_LLM_API_KEY`.
 //! 5. The exact live-session JWT, if supplied by the caller.
+//!
+//! **Known residual risk (ADR-013 §6.3):** Multi-line and partial JWTs
+//! (`header.payload` only, no signature segment; or tokens split across
+//! newlines by runtime line-wrapping) are NOT caught by the three-segment
+//! regex. Compensating control: the MCP JWT TTL is 15 minutes
+//! (`RB_MCP_JWT_TTL_SECS`), tokens are read-only, and scope is
+//! tenant-bound (ADR-013 §5.2/§6.3) — limiting the exfiltration window
+//! even if a partial token leaks.
 
 use std::borrow::Cow;
 
@@ -31,18 +39,73 @@ pub fn redact(s: &str) -> Cow<'_, str> {
 /// `live_token` is the full JWT currently in the runtime's `.mcp.json`.
 /// Passing it here catches verbatim echoes even if the regex-like patterns
 /// would miss a split or encoded form.
+///
+/// Input is percent-decoded before matching so that JWTs with `%2E`-encoded
+/// dots (e.g. in URL query strings) are caught by the three-segment regex.
+/// The returned string is the decoded+redacted form when decoding was needed.
 #[must_use]
 pub fn redact_with_token<'a>(s: &'a str, live_token: Option<&str>) -> Cow<'a, str> {
-    if !needs_scan(s) && live_token.is_none_or(|t| t.is_empty() || !s.contains(t)) {
+    // Percent-decode first so %2E-encoded dots don't evade the JWT pattern.
+    let decoded: Option<String> = if s.contains('%') {
+        percent_decode_ascii(s)
+    } else {
+        None
+    };
+    let working: &str = decoded.as_deref().unwrap_or(s);
+
+    if !needs_scan(working) && live_token.is_none_or(|t| t.is_empty() || !working.contains(t)) {
         return Cow::Borrowed(s);
     }
 
-    let mut buf = s.to_owned();
+    let mut buf = working.to_owned();
     apply_live_token(&mut buf, live_token);
     apply_jwt_pattern(&mut buf);
     apply_bearer_pattern(&mut buf);
     apply_prefix_pattern(&mut buf);
     Cow::Owned(buf)
+}
+
+/// Percent-decode ASCII-range sequences (`%HH` where decoded byte < 128).
+///
+/// Non-ASCII sequences (decoded byte ≥ 128) are left encoded to avoid
+/// mangling multi-byte UTF-8. Returns `None` when no sequence was decoded
+/// (fast path: no allocation when the input has no `%XX` ASCII sequences).
+fn percent_decode_ascii(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    let mut changed = false;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex_nibble(bytes[i + 1]), hex_nibble(bytes[i + 2])) {
+                let decoded = (hi << 4) | lo;
+                if decoded < 128 {
+                    out.push(decoded);
+                    changed = true;
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    if changed {
+        // SAFETY: input is valid UTF-8; we only insert ASCII bytes (< 128)
+        // and copy all other bytes unchanged, preserving UTF-8 validity.
+        Some(unsafe { String::from_utf8_unchecked(out) })
+    } else {
+        None
+    }
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn needs_scan(s: &str) -> bool {
@@ -167,6 +230,23 @@ fn apply_prefix_pattern(buf: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacts_url_encoded_jwt() {
+        // JWT dots encoded as %2E — the three-segment regex must still fire
+        // after percent-decoding. This is the MEDIUM-2 evasion vector.
+        let input =
+            "GET /v1/auth?token=eyJhbGciOiJIUzI1NiJ9%2EeyJzdWIiOiJ0ZXN0In0%2Esignature_here_12345";
+        let out = redact(input);
+        assert!(
+            out.contains(REDACTED_JWT),
+            "URL-encoded JWT must be redacted: {out}"
+        );
+        assert!(
+            !out.contains("eyJhbGciOiJIUzI1NiJ9"),
+            "raw JWT header must be absent: {out}"
+        );
+    }
 
     #[test]
     fn clean_line_is_returned_borrowed() {
