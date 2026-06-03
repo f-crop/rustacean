@@ -126,6 +126,20 @@ HS256, signed with `RB_MCP_JWT_SECRET`, claims `{sid, tenant_id, user_id, scope:
 | T7 | Resource exhaustion / fork-bomb | cgroup caps, concurrency limits, wall-clock + idle caps |
 | T8 | Weak or shared JWT signing key | `RB_MCP_JWT_SECRET` ≥ 256-bit random, distinct from all other keys, loaded via `rb-secrets::from_env`; rotation per §5.1 |
 
+### §6.3 Redaction fail-closed contract
+
+`rb_auth::redact_with_token` is applied to every runtime stdout/stderr byte before it reaches `chat_messages.body`, `agent_events.data`, an SSE frame, or a structured log line.
+
+**Caller contract** (`services/agent-runner/src/session/mod.rs::spawn_output_handlers`):
+
+1. Every call to `redact_with_token` is wrapped in `std::panic::catch_unwind`.
+2. If the call panics the caller **must**:
+   - Drop the offending line entirely (no raw fallback, no partial output).
+   - Emit `tracing::error!(error_kind = "redaction_failed", ...)` so the event is observable in structured logs.
+3. The stdio-handler task must continue processing subsequent lines; a single-line redaction failure must not terminate the session.
+
+This ensures a bug in the redaction layer cannot leak a secret to a durable store or relay. The `AssertUnwindSafe` wrapper is acceptable here because `redact_with_token` holds no interior-mutable state — a panic leaves no partially-mutated shared data.
+
 ---
 
 ## 7. Persistence schema
