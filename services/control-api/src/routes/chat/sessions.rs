@@ -25,7 +25,7 @@ use crate::{
 
 use super::db::{
     ChatMessageRow, ChatSessionRow, db_get_chat_session, db_insert_chat_session,
-    db_list_chat_messages,
+    db_list_chat_messages, db_list_chat_sessions,
 };
 
 const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
@@ -89,6 +89,40 @@ impl ChatSessionDto {
             messages: messages.into_iter().map(ChatMessageDto::from).collect(),
         }
     }
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ChatSessionSummary {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub runtime: String,
+    pub status: String,
+    pub trace_id: String,
+    pub created_at: DateTime<Utc>,
+    pub last_activity_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+}
+
+impl From<ChatSessionRow> for ChatSessionSummary {
+    fn from(r: ChatSessionRow) -> Self {
+        Self {
+            id: r.id,
+            tenant_id: r.tenant_id,
+            user_id: r.user_id,
+            runtime: r.runtime,
+            status: r.status,
+            trace_id: r.trace_id,
+            created_at: r.created_at,
+            last_activity_at: r.last_activity_at,
+            ended_at: r.ended_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ListChatSessionsResponse {
+    pub sessions: Vec<ChatSessionSummary>,
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +226,37 @@ pub async fn create_chat_session(
             status: "active".to_owned(),
         }),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/chat/sessions
+// ---------------------------------------------------------------------------
+
+#[utoipa::path(
+    get,
+    path = "/v1/chat/sessions",
+    responses(
+        (status = 200, description = "List of chat sessions for the authenticated user", body = ListChatSessionsResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Feature not enabled"),
+    ),
+    tag = "chat"
+)]
+pub async fn list_chat_sessions(
+    State(state): State<AppState>,
+    auth: AuthContext,
+) -> Result<impl IntoResponse, AppError> {
+    if !state.config.chat_panel_enabled {
+        return Err(AppError::ChatFeatureDisabled);
+    }
+
+    let caller = require_chat_auth(auth)?;
+
+    let rows = db_list_chat_sessions(&state.pool, caller.tenant_id, caller.user_id, 50).await?;
+    let sessions: Vec<ChatSessionSummary> =
+        rows.into_iter().map(ChatSessionSummary::from).collect();
+
+    Ok(Json(ListChatSessionsResponse { sessions }))
 }
 
 // ---------------------------------------------------------------------------
