@@ -46,7 +46,11 @@ pub fn redact(s: &str) -> Cow<'_, str> {
 #[must_use]
 pub fn redact_with_token<'a>(s: &'a str, live_token: Option<&str>) -> Cow<'a, str> {
     // Percent-decode first so %2E-encoded dots don't evade the JWT pattern.
-    let decoded: Option<String> = if s.contains('%') { percent_decode_ascii(s) } else { None };
+    let decoded: Option<String> = if s.contains('%') {
+        percent_decode_ascii(s)
+    } else {
+        None
+    };
     let working: &str = decoded.as_deref().unwrap_or(s);
 
     if !needs_scan(working) && live_token.is_none_or(|t| t.is_empty() || !working.contains(t)) {
