@@ -234,9 +234,10 @@ async fn natural_exit_zero_sends_terminated_status() {
     let child = cmd.spawn().unwrap();
     let pid = child.id().unwrap();
     let process = crate::adapters::AgentProcess {
-        child,
+        child: Some(child),
         pid,
         runtime: rb_schemas::AgentRuntime::ClaudeCode,
+        stdin: None,
     };
 
     let sessions: Arc<Mutex<HashMap<String, SessionHandle>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -312,9 +313,10 @@ async fn natural_exit_nonzero_sends_failed_status() {
     let child = cmd.spawn().unwrap();
     let pid = child.id().unwrap();
     let process = crate::adapters::AgentProcess {
-        child,
+        child: Some(child),
         pid,
         runtime: rb_schemas::AgentRuntime::ClaudeCode,
+        stdin: None,
     };
 
     let sessions: Arc<Mutex<HashMap<String, SessionHandle>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -383,9 +385,10 @@ async fn natural_exit_noop_when_session_already_removed() {
     let child = cmd.spawn().unwrap();
     let pid = child.id().unwrap();
     let process = crate::adapters::AgentProcess {
-        child,
+        child: Some(child),
         pid,
         runtime: rb_schemas::AgentRuntime::ClaudeCode,
+        stdin: None,
     };
 
     // Intentionally leave the sessions map EMPTY — simulates terminate_session
@@ -452,9 +455,10 @@ async fn crash_recovery_sigkill_marks_session_failed() {
     let child = cmd.spawn().unwrap();
     let pid = child.id().unwrap();
     let process = crate::adapters::AgentProcess {
-        child,
+        child: Some(child),
         pid,
         runtime: rb_schemas::AgentRuntime::ClaudeCode,
+        stdin: None,
     };
 
     let sessions: Arc<Mutex<HashMap<String, SessionHandle>>> = Arc::new(Mutex::new(HashMap::new()));

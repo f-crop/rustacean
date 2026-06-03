@@ -21,6 +21,7 @@ mod events;
 mod natural_exit;
 mod redact;
 mod seq;
+mod terminate;
 
 const PROCESS_TERMINATE_TIMEOUT_SECS: u64 = 30;
 const MAX_INITIAL_PROMPT_LEN: usize = 100_000;
@@ -202,13 +203,13 @@ impl SessionManager {
         )
         .await;
 
-        let stdout = process
-            .child
+        // child is Some immediately after spawn — unwrap is safe here.
+        let child_ref = process.child.as_mut().expect("child is Some after spawn");
+        let stdout = child_ref
             .stdout
             .take()
             .context("Process stdout not available")?;
-        let stderr = process
-            .child
+        let stderr = child_ref
             .stderr
             .take()
             .context("Process stderr not available")?;
@@ -251,7 +252,7 @@ impl SessionManager {
                 drop(sessions);
                 {
                     let mut proc = process_arc.lock().await;
-                    let _ = proc.child.start_kill();
+                    let _ = proc.child.as_mut().map(tokio::process::Child::start_kill);
                 }
                 // tenant_guard drops here (still armed) → rolls back tenant counter.
                 // node_permit drops here → releases node semaphore.
@@ -332,7 +333,9 @@ impl SessionManager {
                 if let Ok(adapter) = adapter_for_runtime(proc.runtime) {
                     let _ = adapter.terminate(&mut proc, false).await;
                     let timeout = Duration::from_secs(PROCESS_TERMINATE_TIMEOUT_SECS);
-                    let _ = tokio::time::timeout(timeout, proc.child.wait()).await;
+                    if let Some(ref mut child) = proc.child {
+                        let _ = tokio::time::timeout(timeout, child.wait()).await;
+                    }
                 }
             }
         }
@@ -369,20 +372,7 @@ impl SessionManager {
             let mut proc = handle.process.lock().await;
             let adapter = adapter_for_runtime(proc.runtime)?;
             let _ = adapter.terminate(&mut proc, terminate.force).await;
-
-            let timeout_duration = Duration::from_secs(PROCESS_TERMINATE_TIMEOUT_SECS);
-            match tokio::time::timeout(timeout_duration, proc.child.wait()).await {
-                Ok(Ok(status)) => status.code().unwrap_or(-1),
-                Ok(Err(_)) => -1,
-                Err(_) => {
-                    tracing::warn!(session_id = %session_id, "Process termination timeout, forcing SIGKILL");
-                    let _ = adapter.terminate(&mut proc, true).await;
-                    match tokio::time::timeout(Duration::from_secs(5), proc.child.wait()).await {
-                        Ok(Ok(status)) => status.code().unwrap_or(-1),
-                        _ => -1,
-                    }
-                }
-            }
+            terminate::wait_terminated(&mut proc, adapter.as_ref(), session_id).await
         };
 
         let duration_ms =

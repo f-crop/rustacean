@@ -87,18 +87,23 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             cmd.arg("--").arg(&ctx.initial_prompt);
         }
 
-        let child = cmd.spawn().context("Failed to spawn claude process")?;
+        let mut child = cmd.spawn().context("Failed to spawn claude process")?;
         let pid = child.id().context("Failed to get process ID")?;
+        // Extract stdin before handing child to AgentProcess.  tokio ≥1.52
+        // drops child.stdin inside Child::wait(), which would EOF Claude and
+        // cause exit code 1 (RUSAA-1870).
+        let stdin = child.stdin.take();
 
         Ok(AgentProcess {
-            child,
+            child: Some(child),
             pid,
             runtime: AgentRuntime::ClaudeCode,
+            stdin,
         })
     }
 
     async fn send_input(&self, proc: &mut AgentProcess, input: &str) -> Result<()> {
-        if let Some(stdin) = proc.child.stdin.as_mut() {
+        if let Some(stdin) = proc.stdin.as_mut() {
             stdin.write_all(input.as_bytes()).await?;
             stdin.write_all(b"\n").await?;
             stdin.flush().await?;
@@ -125,7 +130,9 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             kill(Pid::from_raw(pid_i32), signal).context("Failed to send signal")?;
         }
         #[cfg(not(unix))]
-        proc.child.kill().await?;
+        if let Some(ref mut c) = proc.child {
+            c.kill().await?;
+        }
         Ok(())
     }
 
