@@ -591,9 +591,8 @@ impl SessionManager {
 pub use crate::workspace_gc::spawn_workspace_gc;
 
 #[cfg(test)]
-#[path = "tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "cap_tests.rs"]
 mod cap_tests;
+#[cfg(test)]
+mod redact_tests;
+#[cfg(test)]
+mod tests;
