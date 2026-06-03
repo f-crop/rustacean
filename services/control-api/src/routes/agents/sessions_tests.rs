@@ -1,4 +1,7 @@
 use super::*;
+use super::sessions_patch::{
+    PatchSessionStatusRequest, lifecycle_event_payload, lifecycle_event_seq, lifecycle_event_type,
+};
 
 #[test]
 fn initial_message_max_bytes_is_64kib() {
