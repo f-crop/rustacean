@@ -478,6 +478,75 @@ async fn ac6_sequences_continue_from_previous_batch() {
 // AC7 — SSE fan-out: published events reach a subscriber
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// AC8 — chat-session fallback: ingest fans out to SSE without DB insert
+//
+// Regression for RUSAA-1865: events_ingest used to SELECT from agents.agent_sessions
+// only, so chat sessions (stored in control.chat_sessions) produced a 404 and
+// starved the SSE bus. Option A fix: fall back to control.chat_sessions lookup.
+// ---------------------------------------------------------------------------
+
+/// Insert the minimal tenant → user → `chat_session` fixture rows.
+/// Intentionally does NOT insert into `agents.agent_sessions`.
+async fn insert_chat_fixture(pool: &PgPool) -> Fixtures {
+    let tenant_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4();
+    let session_id = Uuid::new_v4();
+
+    let slug = format!("chat-ingest-test-{}", tenant_id.simple());
+    let schema_name = format!("chat_ingest_test_{}", tenant_id.simple());
+
+    sqlx::query(
+        "INSERT INTO control.tenants (id, slug, name, schema_name) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(tenant_id)
+    .bind(&slug)
+    .bind("Chat Ingest Test Tenant")
+    .bind(&schema_name)
+    .execute(pool)
+    .await
+    .expect("insert tenant");
+
+    sqlx::query(
+        "INSERT INTO control.users (id, email, password_hash, email_verified_at) \
+         VALUES ($1, $2, $3, now())",
+    )
+    .bind(user_id)
+    .bind(format!("chat-ingest-{}@test.example", user_id.simple()))
+    .bind("$argon2id$v=19$m=65536,t=1,p=1$placeholder_hash")
+    .execute(pool)
+    .await
+    .expect("insert user");
+
+    sqlx::query(
+        "INSERT INTO control.tenant_members (tenant_id, user_id, role) VALUES ($1, $2, 'owner')",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("insert tenant_member");
+
+    let trace_id = format!("{}", Uuid::new_v4().simple());
+    sqlx::query(
+        "INSERT INTO control.chat_sessions \
+         (id, tenant_id, user_id, runtime, trace_id) \
+         VALUES ($1, $2, $3, 'claude_code', $4)",
+    )
+    .bind(session_id)
+    .bind(tenant_id)
+    .bind(user_id)
+    .bind(&trace_id)
+    .execute(pool)
+    .await
+    .expect("insert chat_session");
+
+    Fixtures {
+        tenant_id,
+        session_id,
+    }
+}
+
 #[tokio::test]
 async fn ac7_sse_fanout_reaches_subscriber() {
     let Some((state, pool)) = real_db_state().await else {
@@ -531,5 +600,83 @@ async fn ac7_sse_fanout_reaches_subscriber() {
         data["session_id"],
         fx.session_id.to_string(),
         "AC7: session_id must match"
+    );
+}
+
+#[tokio::test]
+async fn ac8_chat_session_fallback_fans_out_sse_without_db_insert() {
+    let Some((state, pool)) = real_db_state().await else {
+        return;
+    };
+    let fx = insert_chat_fixture(&pool).await;
+
+    let tenant_id = TenantId::from(fx.tenant_id);
+    let (mut rx, _replay): (broadcast::Receiver<Arc<SseEnvelope>>, Vec<Arc<SseEnvelope>>) =
+        raw_subscribe(&state.sse_bus, &tenant_id, None);
+
+    let body = json!({
+        "tenant_id": fx.tenant_id,
+        "events": [
+            {"type": "text", "text": "Chat streaming token"}
+        ]
+    });
+
+    let resp = build_internal(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(ingest_uri(fx.session_id))
+                .header("content-type", "application/json")
+                .header("x-internal-secret", INTERNAL_SECRET)
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "AC8: chat ingest must return 200"
+    );
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+    let resp_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(
+        resp_json["inserted"], 1,
+        "AC8: must report 1 fanned-out event"
+    );
+
+    let envelope = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("AC8: SSE event must arrive within 500 ms")
+        .expect("AC8: SSE channel must not be closed");
+
+    assert_eq!(
+        envelope.event, "session.event",
+        "AC8: SSE event name must be session.event"
+    );
+    let data: Value =
+        serde_json::from_str(&envelope.data).expect("AC8: SSE data must be valid JSON");
+    assert_eq!(
+        data["event_type"], "session.message",
+        "AC8: event_type must be session.message"
+    );
+    assert_eq!(
+        data["session_id"],
+        fx.session_id.to_string(),
+        "AC8: session_id must match"
+    );
+
+    // Chat sessions must NOT produce rows in agents.agent_events.
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM agents.agent_events WHERE session_id = $1")
+            .bind(fx.session_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        count.0, 0,
+        "AC8: chat session events must NOT be stored in agents.agent_events"
     );
 }
