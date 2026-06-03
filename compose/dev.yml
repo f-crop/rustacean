@@ -269,6 +269,7 @@ services:
       RB_INTERNAL_SECRET: "${RB_INTERNAL_SECRET:-dev-internal-secret-change-me}"
       RB_ADMIN_TOKEN: "${RB_ADMIN_TOKEN:-}"
       RB_TEMPO_BASE_URL: "${RB_TEMPO_BASE_URL:-http://localhost:3000}"
+      RB_CHAT_PANEL_ENABLED: "${RB_CHAT_PANEL_ENABLED:-true}"
     volumes:
       - ../migrations:/migrations:ro
     ports:
