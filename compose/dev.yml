@@ -632,6 +632,26 @@ services:
     depends_on:
       - control-api
 
+  # Hindsight — shared long-term memory for Paperclip "rustacean" company agents.
+  # Full image (local reranker); LLM + embeddings routed via the LiteLLM proxy.
+  # Config + secrets live in compose/hindsight.env (gitignored via compose/*.env).
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    env_file: hindsight.env
+    volumes:
+      - hindsight_pg0:/home/hindsight/.pg0
+    ports:
+      - "${HINDSIGHT_API_HOST_PORT:-8888}:8888"
+      - "${HINDSIGHT_CP_HOST_PORT:-9999}:9999"
+    networks:
+      - rb-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8888/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
 networks:
   rb-net:
     driver: bridge
@@ -650,3 +670,4 @@ volumes:
   blob-data:
   agent-workspace-data:
   claude-credentials:
+  hindsight_pg0:
