@@ -1629,7 +1629,7 @@ export interface components {
             readonly path: string;
         };
         readonly PostMessageRequest: {
-            readonly body: string;
+            readonly content: string;
         };
         readonly PostMessageResponse: {
             /** Format: uuid */

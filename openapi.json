@@ -3897,10 +3897,10 @@
       "PostMessageRequest": {
         "type": "object",
         "required": [
-          "body"
+          "content"
         ],
         "properties": {
-          "body": {
+          "content": {
             "type": "string"
           }
         }
