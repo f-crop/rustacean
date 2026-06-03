@@ -1,3 +1,6 @@
+use super::sessions_patch::{
+    PatchSessionStatusRequest, lifecycle_event_payload, lifecycle_event_seq, lifecycle_event_type,
+};
 use super::*;
 
 #[test]

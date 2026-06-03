@@ -43,7 +43,7 @@ use crate::{
 };
 
 use super::session_lifecycle::{
-    TERMINAL_STATUSES, VALID_AGENT_STATUSES, parse_runtime, prompt_preview, validate_workspace_path,
+    TERMINAL_STATUSES, parse_runtime, prompt_preview, validate_workspace_path,
 };
 
 // ---------------------------------------------------------------------------
@@ -318,7 +318,7 @@ pub async fn delete_session(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
 
         let _ = state.agent_registry.remove(&session_id);
-        revoke_session_api_key(&state.pool, session_id).await;
+        sessions_patch::revoke_session_api_key(&state.pool, session_id).await;
         tracing::info!(session_id = %session_id, "pending agent session cancelled synchronously");
         return Ok(StatusCode::ACCEPTED);
     }
@@ -355,183 +355,9 @@ pub async fn delete_session(
 // PATCH /internal/agent/sessions/{id}/status  (agent-runner callback)
 // ---------------------------------------------------------------------------
 
-/// Revoke the session-scoped API key tied to `session_id`.
-///
-/// Idempotent: the `AND revoked_at IS NULL` predicate is a no-op if the key
-/// was already revoked by a previous call or the standalone DELETE endpoint.
-async fn revoke_session_api_key(pool: &sqlx::PgPool, session_id: Uuid) {
-    if let Err(e) = sqlx::query(
-        "UPDATE control.api_keys SET revoked_at = now() \
-         WHERE id = (SELECT api_key_id FROM agents.agent_sessions WHERE id = $1) \
-         AND revoked_at IS NULL",
-    )
-    .bind(session_id)
-    .execute(pool)
-    .await
-    {
-        tracing::warn!(session_id = %session_id, "api_key revoke failed: {e}");
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PatchSessionStatusRequest {
-    pub status: String,
-    pub pid: Option<i64>,
-    pub exit_code: Option<i32>,
-    /// Optional error string — recorded into `failure_reason` when status="failed".
-    /// Ignored for all other statuses.
-    #[serde(default)]
-    pub error: Option<String>,
-    /// Required: `tenant_id` must match the session's tenant for authorization.
-    pub tenant_id: Uuid,
-}
-
-/// Map a runner-reported status to the `event_type` stored in `agents.agent_events`.
-///
-/// Returns `None` for statuses that do not generate a lifecycle event row
-/// (e.g. `terminating`, `cancelled`, `pending`).
-fn lifecycle_event_type(status: &str) -> Option<&'static str> {
-    match status {
-        "running" => Some("session.running"),
-        "failed" => Some("session.failed"),
-        "terminated" => Some("session.completed"),
-        _ => None,
-    }
-}
-
-/// Canonical sequence values matching the runner's sentinel constants.
-///
-/// - `failed`     → `i64::MIN + 1`  (`ERROR_SEQ` in agent-runner/src/consumer.rs)
-/// - `terminated` → `i64::MIN + 2`  (`TERMINATED_SEQ` in agent-runner/src/session.rs)
-/// - `running`    → `0`             (Started event seq)
-fn lifecycle_event_seq(status: &str) -> i64 {
-    match status {
-        "failed" => i64::MIN + 1,
-        "terminated" => i64::MIN + 2,
-        _ => 0,
-    }
-}
-
-/// Build the JSONB payload for a lifecycle event row in `agents.agent_events`.
-fn lifecycle_event_payload(req: &PatchSessionStatusRequest) -> serde_json::Value {
-    match req.status.as_str() {
-        "running" => serde_json::json!({ "pid": req.pid }),
-        "failed" => serde_json::json!({
-            "failure_reason": req.error,
-            "exit_code": req.exit_code,
-        }),
-        "terminated" => serde_json::json!({ "exit_code": req.exit_code }),
-        _ => serde_json::json!({}),
-    }
-}
-
-pub async fn patch_session_status(
-    State(state): State<AppState>,
-    Path(session_id): Path<Uuid>,
-    Json(req): Json<PatchSessionStatusRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    // Reject unknown statuses to prevent arbitrary string injection into the DB.
-    if !VALID_AGENT_STATUSES.contains(&req.status.as_str()) {
-        return Err(AppError::InvalidInput);
-    }
-
-    // SECURITY: Verify the session belongs to the claimed tenant.
-    // This prevents an attacker with the internal secret from updating arbitrary sessions.
-    let row: Option<(Uuid,)> =
-        sqlx::query_as("SELECT tenant_id FROM agents.agent_sessions WHERE id = $1")
-            .bind(session_id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("DB error: {e}")))?;
-
-    let (session_tenant_id,) = row.ok_or(AppError::NotFound)?;
-    if session_tenant_id != req.tenant_id {
-        return Err(AppError::Unauthorized);
-    }
-
-    // The `status NOT IN (...)` guard makes terminal states sticky.  Without it a
-    // late callback could overwrite `failed` with `running` or similar.
-    let result = if req.status == "failed" {
-        sqlx::query(
-            "UPDATE agents.agent_sessions
-             SET status = $1, pid = $2, exit_code = $3,
-                 failed_at = now(),
-                 failure_reason = COALESCE($6, failure_reason)
-             WHERE id = $4 AND tenant_id = $5
-               AND status NOT IN ('terminated', 'cancelled', 'failed', 'completed')",
-        )
-        .bind(&req.status)
-        .bind(req.pid)
-        .bind(req.exit_code)
-        .bind(session_id)
-        .bind(req.tenant_id)
-        .bind(req.error.as_deref())
-        .execute(&state.pool)
-        .await
-    } else {
-        sqlx::query(
-            "UPDATE agents.agent_sessions
-             SET status = $1, pid = $2, exit_code = $3
-             WHERE id = $4 AND tenant_id = $5
-               AND status NOT IN ('terminated', 'cancelled', 'failed')",
-        )
-        .bind(&req.status)
-        .bind(req.pid)
-        .bind(req.exit_code)
-        .bind(session_id)
-        .bind(req.tenant_id)
-        .execute(&state.pool)
-        .await
-    }
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB update failed: {e}")))?;
-
-    if result.rows_affected() > 0 {
-        if TERMINAL_STATUSES.contains(&req.status.as_str()) {
-            let _ = state.agent_registry.remove(&session_id);
-            state.tenant_session_count.decrement(&req.tenant_id);
-            revoke_session_api_key(&state.pool, session_id).await;
-        }
-
-        if let Some(event_type) = lifecycle_event_type(&req.status) {
-            let seq = lifecycle_event_seq(&req.status);
-            let payload = lifecycle_event_payload(&req);
-            let payload_str = payload.to_string();
-
-            if let Err(e) = sqlx::query(
-                "INSERT INTO agents.agent_events \
-                 (session_id, tenant_id, event_type, sequence, payload) \
-                 VALUES ($1, $2, $3, $4, $5::jsonb)",
-            )
-            .bind(session_id)
-            .bind(req.tenant_id)
-            .bind(event_type)
-            .bind(seq)
-            .bind(&payload_str)
-            .execute(&state.pool)
-            .await
-            {
-                tracing::warn!(
-                    session_id = %session_id,
-                    status = %req.status,
-                    "agent_events insert failed: {e}"
-                );
-            }
-
-            let tenant_id = TenantId::from(req.tenant_id);
-            let sse_data = serde_json::json!({
-                "session_id": session_id,
-                "event_type": event_type,
-                "sequence": seq,
-                "payload": payload,
-            });
-            if let Ok(data) = serde_json::to_string(&sse_data) {
-                state.sse_bus.publish_raw(&tenant_id, "session.event", data);
-            }
-        }
-    }
-
-    Ok(StatusCode::NO_CONTENT)
-}
+#[path = "sessions_patch.rs"]
+mod sessions_patch;
+pub use sessions_patch::patch_session_status;
 
 // ---------------------------------------------------------------------------
 // DELETE /internal/agent/sessions/{id}/api-key  (agent-runner callback)
