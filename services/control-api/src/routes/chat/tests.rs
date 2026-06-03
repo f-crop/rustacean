@@ -167,6 +167,8 @@ fn chat_session_not_found_is_tenant_scoped() {
 
 #[tokio::test]
 async fn concurrent_message_inserts_have_unique_seq() {
+    const N: usize = 8;
+
     let Some(pool) = test_pool().await else {
         return;
     };
@@ -190,12 +192,11 @@ async fn concurrent_message_inserts_have_unique_seq() {
     )
     .bind(session_id)
     .bind(tenant_id)
-    .bind(format!("trace-{}", session_id))
+    .bind(format!("trace-{session_id}"))
     .execute(&pool)
     .await
     .expect("insert session");
 
-    const N: usize = 8;
     let handles: Vec<_> = (0..N)
         .map(|_| {
             let pool = pool.clone();
@@ -222,7 +223,7 @@ async fn concurrent_message_inserts_have_unique_seq() {
     seqs.sort_unstable();
     assert_eq!(
         seqs,
-        (1..=(N as i32)).collect::<Vec<_>>(),
+        (1..=i32::try_from(N).expect("N fits i32")).collect::<Vec<_>>(),
         "seq values must be 1..=N with no gaps or duplicates"
     );
 }

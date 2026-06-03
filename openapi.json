@@ -1005,6 +1005,30 @@
       }
     },
     "/v1/chat/sessions": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "operationId": "list_chat_sessions",
+        "responses": {
+          "200": {
+            "description": "List of chat sessions for the authenticated user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListChatSessionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Feature not enabled"
+          }
+        }
+      },
       "post": {
         "tags": [
           "chat"
@@ -2958,6 +2982,59 @@
           }
         }
       },
+      "ChatSessionSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "runtime",
+          "status",
+          "trace_id",
+          "created_at",
+          "last_activity_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_activity_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "trace_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "ConnectRepoRequest": {
         "type": "object",
         "required": [
@@ -3546,6 +3623,20 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ApiKeyItem"
+            }
+          }
+        }
+      },
+      "ListChatSessionsResponse": {
+        "type": "object",
+        "required": [
+          "sessions"
+        ],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatSessionSummary"
             }
           }
         }

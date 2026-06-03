@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use axum::{
-    body::Body,
+    body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
 use rb_auth::{LoginRateLimiter, PasswordHasher, sha256_hex};
@@ -387,6 +387,138 @@ async fn ac3b_own_delete_returns_202() {
 // ---------------------------------------------------------------------------
 // AC4 — Feature flag gate: all chat routes return 404 when disabled
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// AC5 — GET /v1/chat/sessions list endpoint
+// ---------------------------------------------------------------------------
+
+/// GET /v1/chat/sessions returns 200 with empty list when no sessions exist.
+#[tokio::test]
+async fn ac5a_list_chat_sessions_empty_returns_200() {
+    let Some((state, pool)) = real_db_state_chat_enabled().await else {
+        return;
+    };
+    let a = seed_tenant_with_session(&pool).await;
+
+    let resp = build_public(state)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/chat/sessions")
+                .header("cookie", format!("rb_session={}", a.session_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "GET /v1/chat/sessions must return 200 for authenticated user with no sessions"
+    );
+
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["sessions"],
+        serde_json::json!([]),
+        "response must contain empty sessions array"
+    );
+}
+
+/// GET /v1/chat/sessions returns only the calling user's sessions, not another tenant's.
+#[tokio::test]
+async fn ac5b_list_chat_sessions_tenant_isolation() {
+    let Some((state, pool)) = real_db_state_chat_enabled().await else {
+        return;
+    };
+    let a = seed_tenant_with_session(&pool).await;
+    let b = seed_tenant_with_session(&pool).await;
+    let _session_a = seed_chat_session(&pool, a.tenant_id, a.user_id).await;
+
+    // Tenant B lists — must see zero sessions (not tenant A's)
+    let resp = build_public(state)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/chat/sessions")
+                .header("cookie", format!("rb_session={}", b.session_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["sessions"].as_array().unwrap().len(),
+        0,
+        "tenant B must not see tenant A's sessions in list"
+    );
+}
+
+/// GET /v1/chat/sessions returns the user's own session after creation.
+#[tokio::test]
+async fn ac5c_list_chat_sessions_returns_own_session() {
+    let Some((state, pool)) = real_db_state_chat_enabled().await else {
+        return;
+    };
+    let a = seed_tenant_with_session(&pool).await;
+    let session_id = seed_chat_session(&pool, a.tenant_id, a.user_id).await;
+
+    let resp = build_public(state)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/chat/sessions")
+                .header("cookie", format!("rb_session={}", a.session_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let sessions = json["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 1, "must return exactly one session");
+    assert_eq!(
+        sessions[0]["id"].as_str().unwrap(),
+        session_id.to_string(),
+        "returned session id must match seeded session"
+    );
+}
+
+/// With `chat_panel_enabled = false`, GET /v1/chat/sessions returns 404.
+#[tokio::test]
+async fn ac5d_list_chat_sessions_disabled_returns_404() {
+    let Some((state, pool)) = real_db_state_chat_disabled().await else {
+        return;
+    };
+    let a = seed_tenant_with_session(&pool).await;
+
+    let resp = build_public(state)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/chat/sessions")
+                .header("cookie", format!("rb_session={}", a.session_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "GET /v1/chat/sessions must return 404 when feature flag is off"
+    );
+}
 
 /// With `chat_panel_enabled = false`, GET /v1/chat/sessions/{id} returns 404.
 #[tokio::test]

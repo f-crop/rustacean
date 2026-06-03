@@ -46,7 +46,7 @@ use crate::routes::{
     auth_verify::{resend_verification, verify_email},
     chat::{
         chat_session_events, create_chat_session, get_chat_session, list_chat_messages,
-        post_chat_message,
+        list_chat_sessions, post_chat_message,
     },
     github::health::github_app_health,
     github::install::{github_callback, github_install_url},
@@ -190,7 +190,10 @@ pub fn build_public(state: AppState) -> Router {
             get(session_log_ndjson),
         )
         // Chat panel routes (ADR-013 §3) — flag-gated by RB_CHAT_PANEL_ENABLED
-        .route("/v1/chat/sessions", post(create_chat_session))
+        .route(
+            "/v1/chat/sessions",
+            post(create_chat_session).get(list_chat_sessions),
+        )
         .route("/v1/chat/sessions/{id}", get(get_chat_session))
         .route(
             "/v1/chat/sessions/{id}/messages",

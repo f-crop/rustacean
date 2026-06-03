@@ -151,6 +151,27 @@ pub async fn db_insert_chat_message(
     Ok(seq)
 }
 
+pub async fn db_list_chat_sessions(
+    pool: &PgPool,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    limit: i64,
+) -> Result<Vec<ChatSessionRow>, AppError> {
+    sqlx::query_as::<_, ChatSessionRow>(
+        "SELECT id, tenant_id, user_id, runtime, status, trace_id, \
+                created_at, last_activity_at, ended_at \
+         FROM control.chat_sessions \
+         WHERE tenant_id = $1 AND user_id = $2 \
+         ORDER BY last_activity_at DESC LIMIT $3",
+    )
+    .bind(tenant_id)
+    .bind(user_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(anyhow::anyhow!("DB query failed: {e}")))
+}
+
 pub async fn db_list_chat_messages(
     pool: &PgPool,
     session_id: Uuid,

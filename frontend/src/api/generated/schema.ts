@@ -507,7 +507,7 @@ export interface paths {
             readonly path?: never;
             readonly cookie?: never;
         };
-        readonly get?: never;
+        readonly get: operations["list_chat_sessions"];
         readonly put?: never;
         readonly post: operations["create_chat_session"];
         readonly delete?: never;
@@ -1302,6 +1302,23 @@ export interface components {
             readonly runtime: string;
             readonly status: string;
         };
+        readonly ChatSessionSummary: {
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: date-time */
+            readonly ended_at?: string | null;
+            /** Format: uuid */
+            readonly id: string;
+            /** Format: date-time */
+            readonly last_activity_at: string;
+            readonly runtime: string;
+            readonly status: string;
+            /** Format: uuid */
+            readonly tenant_id: string;
+            readonly trace_id: string;
+            /** Format: uuid */
+            readonly user_id?: string | null;
+        };
         readonly ConnectRepoRequest: {
             /** @description Default branch override. If omitted, the value is fetched from GitHub. */
             readonly default_branch?: string | null;
@@ -1530,6 +1547,9 @@ export interface components {
         };
         readonly ListApiKeysResponse: {
             readonly keys: readonly components["schemas"]["ApiKeyItem"][];
+        };
+        readonly ListChatSessionsResponse: {
+            readonly sessions: readonly components["schemas"]["ChatSessionSummary"][];
         };
         readonly ListMembersResponse: {
             readonly members: readonly components["schemas"]["MemberItem"][];
@@ -2894,6 +2914,40 @@ export interface operations {
             };
             /** @description Token expired, already used, or not found (invalid_token) */
             readonly 400: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readonly list_chat_sessions: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description List of chat sessions for the authenticated user */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ListChatSessionsResponse"];
+                };
+            };
+            /** @description Authentication required */
+            readonly 401: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Feature not enabled */
+            readonly 404: {
                 headers: {
                     readonly [name: string]: unknown;
                 };
