@@ -91,7 +91,7 @@ async fn per_tenant_limit_rejects_excess_sessions() {
 /// steps `spawn_output_handlers` applies to every stdout line) strips a
 /// JWT-bearing payload before it can reach any durable store.
 ///
-/// Exercises `ClaudeCodeAdapter::parse_stdout_line` + `rb_auth::redact_with_token`
+/// Exercises `ClaudeCodeAdapter::parse_stdout_line` + `rb_secrets::redact_with_token`
 /// together — the same chain used in the live stdio bridge.
 #[test]
 fn stdout_pipeline_redacts_jwt_before_payload_stored() {
@@ -111,7 +111,7 @@ fn stdout_pipeline_redacts_jwt_before_payload_stored() {
         .expect("stream-json line must parse to Some(ParsedLine)");
 
     let live_token = "live-session-token";
-    let redacted = rb_auth::redact_with_token(&parsed.payload, Some(live_token));
+    let redacted = rb_secrets::redact_with_token(&parsed.payload, Some(live_token));
 
     assert!(
         !redacted.contains(fake_jwt),
@@ -136,7 +136,7 @@ fn relay_path_redacts_jwt_before_sse_db() {
     let raw_line = format!(r#"{{"type":"text","content":"token={fake_jwt}"}}"#);
 
     let live_token = "live-session-token";
-    let redacted_line = rb_auth::redact_with_token(&raw_line, Some(live_token));
+    let redacted_line = rb_secrets::redact_with_token(&raw_line, Some(live_token));
 
     assert!(
         !redacted_line.contains(fake_jwt),

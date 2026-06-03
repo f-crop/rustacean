@@ -33,7 +33,7 @@ pub fn redact(s: &str) -> Cow<'_, str> {
 /// would miss a split or encoded form.
 #[must_use]
 pub fn redact_with_token<'a>(s: &'a str, live_token: Option<&str>) -> Cow<'a, str> {
-    if !needs_scan(s) && live_token.is_none_or(|t| !s.contains(t)) {
+    if !needs_scan(s) && live_token.is_none_or(|t| t.is_empty() || !s.contains(t)) {
         return Cow::Borrowed(s);
     }
 
@@ -255,5 +255,77 @@ mod tests {
             !captured.contains("eyJ"),
             "JWT prefix must be absent from captured log: {captured}"
         );
+    }
+
+    // ── Fail-closed contract (§6.3): no panic on any valid UTF-8 input ──────
+
+    #[test]
+    fn no_panic_on_empty_input() {
+        let out = redact("");
+        assert!(matches!(out, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn no_panic_on_all_ascii_printable() {
+        let printable: String = (0x20u8..=0x7eu8).map(|b| b as char).collect();
+        let _ = redact(&printable);
+    }
+
+    #[test]
+    fn no_panic_on_multi_byte_unicode() {
+        let unicode = "こんにちは世界 🔑 café naïve résumé";
+        let _ = redact(unicode);
+    }
+
+    #[test]
+    fn no_panic_on_large_input() {
+        let large = "x".repeat(1_000_000);
+        let out = redact(&large);
+        assert!(matches!(out, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn no_panic_on_eyj_without_dots() {
+        // Partial JWT-shaped prefix with no dots — must not panic or loop.
+        let line = "eyJhbGciOiJIUzI1NiJ9xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+        let out = redact(line);
+        // No redaction should have happened (incomplete JWT shape).
+        assert!(out.contains("eyJ"));
+    }
+
+    #[test]
+    fn no_panic_on_bearer_at_end_of_line() {
+        // "bearer " at the very end of the string (zero-length token).
+        let line = "Authorization: Bearer ";
+        let _ = redact(line);
+    }
+
+    #[test]
+    fn no_panic_with_empty_live_token() {
+        let out = redact_with_token("some text", Some(""));
+        assert!(matches!(out, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn no_panic_on_repeated_eyj_markers() {
+        // Many back-to-back `eyJ` prefixes without valid JWT structure.
+        let line = "eyJ".repeat(10_000);
+        let _ = redact(&line);
+    }
+
+    // ── Cow semantics: borrowed on no-match, owned on match ─────────────────
+
+    #[test]
+    fn owned_cow_on_jwt_match() {
+        let jwt =
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"; // gitleaks:allow
+        let out = redact(jwt);
+        assert!(matches!(out, Cow::Owned(_)));
+    }
+
+    #[test]
+    fn borrowed_cow_on_clean_input() {
+        let out = redact("no secrets here, just plain text");
+        assert!(matches!(out, Cow::Borrowed(_)));
     }
 }

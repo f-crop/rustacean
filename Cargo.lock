@@ -53,6 +53,7 @@ dependencies = [
  "rb-kafka",
  "rb-metrics",
  "rb-schemas",
+ "rb-secrets",
  "rb-tracing",
  "reqwest",
  "serde",

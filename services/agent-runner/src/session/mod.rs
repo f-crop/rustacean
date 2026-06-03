@@ -503,7 +503,7 @@ impl SessionManager {
                             // Redact payload before relay (ADR-013 §6.3); fail-closed: panic → drop line.
                             let Some(redacted_payload) = redact::redact_guarded(
                                 std::panic::AssertUnwindSafe(|| {
-                                    rb_auth::redact_with_token(
+                                    rb_secrets::redact_with_token(
                                         &parsed.payload,
                                         Some(&live_token_stdout),
                                     )
@@ -527,7 +527,7 @@ impl SessionManager {
                             // Redact raw line before SSE/DB relay (ADR-013 §6.3); fail-closed.
                             let Some(redacted_line) = redact::redact_guarded(
                                 std::panic::AssertUnwindSafe(|| {
-                                    rb_auth::redact_with_token(&line, Some(&live_token_stdout))
+                                    rb_secrets::redact_with_token(&line, Some(&live_token_stdout))
                                         .into_owned()
                                 }),
                                 &sid_stdout,
@@ -562,7 +562,7 @@ impl SessionManager {
                     // Redact stderr before structured logs (ADR-013 §4.2/§6.3); fail-closed.
                     let Some(redacted) = redact::redact_guarded(
                         std::panic::AssertUnwindSafe(|| {
-                            rb_auth::redact_with_token(&line, Some(&live_token)).into_owned()
+                            rb_secrets::redact_with_token(&line, Some(&live_token)).into_owned()
                         }),
                         &sid_err,
                     ) else {

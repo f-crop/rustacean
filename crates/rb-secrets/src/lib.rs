@@ -1,8 +1,10 @@
 mod error;
+mod redact;
 mod source;
 mod value;
 
 pub use error::SecretError;
+pub use redact::{redact, redact_with_token};
 pub use source::{EnvSource, FileSource, SecretSource};
 pub use value::SecretValue;
 

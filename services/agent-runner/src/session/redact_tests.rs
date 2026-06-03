@@ -36,7 +36,7 @@ fn redact_guarded_strips_jwt_through_real_redact_call() {
     let line = format!("token={jwt}");
     let result = super::redact::redact_guarded(
         std::panic::AssertUnwindSafe(|| {
-            rb_auth::redact_with_token(&line, Some(&live_token)).into_owned()
+            rb_secrets::redact_with_token(&line, Some(&live_token)).into_owned()
         }),
         "test-session-id",
     );
