@@ -95,7 +95,7 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
         let stdin = child.stdin.take();
 
         Ok(AgentProcess {
-            child,
+            child: Some(child),
             pid,
             runtime: AgentRuntime::ClaudeCode,
             stdin,
@@ -130,7 +130,9 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             kill(Pid::from_raw(pid_i32), signal).context("Failed to send signal")?;
         }
         #[cfg(not(unix))]
-        proc.child.kill().await?;
+        if let Some(ref mut c) = proc.child {
+            c.kill().await?;
+        }
         Ok(())
     }
 

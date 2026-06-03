@@ -199,7 +199,7 @@ impl RuntimeAdapter for OpencodeAdapter {
         let stdin = child.stdin.take();
 
         Ok(AgentProcess {
-            child,
+            child: Some(child),
             pid,
             runtime: AgentRuntime::Opencode,
             stdin,
@@ -234,7 +234,9 @@ impl RuntimeAdapter for OpencodeAdapter {
             kill(Pid::from_raw(pid_i32), signal).context("Failed to send signal")?;
         }
         #[cfg(not(unix))]
-        proc.child.kill().await?;
+        if let Some(ref mut c) = proc.child {
+            c.kill().await?;
+        }
         Ok(())
     }
 

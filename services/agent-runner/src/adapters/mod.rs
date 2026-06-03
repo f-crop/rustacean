@@ -22,7 +22,12 @@ pub struct SessionCtx {
 
 #[derive(Debug)]
 pub struct AgentProcess {
-    pub child: Child,
+    /// The child process handle.  Stored as `Option` so that
+    /// `natural_exit_handler` can take it out of the `Mutex<AgentProcess>`
+    /// and wait on it WITHOUT holding the process lock.  Holding the lock
+    /// during `child.wait().await` would deadlock concurrent `send_input`
+    /// calls when `initial_prompt` is empty (chat sessions).
+    pub child: Option<Child>,
     pub pid: u32,
     pub runtime: AgentRuntime,
     /// Stdin extracted from `child` at spawn time.  tokio ≥1.52 drops
@@ -374,5 +379,25 @@ mod tests {
 
         let status = wait_task.await.unwrap().unwrap();
         assert_eq!(status.code(), Some(0), "cat must exit 0 after stdin closes");
+    }
+
+    /// Regression for RUSAA-1870 — non-empty initial_prompt path: stdin is extracted
+    /// but the child exits naturally without any send_input call (no deadlock risk).
+    /// Mirrors the existing agent-session path where the initial prompt is a CLI arg.
+    #[tokio::test]
+    async fn extracted_stdin_allows_natural_exit_without_send_input() {
+        let mut cmd = tokio::process::Command::new("/bin/true");
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let mut child = cmd.spawn().expect("/bin/true must be available");
+        let _stdin = child.stdin.take(); // extracted; not written to
+        let status = child.wait().await.expect("wait must succeed");
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "true must exit 0 even when extracted stdin is not written to"
+        );
     }
 }

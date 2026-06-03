@@ -37,11 +37,21 @@ pub(super) fn spawn_natural_exit_handler(
 
     tokio::spawn(
         async move {
-            // Wait for the process to exit naturally (releases lock before HTTP calls).
-            let exit_status = {
+            // Take child out of AgentProcess (briefest possible lock) then wait
+            // WITHOUT holding the process mutex.  Holding the mutex during wait()
+            // would deadlock concurrent send_input calls for chat sessions
+            // (initial_prompt empty → claude waits for stdin; send_input waits for
+            // the mutex held by this wait → deadlock).
+            let wait_child = {
                 let mut proc = process.lock().await;
-                proc.child.wait().await
+                proc.child.take()
             };
+            let Some(mut wait_child) = wait_child else {
+                // Child already taken — should not happen in normal flow.
+                tracing::warn!(session_id = %session_id, "natural exit: child already taken");
+                return;
+            };
+            let exit_status: std::io::Result<std::process::ExitStatus> = wait_child.wait().await;
 
             // Race check: try to claim ownership of cleanup by removing from the
             // sessions map.  If terminate_session already removed it, bail out.

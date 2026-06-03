@@ -234,7 +234,7 @@ async fn natural_exit_zero_sends_terminated_status() {
     let child = cmd.spawn().unwrap();
     let pid = child.id().unwrap();
     let process = crate::adapters::AgentProcess {
-        child,
+        child: Some(child),
         pid,
         runtime: rb_schemas::AgentRuntime::ClaudeCode,
         stdin: None,
@@ -313,7 +313,7 @@ async fn natural_exit_nonzero_sends_failed_status() {
     let child = cmd.spawn().unwrap();
     let pid = child.id().unwrap();
     let process = crate::adapters::AgentProcess {
-        child,
+        child: Some(child),
         pid,
         runtime: rb_schemas::AgentRuntime::ClaudeCode,
         stdin: None,
@@ -385,7 +385,7 @@ async fn natural_exit_noop_when_session_already_removed() {
     let child = cmd.spawn().unwrap();
     let pid = child.id().unwrap();
     let process = crate::adapters::AgentProcess {
-        child,
+        child: Some(child),
         pid,
         runtime: rb_schemas::AgentRuntime::ClaudeCode,
         stdin: None,
@@ -455,7 +455,7 @@ async fn crash_recovery_sigkill_marks_session_failed() {
     let child = cmd.spawn().unwrap();
     let pid = child.id().unwrap();
     let process = crate::adapters::AgentProcess {
-        child,
+        child: Some(child),
         pid,
         runtime: rb_schemas::AgentRuntime::ClaudeCode,
         stdin: None,
