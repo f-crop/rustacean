@@ -5,6 +5,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build-time feature flag — baked into the static bundle at build time.
+# Safe default is off; set to "true" via compose build.args to enable.
+ARG VITE_FEATURE_CHAT_PANEL=false
+ENV VITE_FEATURE_CHAT_PANEL=${VITE_FEATURE_CHAT_PANEL}
+
 # Cache npm install layer separately from source
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci

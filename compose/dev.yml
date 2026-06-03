@@ -623,6 +623,8 @@ services:
     build:
       context: ..
       dockerfile: docker/frontend/Dockerfile
+      args:
+        VITE_FEATURE_CHAT_PANEL: "true"
     image: rustbrain/frontend:dev
     pull_policy: never
     ports:
