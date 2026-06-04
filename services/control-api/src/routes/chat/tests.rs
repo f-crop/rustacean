@@ -227,3 +227,27 @@ async fn concurrent_message_inserts_have_unique_seq() {
         "seq values must be 1..=N with no gaps or duplicates"
     );
 }
+
+// ---------------------------------------------------------------------------
+// MCP JWT secret configuration — compose default validation
+// ---------------------------------------------------------------------------
+
+/// Validates that the dev compose default for `RB_MCP_JWT_SECRET` is non-empty
+/// and meets the 32-byte minimum enforced by `Config::validate`.
+///
+/// When `RB_MCP_JWT_SECRET` is absent, `state.mcp_jwt_secret` is the empty
+/// string and `auth.rs` skips JWT verification entirely, causing the MCP
+/// server to be rejected as Anonymous on every `/mcp` call.  The compose
+/// default prevents this silent failure in development and CI.
+#[test]
+fn dev_compose_mcp_jwt_default_is_valid() {
+    let dev_default = "dev-mcp-jwt-secret-change-me-in-prod-32b";
+    assert!(
+        !dev_default.is_empty(),
+        "dev compose default must be non-empty to pass the auth guard"
+    );
+    assert!(
+        dev_default.len() >= 32,
+        "dev compose default must be at least 32 bytes (Config::validate requirement)"
+    );
+}

@@ -270,6 +270,7 @@ services:
       RB_ADMIN_TOKEN: "${RB_ADMIN_TOKEN:-}"
       RB_TEMPO_BASE_URL: "${RB_TEMPO_BASE_URL:-http://localhost:3000}"
       RB_CHAT_PANEL_ENABLED: "${RB_CHAT_PANEL_ENABLED:-true}"
+      RB_MCP_JWT_SECRET: "${RB_MCP_JWT_SECRET:-dev-mcp-jwt-secret-change-me-in-prod-32b}"
     volumes:
       - ../migrations:/migrations:ro
     ports:
