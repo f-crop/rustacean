@@ -184,9 +184,14 @@ const traceRoute = createRoute({
   component: TraceViewerPage,
 });
 
+const chatSearchSchema = z.object({
+  sessionId: z.string().optional(),
+});
+
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: routes.chat,
+  validateSearch: chatSearchSchema,
   beforeLoad: () => {
     // Feature flag check: VITE_FEATURE_CHAT_PANEL must be "true" at build/run time.
     // When rb-feature-resolver (S5) ships this will be replaced with a per-tenant API check.

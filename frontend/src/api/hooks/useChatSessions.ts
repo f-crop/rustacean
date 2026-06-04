@@ -8,6 +8,7 @@ import { toApiError, type ApiError } from "../client";
 import { chatApiClient } from "../chat-client";
 import type {
   ListChatSessionsResponse,
+  ListMessagesResponse,
   CreateChatSessionRequest,
   CreateChatSessionResponse,
   SendMessageRequest,
@@ -57,6 +58,24 @@ export function useCreateChatSession(tenantId: string) {
   });
 }
 
+export const chatMessagesQueryKey = (sessionId: string) =>
+  ["chat-sessions", sessionId, "messages"] as const;
+
+export function useChatMessages(sessionId: string | null) {
+  return useQuery<ListMessagesResponse, ApiError>({
+    queryKey: chatMessagesQueryKey(sessionId ?? ""),
+    queryFn: async () => {
+      const { data, error, response } = await chatApiClient.listMessages(sessionId!);
+      if (error || !data) {
+        throw toApiError(response.status, error, response);
+      }
+      return data;
+    },
+    enabled: sessionId !== null,
+    staleTime: 30_000,
+  });
+}
+
 export type SendMessageVariables = SendMessageRequest & { sessionId: string };
 
 export function useSendChatMessage() {
@@ -74,6 +93,7 @@ export function useSendChatMessage() {
 export type {
   ChatSession,
   ListChatSessionsResponse,
+  ListMessagesResponse,
   CreateChatSessionRequest,
   CreateChatSessionResponse,
   SendMessageRequest,

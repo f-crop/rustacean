@@ -1,16 +1,23 @@
 import { useMemo, useState } from "react";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useMe } from "@/api";
 import {
   useChatSessions,
   useCreateChatSession,
   useSendChatMessage,
+  useChatMessages,
 } from "@/api/hooks/useChatSessions";
 import { useChatStream } from "@/hooks/useChatStream";
 import { SessionSidebar } from "@/components/chat/SessionSidebar";
 import { MessageThread } from "@/components/chat/MessageThread";
 import { MessageComposer } from "@/components/chat/MessageComposer";
-import { buildTranscript } from "@/components/chat/transcript";
+import {
+  buildTranscript,
+  buildTranscriptFromHistory,
+  getMinSseUserInputSeq,
+} from "@/components/chat/transcript";
 import { formatApiError } from "@/lib/errors/api";
+import { routes } from "@/lib/routes";
 import type { ChatRuntime } from "@/lib/chat-api";
 
 export function ChatPage(): JSX.Element {
@@ -40,16 +47,37 @@ interface ChatInnerProps {
 }
 
 function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { sessionId: activeSessionId = null } = useSearch({ from: routes.chat });
   const [composerValue, setComposerValue] = useState("");
+
+  const setActiveSessionId = (id: string | null) => {
+    void navigate({
+      to: routes.chat,
+      search: id !== null ? { sessionId: id } : {},
+      replace: false,
+    });
+  };
 
   const sessions = useChatSessions(tenantId);
   const createSession = useCreateChatSession(tenantId);
   const sendMessage = useSendChatMessage();
+  const historicalMessages = useChatMessages(activeSessionId);
 
   const { events, readyState } = useChatStream(activeSessionId);
 
-  const transcript = useMemo(() => buildTranscript(events), [events]);
+  const transcript = useMemo(() => {
+    const historical = historicalMessages.data?.messages ?? [];
+    const minLiveSeq = getMinSseUserInputSeq(events);
+
+    const historicalFiltered =
+      minLiveSeq !== null ? historical.filter((m) => m.seq < minLiveSeq) : historical;
+
+    const historicalItems = buildTranscriptFromHistory(historicalFiltered);
+    const liveItems = buildTranscript(events);
+
+    return [...historicalItems, ...liveItems];
+  }, [historicalMessages.data, events]);
 
   const isStreaming = sendMessage.isPending;
 

@@ -80,6 +80,40 @@ export const SESSION_ERROR_SSE = [
   "",
 ].join("\n");
 
+export const LIST_MESSAGES_TWO_TURNS = {
+  messages: [
+    {
+      id: "msg-001",
+      seq: 1,
+      role: "user",
+      body: "Hello from reload test",
+      created_at: "2026-06-03T00:00:00Z",
+    },
+    {
+      id: "msg-002",
+      seq: 2,
+      role: "assistant",
+      body: "Hello back! I remember your message.",
+      created_at: "2026-06-03T00:00:01Z",
+    },
+    {
+      id: "msg-003",
+      seq: 3,
+      role: "user",
+      body: "Second message",
+      created_at: "2026-06-03T00:00:02Z",
+    },
+    {
+      id: "msg-004",
+      seq: 4,
+      role: "assistant",
+      body: "Got your second message.",
+      created_at: "2026-06-03T00:00:03Z",
+    },
+  ],
+  has_more: false,
+};
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
@@ -100,7 +134,7 @@ export const AUDIT_WITH_TOOL_CALL = {
 
 export async function mockChatSessionsList(
   page: Page,
-  response = LIST_SESSIONS_EMPTY,
+  response: { sessions: unknown[] } = LIST_SESSIONS_EMPTY,
 ): Promise<void> {
   await page.route("**/v1/chat/sessions", (route) => {
     if (route.request().method() === "GET") {
@@ -121,7 +155,7 @@ export async function mockCreateChatSession(page: Page): Promise<void> {
 
 export async function mockChatSessionsListAndCreate(
   page: Page,
-  listResponse = LIST_SESSIONS_EMPTY,
+  listResponse: { sessions: unknown[] } = LIST_SESSIONS_EMPTY,
 ): Promise<void> {
   await page.route("**/v1/chat/sessions", (route) => {
     if (route.request().method() === "POST") {
@@ -135,6 +169,19 @@ export async function mockSendChatMessage(page: Page): Promise<void> {
   await page.route("**/v1/chat/sessions/*/messages", (route) =>
     route.fulfill({ json: SEND_MESSAGE_RESPONSE }),
   );
+}
+
+export async function mockListChatMessages(
+  page: Page,
+  sessionId: string,
+  response = LIST_MESSAGES_TWO_TURNS,
+): Promise<void> {
+  await page.route(`**/v1/chat/sessions/${sessionId}/messages`, (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({ json: response });
+    }
+    return route.continue();
+  });
 }
 
 export async function mockChatStream(

@@ -8,10 +8,12 @@ import {
   mockChatSessionsListAndCreate,
   mockSendChatMessage,
   mockChatStream,
+  mockListChatMessages,
   CHAT_SESSION_ID,
   FULL_EXCHANGE_SSE,
   SESSION_ERROR_SSE,
   AUDIT_WITH_TOOL_CALL,
+  LIST_SESSIONS_ONE,
 } from "./fixtures/chat-mock-api";
 
 const CHAT_URL = "/chat";
@@ -113,6 +115,49 @@ test.describe("Chat panel — golden path", () => {
 
     // Header renders first 8 chars of session ID (title attr holds full ID)
     await expect(page.getByTitle(CHAT_SESSION_ID)).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reload persistence — session + message history survive a hard reload
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — reload persistence", () => {
+  test("restores active session and renders message history after reload", async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    // List endpoint returns the existing session; SSE stream is empty (session not streaming)
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    await mockListChatMessages(page, CHAT_SESSION_ID);
+    await mockChatStream(page, CHAT_SESSION_ID, "");
+
+    // Navigate directly to the chat page with sessionId search param (simulates post-reload URL)
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // Session sidebar is visible
+    await expect(page.getByRole("complementary", { name: "Chat sessions" })).toBeVisible();
+
+    // Both messages from LIST_MESSAGES_TWO_TURNS are rendered
+    await expect(page.getByText("Hello from reload test")).toBeVisible();
+    await expect(page.getByText("Hello back! I remember your message.")).toBeVisible();
+    await expect(page.getByText("Second message", { exact: true })).toBeVisible();
+    await expect(page.getByText("Got your second message.")).toBeVisible();
+
+    // Session ID still shows in header
+    await expect(page.getByTitle(CHAT_SESSION_ID)).toBeVisible();
+  });
+
+  test("URL search param persists sessionId so reload can restore session", async ({ page }) => {
+    await setupChatPage(page);
+    await page.goto(CHAT_URL);
+
+    // Create a new session
+    await page.getByRole("button", { name: "New chat session" }).first().click();
+    await expect(page.getByRole("textbox", { name: "Chat message" })).toBeVisible();
+
+    // URL should now include sessionId search param
+    const url = new URL(page.url());
+    expect(url.searchParams.get("sessionId")).toBe(CHAT_SESSION_ID);
   });
 });
 

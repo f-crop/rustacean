@@ -8,6 +8,7 @@ import type {
   CreateChatSessionRequest,
   CreateChatSessionResponse,
   ListChatSessionsResponse,
+  ListMessagesResponse,
   SendMessageRequest,
   SendMessageResponse,
 } from "@/lib/chat-api";
@@ -60,4 +61,14 @@ export const chatApiClient = {
         opts: { params: { path: { id: string } }; body: SendMessageRequest },
       ) => Promise<FetchResponse<SendMessageResponse>>
     )("/v1/chat/sessions/{id}/messages", { params: { path: { id: sessionId } }, body }),
+
+  listMessages: (
+    sessionId: string,
+  ): Promise<FetchResponse<ListMessagesResponse>> =>
+    (
+      _rawClient.GET as (
+        path: string,
+        opts: { params: { path: { id: string } } },
+      ) => Promise<FetchResponse<ListMessagesResponse>>
+    )("/v1/chat/sessions/{id}/messages", { params: { path: { id: sessionId } } }),
 };
