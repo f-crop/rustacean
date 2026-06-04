@@ -1056,9 +1056,6 @@
           },
           "404": {
             "description": "Feature not enabled"
-          },
-          "503": {
-            "description": "Kafka unavailable"
           }
         }
       }
