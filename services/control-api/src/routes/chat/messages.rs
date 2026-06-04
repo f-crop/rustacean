@@ -9,12 +9,18 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use rb_auth::{McpTokenClaims, mint_mcp_token};
 use rb_kafka::EventEnvelope;
-use rb_schemas::{AgentSessionCommand, AgentSessionInput, TenantId, agent_session_command};
+use rb_schemas::{
+    AgentSessionCommand, AgentSessionInput, AgentSessionStart, TenantId, agent_session_command,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{error::AppError, middleware::auth::AuthContext, state::AppState};
+use crate::{
+    error::AppError, middleware::auth::AuthContext,
+    routes::agents::session_lifecycle::parse_runtime, state::AppState,
+};
 
 use super::db::{db_get_chat_session, db_insert_chat_message, db_list_chat_messages};
 use super::sessions::{ChatMessageDto, require_chat_auth};
@@ -85,27 +91,56 @@ pub async fn post_chat_message(
     )
     .await?;
 
-    // Dispatch user turn to the live runtime process via Kafka stdin feed.
     let producer = state
         .agent_commands_producer
         .as_ref()
         .ok_or(AppError::KafkaNotConfigured)?;
 
-    let command = AgentSessionCommand {
-        session_id: session_id.to_string(),
-        command: Some(agent_session_command::Command::Input(AgentSessionInput {
-            input: req.content,
-        })),
+    let tenant_id = TenantId::from(caller.tenant_id);
+
+    // First message (seq == 1): spawn the agent with this message as the initial
+    // prompt so claude receives input immediately, before its 3-second stdin
+    // timeout fires.  Subsequent messages are fed as stdin turns (Input).
+    let command = if seq == 1 {
+        let workspace_path = format!("{}/{}", caller.tenant_id, session_id);
+        let runtime_val: i32 = parse_runtime(&session.runtime)
+            .ok_or(AppError::InvalidInput)?
+            .into();
+        let token = mint_mcp_token(
+            state.mcp_jwt_secret.as_bytes(),
+            state.config.mcp_jwt_ttl_secs,
+            McpTokenClaims {
+                sub: session_id,
+                tenant_id: caller.tenant_id,
+                user_id: caller.user_id,
+            },
+        )
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("JWT mint failed: {e}")))?;
+        AgentSessionCommand {
+            session_id: session_id.to_string(),
+            command: Some(agent_session_command::Command::Start(AgentSessionStart {
+                runtime: runtime_val,
+                initial_prompt: req.content,
+                workspace_path,
+                api_key: token,
+            })),
+        }
+    } else {
+        AgentSessionCommand {
+            session_id: session_id.to_string(),
+            command: Some(agent_session_command::Command::Input(AgentSessionInput {
+                input: req.content,
+            })),
+        }
     };
 
-    let tenant_id = TenantId::from(caller.tenant_id);
     let envelope = EventEnvelope::new(tenant_id, command);
 
     producer
         .publish(TOPIC_AGENT_COMMANDS, session_id.as_bytes(), envelope)
         .await
         .map_err(|e| {
-            tracing::error!("failed to publish chat message input: {e}");
+            tracing::error!("failed to publish chat message: {e}");
             AppError::Internal(anyhow::anyhow!("Kafka publish failed"))
         })?;
 

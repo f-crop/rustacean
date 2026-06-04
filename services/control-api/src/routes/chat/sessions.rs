@@ -1,6 +1,6 @@
 //! Chat session lifecycle routes (ADR-013 §3).
 //!
-//! - `POST /v1/chat/sessions`      — create session, mint MCP JWT, dispatch to agent-runner
+//! - `POST /v1/chat/sessions`      — create session row; agent is dispatched on first message
 //! - `GET  /v1/chat/sessions/{id}` — fetch session with message history (tenant-scoped)
 
 use axum::{
@@ -10,9 +10,6 @@ use axum::{
     response::IntoResponse,
 };
 use chrono::{DateTime, Utc};
-use rb_auth::{McpTokenClaims, mint_mcp_token};
-use rb_kafka::EventEnvelope;
-use rb_schemas::{AgentSessionCommand, AgentSessionStart, TenantId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -27,8 +24,6 @@ use super::db::{
     ChatMessageRow, ChatSessionRow, db_get_chat_session, db_insert_chat_session,
     db_list_chat_messages, db_list_chat_sessions,
 };
-
-const TOPIC_AGENT_COMMANDS: &str = "rb.agent.commands";
 const MAX_RUNTIME_LEN: usize = 32;
 
 // ---------------------------------------------------------------------------
@@ -138,7 +133,6 @@ pub struct ListChatSessionsResponse {
         (status = 400, description = "Invalid runtime"),
         (status = 401, description = "Authentication required"),
         (status = 404, description = "Feature not enabled"),
-        (status = 503, description = "Kafka unavailable"),
     ),
     tag = "chat"
 )]
@@ -157,12 +151,13 @@ pub async fn create_chat_session(
         return Err(AppError::InvalidInput);
     }
 
-    let jwt_secret = &state.mcp_jwt_secret;
-
     let session_id = Uuid::new_v4();
     let trace_id = format!("{}", Uuid::new_v4().as_simple());
 
-    // Insert session row before dispatching to agent-runner.
+    // Insert session row.  Agent dispatch happens on the first user message
+    // (POST /v1/chat/sessions/{id}/messages) so that claude receives the
+    // initial_prompt immediately — avoiding the 3-second stdin-timeout
+    // built into `claude -p` when no input arrives within that window.
     db_insert_chat_session(
         &state.pool,
         session_id,
@@ -172,52 +167,6 @@ pub async fn create_chat_session(
         &trace_id,
     )
     .await?;
-
-    // Mint a short-lived read-scoped MCP JWT for this session.
-    let token = mint_mcp_token(
-        jwt_secret.as_bytes(),
-        state.config.mcp_jwt_ttl_secs,
-        McpTokenClaims {
-            sub: session_id,
-            tenant_id: caller.tenant_id,
-            user_id: caller.user_id,
-        },
-    )
-    .map_err(|e| AppError::Internal(anyhow::anyhow!("JWT mint failed: {e}")))?;
-
-    // Dispatch to agent-runner via existing rb.agent.commands Kafka topic.
-    // The JWT is passed as api_key; agent-runner writes it to .mcp.json (ADR-013 §5.4).
-    let workspace_path = format!("{}/{}", caller.tenant_id, session_id);
-    let runtime_val: i32 = parse_runtime(&req.runtime)
-        .ok_or(AppError::InvalidInput)?
-        .into();
-    let command = AgentSessionCommand {
-        session_id: session_id.to_string(),
-        command: Some(rb_schemas::agent_session_command::Command::Start(
-            AgentSessionStart {
-                runtime: runtime_val,
-                initial_prompt: String::new(),
-                workspace_path,
-                api_key: token,
-            },
-        )),
-    };
-
-    let producer = state
-        .agent_commands_producer
-        .as_ref()
-        .ok_or(AppError::KafkaNotConfigured)?;
-
-    let tenant_id = TenantId::from(caller.tenant_id);
-    let envelope = EventEnvelope::new(tenant_id, command);
-
-    producer
-        .publish(TOPIC_AGENT_COMMANDS, session_id.as_bytes(), envelope)
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to publish chat session start: {e}");
-            AppError::Internal(anyhow::anyhow!("Kafka publish failed"))
-        })?;
 
     Ok((
         StatusCode::ACCEPTED,

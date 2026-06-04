@@ -2996,13 +2996,6 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Kafka unavailable */
-            readonly 503: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content?: never;
-            };
         };
     };
     readonly get_chat_session: {
