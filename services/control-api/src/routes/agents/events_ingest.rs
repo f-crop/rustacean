@@ -153,29 +153,48 @@ async fn ingest_chat_session_events(
 
         match ev {
             RuntimeEvent::UserInput { .. } => {
-                flush_pending_turn(&state.pool, session_id, req.tenant_id, &mut pending_text, &mut pending_blocks).await;
+                flush_pending_turn(
+                    &state.pool,
+                    session_id,
+                    req.tenant_id,
+                    &mut pending_text,
+                    &mut pending_blocks,
+                )
+                .await;
             }
             RuntimeEvent::Text { text } => {
                 pending_text.push_str(text);
             }
             RuntimeEvent::Thinking { thinking } => {
                 commit_text_block(&mut pending_text, &mut pending_blocks);
-                pending_blocks.push(serde_json::json!({ "type": "thinking", "thinking": thinking }));
+                pending_blocks
+                    .push(serde_json::json!({ "type": "thinking", "thinking": thinking }));
             }
             RuntimeEvent::ToolUse { id, name, input } => {
                 commit_text_block(&mut pending_text, &mut pending_blocks);
                 pending_blocks.push(serde_json::json!({ "type": "tool_use", "id": id, "name": name, "input": input }));
             }
-            RuntimeEvent::ToolResult { tool_use_id, content, is_error } => {
+            RuntimeEvent::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
                 commit_text_block(&mut pending_text, &mut pending_blocks);
                 pending_blocks.push(serde_json::json!({ "type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": is_error }));
             }
-            _ => {}
+            RuntimeEvent::Error { .. } => {}
         }
     }
 
     // Flush the final assistant turn.
-    flush_pending_turn(&state.pool, session_id, req.tenant_id, &mut pending_text, &mut pending_blocks).await;
+    flush_pending_turn(
+        &state.pool,
+        session_id,
+        req.tenant_id,
+        &mut pending_text,
+        &mut pending_blocks,
+    )
+    .await;
 
     Ok((
         StatusCode::OK,
