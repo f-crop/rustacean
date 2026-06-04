@@ -196,6 +196,22 @@ export const LIST_MESSAGES_WITH_TOOL_USE = {
   has_more: false,
 };
 
+// Simulates the SSE echo race: assistant tokens stream for a SECOND turn WITHOUT
+// a preceding user_input echo.  buildTranscript accumulates these as an
+// in-progress (inProgress: true) assistant item.  Used to test that the
+// optimistic pending bubble is slotted BEFORE this in-progress item.
+export const IN_PROGRESS_NO_ECHO_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 3,
+    payload: { type: "text", text: "I'm analyzing your request now..." },
+  })}`,
+  "",
+  "",
+].join("\n");
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [

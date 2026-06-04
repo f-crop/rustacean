@@ -17,6 +17,7 @@ import {
   LIST_MESSAGES_MCP_EXCHANGE,
   LIST_MESSAGES_WITH_TOOL_USE,
   MID_SEND_SSE,
+  IN_PROGRESS_NO_ECHO_SSE,
 } from "./fixtures/chat-mock-api";
 
 const CHAT_URL = "/chat";
@@ -325,6 +326,59 @@ test.describe("Chat panel — audit row visibility", () => {
     await expect(summaryGrid.getByText("Total audit events")).toBeVisible();
     // Total is 1 (from AUDIT_WITH_TOOL_CALL.total).
     await expect(summaryGrid.locator("p.text-2xl").nth(1)).toContainText("1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug C — Pending bubble ordering: appears before in-progress assistant turn
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — pending bubble ordering (Bug C)", () => {
+  // Regression guard for RUSAA-1898: optimistic pending bubble was appended AFTER
+  // the in-progress assistant turn instead of slotted before it.
+  //
+  // Scenario: session has existing history (U1, A1); SSE delivers A2 tokens
+  // WITHOUT a user_input echo (simulating the backend race window).  The user
+  // sends U2 optimistically.  The pending bubble must appear BEFORE the
+  // in-progress A2 content, not after it.
+  test("pending user bubble appears before in-progress assistant content, not after", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // SSE delivers A2 tokens with no user_input echo — buildTranscript marks
+    // this as inProgress: true.
+    await mockChatStream(page, CHAT_SESSION_ID, IN_PROGRESS_NO_ECHO_SSE);
+    await mockSendChatMessage(page);
+    // History: U1 + A1 already persisted.
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_MCP_EXCHANGE);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // Wait for both history and streaming content to render.
+    await expect(page.getByText("What MCP tools are available?")).toBeVisible();
+    await expect(page.getByText("I'm analyzing your request now...")).toBeVisible();
+
+    // Send a new message optimistically.
+    await page.getByRole("textbox", { name: "Chat message" }).fill("What's next?");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    // Pending bubble must be visible.
+    await expect(page.getByText("What's next?")).toBeVisible();
+
+    // The pending bubble must appear ABOVE (before) the in-progress assistant
+    // content in the rendered DOM — i.e. its bounding box Y is smaller.
+    const pendingBubble = page.getByText("What's next?");
+    const inProgressContent = page.getByText("I'm analyzing your request now...");
+
+    const pendingBox = await pendingBubble.boundingBox();
+    const inProgressBox = await inProgressContent.boundingBox();
+
+    expect(pendingBox).not.toBeNull();
+    expect(inProgressBox).not.toBeNull();
+    // pending bubble renders above the in-progress assistant content
+    expect(pendingBox!.y).toBeLessThan(inProgressBox!.y);
   });
 });
 

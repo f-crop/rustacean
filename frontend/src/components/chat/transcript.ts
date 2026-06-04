@@ -14,6 +14,10 @@ export interface AssistantTranscriptItem {
   kind: "assistant";
   id: string;
   items: ReadonlyArray<AssistantItem>;
+  // True only on the trailing pending turn that has not yet been flushed by a
+  // user_input event.  Used by ChatPage to slot optimistic pending bubbles in
+  // chronological order during the SSE echo race window.
+  inProgress?: boolean;
 }
 
 export interface ErrorTranscriptItem {
@@ -184,7 +188,7 @@ export function buildTranscript(
   if (state.pendingAssistant !== null && state.pendingAssistant.length > 0) {
     return [
       ...state.items,
-      { kind: "assistant", id: `a-${state.counter}`, items: state.pendingAssistant },
+      { kind: "assistant", id: `a-${state.counter}`, items: state.pendingAssistant, inProgress: true },
     ];
   }
 
