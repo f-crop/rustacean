@@ -14,7 +14,7 @@ import { MessageComposer } from "@/components/chat/MessageComposer";
 import {
   buildTranscript,
   buildTranscriptFromHistory,
-  getMinSseUserInputSeq,
+  type UserTranscriptItem,
 } from "@/components/chat/transcript";
 import { formatApiError } from "@/lib/errors/api";
 import { routes } from "@/lib/routes";
@@ -68,15 +68,37 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
 
   const transcript = useMemo(() => {
     const historical = historicalMessages.data?.messages ?? [];
-    const minLiveSeq = getMinSseUserInputSeq(events);
-
-    const historicalFiltered =
-      minLiveSeq !== null ? historical.filter((m) => m.seq < minLiveSeq) : historical;
-
-    const historicalItems = buildTranscriptFromHistory(historicalFiltered);
     const liveItems = buildTranscript(events);
 
-    return [...historicalItems, ...liveItems];
+    // Find the first user turn emitted by the live SSE stream.
+    const firstLiveUser = liveItems.find(
+      (item): item is UserTranscriptItem => item.kind === "user",
+    );
+
+    if (!firstLiveUser) {
+      // No live user turn in SSE — show historical + any live non-user items (e.g. session.error).
+      return [...buildTranscriptFromHistory(historical), ...liveItems];
+    }
+
+    // The SSE stream is covering at least one user turn.  Find the last historical
+    // user message whose body matches the first SSE user turn and exclude it (and
+    // all subsequent rows) from the historical slice — those rows will be supplied
+    // by the live stream instead, preventing duplication.
+    //
+    // If the matching message is not yet in the DB cache (common: messages query
+    // has a 30 s staleTime and POST /messages doesn't invalidate it), cutIdx stays
+    // -1 and all historical messages are shown before the live items.
+    let cutIdx = -1;
+    for (let i = historical.length - 1; i >= 0; i--) {
+      const msg = historical[i];
+      if (msg && msg.role === "user" && msg.body === firstLiveUser.text) {
+        cutIdx = i;
+        break;
+      }
+    }
+
+    const historicalFiltered = cutIdx >= 0 ? historical.slice(0, cutIdx) : historical;
+    return [...buildTranscriptFromHistory(historicalFiltered), ...liveItems];
   }, [historicalMessages.data, events]);
 
   const isStreaming = sendMessage.isPending;

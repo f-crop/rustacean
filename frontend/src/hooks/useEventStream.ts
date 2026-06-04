@@ -36,6 +36,10 @@ export function useEventStream(
       return;
     }
 
+    // Clear accumulated events whenever the URL (i.e. session) changes so stale
+    // events from a previous session never pollute the new session's transcript.
+    setEvents([]);
+    setLastEventId(null);
     cancelledRef.current = false;
 
     let es: EventSource | null = null;
