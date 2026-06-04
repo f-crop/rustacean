@@ -217,6 +217,72 @@ export const IN_PROGRESS_NO_ECHO_SSE = [
   "",
 ].join("\n");
 
+// Simulates the turn-2 stale-inProgress race: a completed turn-1 exchange
+// (user_input + text) where inProgress is never cleared because no subsequent
+// user_input arrived.  buildTranscript marks the trailing assistant as
+// inProgress: true even though turn-1 is fully done.
+// Used to assert that the turn-2 pending bubble is placed AFTER assistant-1,
+// NOT slotted before it.
+export const TURN1_COMPLETE_STALE_INPROGRESS_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 1,
+    payload: { type: "user_input", text: "what are the tools available" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "Here are the available tools." },
+  })}`,
+  "",
+  "",
+].join("\n");
+
+// Simulates two completed turns including the turn-2 user_input echo.
+// buildTranscript produces: [user-1, assistant-1, user-2, assistant-2(inProgress)]
+// Used to verify AC3: after turn-2 echo arrives, ordering is stable and
+// no visual reshuffle of items 1 (user-1) and 2 (assistant-1) occurs.
+export const TURN2_WITH_ECHO_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 1,
+    payload: { type: "user_input", text: "what are the tools available" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "Here are the available tools." },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 3,
+    payload: { type: "user_input", text: "Tell me about ownership" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 4,
+    payload: { type: "text", text: "Ownership is Rust's key memory feature." },
+  })}`,
+  "",
+  "",
+].join("\n");
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
