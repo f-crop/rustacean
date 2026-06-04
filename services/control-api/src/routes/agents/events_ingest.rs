@@ -17,7 +17,7 @@ use rb_schemas::{RuntimeEvent, TenantId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::{error::AppError, routes::chat::db::db_insert_chat_message, state::AppState};
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -91,9 +91,9 @@ pub async fn ingest_session_events(
     }
 
     // Chat session fallback: validate against control.chat_sessions.
-    // Chat events are NOT inserted into agents.agent_events — they persist via
-    // control.chat_messages through the db_insert_chat_message path. Here we only
-    // fan-out to the SSE bus so the frontend receives streaming tokens.
+    // Chat events are NOT inserted into agents.agent_events — they are fanned out to
+    // the SSE bus (live streaming) and Text events are persisted to control.chat_messages
+    // as role=assistant rows so GET /messages can return full history on reload.
     let chat_row: Option<(Uuid,)> =
         sqlx::query_as("SELECT tenant_id FROM control.chat_sessions WHERE id = $1")
             .bind(session_id)
@@ -106,7 +106,7 @@ pub async fn ingest_session_events(
         return Err(AppError::Unauthorized);
     }
 
-    // Fan-out to the SSE bus without a DB insert — sequences are synthetic (1-based).
+    // Fan-out to the SSE bus (sequences are synthetic, 1-based within each batch).
     let tenant_id = TenantId::from(req.tenant_id);
     let mut fanned_out: usize = 0;
     for (seq, ev) in req.events.iter().enumerate() {
@@ -128,6 +128,31 @@ pub async fn ingest_session_events(
         if let Ok(data) = serde_json::to_string(&sse_data) {
             state.sse_bus.publish_raw(&tenant_id, "session.event", data);
             fanned_out += 1;
+        }
+    }
+
+    // Persist assistant turns so GET /messages returns full history on reload.
+    // Only Text events represent the visible assistant reply; thinking/tool events are
+    // internal and intentionally excluded from the message history.
+    for ev in &req.events {
+        if let RuntimeEvent::Text { text } = ev {
+            let msg_id = Uuid::new_v4();
+            if let Err(e) = db_insert_chat_message(
+                &state.pool,
+                msg_id,
+                session_id,
+                req.tenant_id,
+                "assistant",
+                text,
+            )
+            .await
+            {
+                tracing::error!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to persist assistant chat message — history may be incomplete on reload"
+                );
+            }
         }
     }
 
