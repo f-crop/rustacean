@@ -381,8 +381,8 @@ mod tests {
         assert_eq!(status.code(), Some(0), "cat must exit 0 after stdin closes");
     }
 
-    /// Regression for RUSAA-1870 — non-empty initial_prompt path: stdin is extracted
-    /// but the child exits naturally without any send_input call (no deadlock risk).
+    /// Regression for RUSAA-1870 — non-empty `initial_prompt` path: stdin is extracted
+    /// but the child exits naturally without any `send_input` call (no deadlock risk).
     /// Mirrors the existing agent-session path where the initial prompt is a CLI arg.
     #[tokio::test]
     async fn extracted_stdin_allows_natural_exit_without_send_input() {
