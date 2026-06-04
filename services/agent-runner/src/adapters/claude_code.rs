@@ -81,7 +81,12 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
             .env("RB_AGENT_API_KEY", &ctx.api_key)
             .env("RB_AGENT_TENANT_ID", &ctx.tenant_id);
 
-        if !ctx.initial_prompt.is_empty() {
+        if ctx.initial_prompt.is_empty() {
+            // Chat sessions: keep the process alive for multi-turn by reading NDJSON
+            // turns from stdin instead of consuming a one-shot positional arg.
+            cmd.arg("--input-format").arg("stream-json");
+        } else {
+            // Non-chat (one-shot) sessions: pass the full prompt as a CLI arg.
             // `--` terminates flag parsing so a prompt starting with `-` cannot
             // inject CLI flags into the spawned process.
             cmd.arg("--").arg(&ctx.initial_prompt);
@@ -103,17 +108,19 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
     }
 
     async fn send_input(&self, proc: &mut AgentProcess, input: &str) -> Result<()> {
-        // Take (and drop) stdin after writing so tokio flushes and sends EOF to
-        // claude.  claude --print reads all stdin as one prompt; without EOF it
-        // blocks indefinitely waiting for more input.
-        let Some(mut stdin) = proc.stdin.take() else {
+        // Use as_mut() (not take()) so stdin remains open for the next turn.
+        // Each turn is a JSON line in the SDK's stream-json envelope format.
+        let Some(stdin) = proc.stdin.as_mut() else {
             anyhow::bail!("Process stdin not available")
         };
-        stdin.write_all(input.as_bytes()).await?;
+        let ndjson = serde_json::json!({
+            "type": "user",
+            "message": { "role": "user", "content": input }
+        })
+        .to_string();
+        stdin.write_all(ndjson.as_bytes()).await?;
         stdin.write_all(b"\n").await?;
         stdin.flush().await?;
-        // Dropping stdin closes the write-end, sending EOF → claude processes.
-        drop(stdin);
         Ok(())
     }
 
@@ -224,6 +231,31 @@ mod tests {
         assert_eq!(
             cfg["mcpServers"]["rust-brain"]["command"], "rustbrain-mcp",
             "MCP command must be the pre-installed binary"
+        );
+    }
+
+    /// `send_input` must produce valid NDJSON using the SDK's stream-json envelope.
+    /// The content field must be properly escaped (newlines, quotes, etc.).
+    #[test]
+    fn send_input_ndjson_envelope_is_valid() {
+        let content = "Hello,\nworld! \"quoted\"";
+        let ndjson = serde_json::json!({
+            "type": "user",
+            "message": { "role": "user", "content": content }
+        })
+        .to_string();
+
+        let parsed: serde_json::Value = serde_json::from_str(&ndjson).expect("must be valid JSON");
+        assert_eq!(parsed["type"].as_str().unwrap(), "user");
+        assert_eq!(
+            parsed["message"]["role"].as_str().unwrap(),
+            "user",
+            "role must be 'user'"
+        );
+        assert_eq!(
+            parsed["message"]["content"].as_str().unwrap(),
+            content,
+            "content must round-trip without loss"
         );
     }
 

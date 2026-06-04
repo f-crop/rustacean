@@ -520,6 +520,84 @@ async fn ac5d_list_chat_sessions_disabled_returns_404() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// RUSAA-1884: multi-turn chat — session stays 'active' across messages
+// ---------------------------------------------------------------------------
+
+/// Posting multiple messages to an active session must not flip
+/// `chat_sessions.status` away from 'active'.  The status must remain
+/// 'active' after each message so the next POST returns 202 (not 422).
+///
+/// Kafka is not configured in this test, so the route returns 503 (producer
+/// absent) after the status check.  We validate that the status check
+/// itself passes (i.e., the session is still 'active') rather than
+/// returning 422 `ChatSessionNotActive`.
+#[tokio::test]
+async fn rusaa1884_session_stays_active_across_messages() {
+    let Some((state, pool)) = real_db_state_chat_enabled().await else {
+        return;
+    };
+    let a = seed_tenant_with_session(&pool).await;
+    let session_id = seed_chat_session(&pool, a.tenant_id, a.user_id).await;
+
+    let app = build_public(state);
+
+    // First message — Kafka not configured → 503, but session must still be 'active'.
+    let resp1 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/chat/sessions/{session_id}/messages"))
+                .header("cookie", format!("rb_session={}", a.session_token))
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"content":"hello"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // 503 means Kafka was unreachable — NOT 422 (session not active).
+    assert_ne!(
+        resp1.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "first message must not fail with ChatSessionNotActive (422)"
+    );
+
+    // Confirm session is still 'active' in the DB — the status check in
+    // messages.rs passed before Kafka was reached.
+    let (status,): (String,) =
+        sqlx::query_as("SELECT status FROM control.chat_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .expect("fetch session status");
+    assert_eq!(
+        status, "active",
+        "session status must remain 'active' after first message attempt"
+    );
+
+    // Second message — must also pass the status check (not 422).
+    let resp2 = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/v1/chat/sessions/{session_id}/messages"))
+                .header("cookie", format!("rb_session={}", a.session_token))
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"content":"follow-up"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(
+        resp2.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "second message must not fail with ChatSessionNotActive (422)"
+    );
+}
+
 /// With `chat_panel_enabled = false`, GET /v1/chat/sessions/{id} returns 404.
 #[tokio::test]
 async fn ac4_chat_feature_disabled_get_returns_404() {
