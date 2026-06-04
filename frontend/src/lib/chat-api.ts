@@ -62,3 +62,16 @@ export interface ChatSessionErrorEnvelope {
   message: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  seq: number;
+  role: ChatMessageRole;
+  body: string;
+  created_at: string;
+}
+
+export interface ListMessagesResponse {
+  messages: ChatMessage[];
+  has_more: boolean;
+}
+

@@ -1,7 +1,7 @@
 // Transcript types and reducer for building a conversational view from SSE events.
 
 import type { StreamedEvent } from "@/hooks/useEventStream";
-import type { ChatSessionEventEnvelope, ChatRuntimePayload } from "@/lib/chat-api";
+import type { ChatMessage, ChatSessionEventEnvelope, ChatRuntimePayload } from "@/lib/chat-api";
 
 export interface UserTranscriptItem {
   kind: "user";
@@ -189,4 +189,36 @@ export function buildTranscript(
   }
 
   return state.items;
+}
+
+// Finds the sequence number of the first user_input event in the SSE stream.
+// Used to determine the cutoff point when merging historical + live transcripts.
+export function getMinSseUserInputSeq(events: ReadonlyArray<StreamedEvent>): number | null {
+  for (const event of events) {
+    if (event.type !== "session.event") continue;
+    const envelope = parseJson<{ sequence: number; payload: { type: string } }>(event.data);
+    if (envelope?.payload?.type === "user_input" && typeof envelope.sequence === "number") {
+      return envelope.sequence;
+    }
+  }
+  return null;
+}
+
+export function buildTranscriptFromHistory(
+  messages: ReadonlyArray<ChatMessage>,
+): ReadonlyArray<TranscriptItem> {
+  const items: TranscriptItem[] = [];
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      items.push({ kind: "user", id: msg.id, text: msg.body, seq: msg.seq });
+    } else if (msg.role === "assistant") {
+      items.push({
+        kind: "assistant",
+        id: msg.id,
+        items: [{ type: "text", text: msg.body, seq: msg.seq }],
+      });
+    }
+    // system / tool rows are not rendered in the transcript UI
+  }
+  return items;
 }
