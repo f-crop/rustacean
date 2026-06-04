@@ -103,14 +103,18 @@ impl RuntimeAdapter for ClaudeCodeAdapter {
     }
 
     async fn send_input(&self, proc: &mut AgentProcess, input: &str) -> Result<()> {
-        if let Some(stdin) = proc.stdin.as_mut() {
-            stdin.write_all(input.as_bytes()).await?;
-            stdin.write_all(b"\n").await?;
-            stdin.flush().await?;
-            Ok(())
-        } else {
+        // Take (and drop) stdin after writing so tokio flushes and sends EOF to
+        // claude.  claude --print reads all stdin as one prompt; without EOF it
+        // blocks indefinitely waiting for more input.
+        let Some(mut stdin) = proc.stdin.take() else {
             anyhow::bail!("Process stdin not available")
-        }
+        };
+        stdin.write_all(input.as_bytes()).await?;
+        stdin.write_all(b"\n").await?;
+        stdin.flush().await?;
+        // Dropping stdin closes the write-end, sending EOF → claude processes.
+        drop(stdin);
+        Ok(())
     }
 
     async fn terminate(&self, proc: &mut AgentProcess, force: bool) -> Result<()> {
