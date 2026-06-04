@@ -76,8 +76,8 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     );
 
     if (!firstLiveUser) {
-      // No live user turn in SSE — show all historical messages (reload path).
-      return buildTranscriptFromHistory(historical);
+      // No live user turn in SSE — show historical + any live non-user items (e.g. session.error).
+      return [...buildTranscriptFromHistory(historical), ...liveItems];
     }
 
     // The SSE stream is covering at least one user turn.  Find the last historical

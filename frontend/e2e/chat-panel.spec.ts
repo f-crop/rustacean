@@ -197,12 +197,15 @@ test.describe("Chat panel — mid-send message persistence", () => {
     await mockAuthenticatedSession(page);
     await mockReposList(page, REPOS_EMPTY_RESPONSE);
     await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
-    // Existing session has a completed 1-turn history (user + assistant).
-    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_MCP_EXCHANGE);
     // SSE mock delivers a new exchange immediately on connect (simulates a
     // mid-send state where user_input + assistant text have arrived).
     await mockChatStream(page, CHAT_SESSION_ID, MID_SEND_SSE);
+    // Register mockSendChatMessage before mockListChatMessages so Playwright's
+    // LIFO route priority makes mockListChatMessages (registered last) win for
+    // GET requests to the messages endpoint.
     await mockSendChatMessage(page);
+    // Existing session has a completed 1-turn history (user + assistant).
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_MCP_EXCHANGE);
 
     await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
 
