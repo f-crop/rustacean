@@ -108,6 +108,20 @@ pub async fn post_chat_message(
         let runtime_val: i32 = parse_runtime(&session.runtime)
             .ok_or(AppError::InvalidInput)?
             .into();
+
+        // Guard: RB_MCP_JWT_SECRET must be set. Without it the minted JWT is
+        // signed with an empty key, and auth.rs skips JWT verification
+        // (requires non-empty secret), causing the MCP server to be treated as
+        // Anonymous on every /mcp call — tools silently unavailable in chat.
+        if state.mcp_jwt_secret.is_empty() {
+            tracing::error!(
+                "RB_MCP_JWT_SECRET not configured; cannot mint MCP token for chat session"
+            );
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "MCP JWT secret not configured (RB_MCP_JWT_SECRET)"
+            )));
+        }
+
         let token = mint_mcp_token(
             state.mcp_jwt_secret.as_bytes(),
             state.config.mcp_jwt_ttl_secs,
