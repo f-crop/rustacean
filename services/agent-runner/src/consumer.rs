@@ -205,6 +205,20 @@ async fn handle_command(
             tracing::error!(session_id = %session_id, "Command failed: {e}");
             counter!("rb_agent_commands_total", "outcome" => "err").increment(1);
             emit_error_event(&ctx.producer, tenant_id, &session_id, &e).await;
+            // Propagate the failure to control-api via HTTP so the SSE bus notifies the
+            // subscriber.  emit_error_event publishes to rb.agent.events (Kafka) which
+            // has no consumer — without this call the user sees "no response and no error"
+            // (RUSAA-1876: stale session after agent-runner restart).
+            ctx.session_manager
+                .update_session_status(
+                    &session_id,
+                    tenant_id,
+                    "failed",
+                    None,
+                    None,
+                    Some(&e.to_string()),
+                )
+                .await;
             // H1: Commit the offset even on unrecoverable errors to prevent infinite retry.
             // The error has been logged and emitted as an event; dropping the message
             // here would cause Kafka to redeliver it forever, blocking the partition.

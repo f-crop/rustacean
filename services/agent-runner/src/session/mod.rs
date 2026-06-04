@@ -419,7 +419,7 @@ impl SessionManager {
         Ok(())
     }
 
-    async fn update_session_status(
+    pub async fn update_session_status(
         &self,
         session_id: &str,
         tenant_id: TenantId,
