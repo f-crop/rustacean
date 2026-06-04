@@ -106,6 +106,16 @@ pub async fn ingest_session_events(
         return Err(AppError::Unauthorized);
     }
 
+    ingest_chat_session_events(&state, session_id, &req).await
+}
+
+/// Chat-session path for [`ingest_session_events`]: fans events out to the SSE bus and
+/// persists `Text` events as `role=assistant` rows in `control.chat_messages`.
+async fn ingest_chat_session_events(
+    state: &AppState,
+    session_id: Uuid,
+    req: &IngestEventsRequest,
+) -> Result<(StatusCode, Json<IngestEventsResponse>), AppError> {
     // Fan-out to the SSE bus (sequences are synthetic, 1-based within each batch).
     let tenant_id = TenantId::from(req.tenant_id);
     let mut fanned_out: usize = 0;
@@ -156,12 +166,7 @@ pub async fn ingest_session_events(
         }
     }
 
-    Ok((
-        StatusCode::OK,
-        Json(IngestEventsResponse {
-            inserted: fanned_out,
-        }),
-    ))
+    Ok((StatusCode::OK, Json(IngestEventsResponse { inserted: fanned_out })))
 }
 
 /// Agent-session path for [`ingest_session_events`]: bulk-inserts events into
