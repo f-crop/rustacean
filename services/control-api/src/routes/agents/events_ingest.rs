@@ -17,7 +17,7 @@ use rb_schemas::{RuntimeEvent, TenantId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{error::AppError, state::AppState};
+use crate::{error::AppError, routes::chat::db::db_insert_chat_message, state::AppState};
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -106,9 +106,17 @@ pub async fn ingest_session_events(
         return Err(AppError::Unauthorized);
     }
 
-    // Fan-out to the SSE bus without a DB insert — sequences are synthetic (1-based).
+    // Fan-out to the SSE bus and persist assistant turns to control.chat_messages
+    // so that message history survives a hard reload (RUSAA-1893).
+    //
+    // Accumulate Text payloads between UserInput boundaries: flush the accumulated
+    // text as a single role=assistant row whenever a new UserInput arrives or after
+    // the last event in the batch.  Persistence errors are logged and swallowed so a
+    // transient DB failure never blocks the SSE fan-out.
     let tenant_id = TenantId::from(req.tenant_id);
     let mut fanned_out: usize = 0;
+    let mut pending_assistant_text = String::new();
+
     for (seq, ev) in req.events.iter().enumerate() {
         let et = event_type(ev);
         let payload_value: serde_json::Value = ev
@@ -128,6 +136,58 @@ pub async fn ingest_session_events(
         if let Ok(data) = serde_json::to_string(&sse_data) {
             state.sse_bus.publish_raw(&tenant_id, "session.event", data);
             fanned_out += 1;
+        }
+
+        match ev {
+            RuntimeEvent::UserInput { .. } => {
+                // A new user turn starts: flush any accumulated assistant text from the
+                // preceding assistant turn as a persisted row before moving on.
+                if !pending_assistant_text.is_empty() {
+                    let msg_id = Uuid::new_v4();
+                    if let Err(e) = db_insert_chat_message(
+                        &state.pool,
+                        msg_id,
+                        session_id,
+                        req.tenant_id,
+                        "assistant",
+                        &pending_assistant_text,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            error = %e,
+                            "chat ingest: failed to persist assistant turn — reload may miss this message"
+                        );
+                    }
+                    pending_assistant_text.clear();
+                }
+            }
+            RuntimeEvent::Text { text } => {
+                pending_assistant_text.push_str(text);
+            }
+            _ => {}
+        }
+    }
+
+    // Flush the final assistant turn (if any) at the end of the batch.
+    if !pending_assistant_text.is_empty() {
+        let msg_id = Uuid::new_v4();
+        if let Err(e) = db_insert_chat_message(
+            &state.pool,
+            msg_id,
+            session_id,
+            req.tenant_id,
+            "assistant",
+            &pending_assistant_text,
+        )
+        .await
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "chat ingest: failed to persist final assistant turn — reload may miss this message"
+            );
         }
     }
 

@@ -14,6 +14,8 @@ import {
   SESSION_ERROR_SSE,
   AUDIT_WITH_TOOL_CALL,
   LIST_SESSIONS_ONE,
+  LIST_MESSAGES_MCP_EXCHANGE,
+  MID_SEND_SSE,
 } from "./fixtures/chat-mock-api";
 
 const CHAT_URL = "/chat";
@@ -158,6 +160,61 @@ test.describe("Chat panel — reload persistence", () => {
     // URL should now include sessionId search param
     const url = new URL(page.url());
     expect(url.searchParams.get("sessionId")).toBe(CHAT_SESSION_ID);
+  });
+
+  // AC3: reload of a 2-turn session renders both user prompt and assistant reply.
+  test("renders user prompt and assistant reply after hard reload on a 2-turn session", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_MCP_EXCHANGE);
+    await mockChatStream(page, CHAT_SESSION_ID, "");
+
+    // First visit — session restores from URL param.
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+    await expect(page.getByText("What MCP tools are available?")).toBeVisible();
+    await expect(page.getByText("The following MCP tools are registered:")).toBeVisible();
+
+    // Hard reload — both messages must survive.
+    await page.reload();
+    await expect(page.getByText("What MCP tools are available?")).toBeVisible();
+    await expect(page.getByText("The following MCP tools are registered:")).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mid-send regression — prior messages must survive while SSE streams a reply
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — mid-send message persistence", () => {
+  // AC4: user bubble and prior history both remain visible alongside the
+  // streaming assistant reply (no replacement / disappearing messages).
+  test("prior history and user bubble both visible while assistant reply streams", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // Existing session has a completed 1-turn history (user + assistant).
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_MCP_EXCHANGE);
+    // SSE mock delivers a new exchange immediately on connect (simulates a
+    // mid-send state where user_input + assistant text have arrived).
+    await mockChatStream(page, CHAT_SESSION_ID, MID_SEND_SSE);
+    await mockSendChatMessage(page);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // Prior turn from history is visible.
+    await expect(page.getByText("What MCP tools are available?")).toBeVisible();
+    await expect(page.getByText("The following MCP tools are registered:")).toBeVisible();
+
+    // New turn from SSE is also visible (no replacement — both coexist).
+    await expect(page.getByText("How do I use the bash tool?")).toBeVisible();
+    await expect(
+      page.getByText("You can use the bash tool to run shell commands in the workspace."),
+    ).toBeVisible();
   });
 });
 

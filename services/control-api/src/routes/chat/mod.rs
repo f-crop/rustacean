@@ -2,7 +2,7 @@
 //!
 //! All routes return 404 when `RB_CHAT_PANEL_ENABLED` is false (feature gate).
 
-mod db;
+pub(crate) mod db;
 pub mod events;
 pub mod messages;
 pub mod sessions;

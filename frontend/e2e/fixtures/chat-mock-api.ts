@@ -114,6 +114,49 @@ export const LIST_MESSAGES_TWO_TURNS = {
   has_more: false,
 };
 
+// Two-turn history using "What MCP tools…" prompt (matches AC3 reload assertion).
+export const LIST_MESSAGES_MCP_EXCHANGE = {
+  messages: [
+    {
+      id: "msg-mcp-001",
+      seq: 1,
+      role: "user",
+      body: "What MCP tools are available?",
+      created_at: "2026-06-03T00:00:00Z",
+    },
+    {
+      id: "msg-mcp-002",
+      seq: 2,
+      role: "assistant",
+      body: "The following MCP tools are registered: bash, read_file, write_file.",
+      created_at: "2026-06-03T00:00:01Z",
+    },
+  ],
+  has_more: false,
+};
+
+// SSE fixture for a new exchange sent after prior history is already loaded.
+// Represents: user sends "How do I use the bash tool?", assistant replies.
+export const MID_SEND_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 1,
+    payload: { type: "user_input", text: "How do I use the bash tool?" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "You can use the bash tool to run shell commands in the workspace." },
+  })}`,
+  "",
+  "",
+].join("\n");
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
