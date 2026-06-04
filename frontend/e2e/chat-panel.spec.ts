@@ -140,7 +140,7 @@ test.describe("Chat panel — reload persistence", () => {
     // Both messages from LIST_MESSAGES_TWO_TURNS are rendered
     await expect(page.getByText("Hello from reload test")).toBeVisible();
     await expect(page.getByText("Hello back! I remember your message.")).toBeVisible();
-    await expect(page.getByText("Second message")).toBeVisible();
+    await expect(page.getByText("Second message", { exact: true })).toBeVisible();
     await expect(page.getByText("Got your second message.")).toBeVisible();
 
     // Session ID still shows in header
