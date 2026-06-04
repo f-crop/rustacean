@@ -58,6 +58,7 @@ pub struct PostMessageResponse {
     ),
     tag = "chat"
 )]
+#[allow(clippy::too_many_lines)]
 pub async fn post_chat_message(
     State(state): State<AppState>,
     Path(session_id): Path<Uuid>,
@@ -98,10 +99,11 @@ pub async fn post_chat_message(
 
     let tenant_id = TenantId::from(caller.tenant_id);
 
-    // First message (seq == 1): spawn the agent with this message as the initial
-    // prompt so claude receives input immediately, before its 3-second stdin
-    // timeout fires.  Subsequent messages are fed as stdin turns (Input).
-    let command = if seq == 1 {
+    if seq == 1 {
+        // First message: publish Start (empty initial_prompt → agent spawns in
+        // stream-json mode and stays alive for multi-turn), then immediately
+        // publish the user content as an Input turn.  Both messages share the
+        // same Kafka partition key (session_id) so they are consumed in order.
         let workspace_path = format!("{}/{}", caller.tenant_id, session_id);
         let runtime_val: i32 = parse_runtime(&session.runtime)
             .ok_or(AppError::InvalidInput)?
@@ -116,33 +118,65 @@ pub async fn post_chat_message(
             },
         )
         .map_err(|e| AppError::Internal(anyhow::anyhow!("JWT mint failed: {e}")))?;
-        AgentSessionCommand {
+
+        let start_cmd = AgentSessionCommand {
             session_id: session_id.to_string(),
             command: Some(agent_session_command::Command::Start(AgentSessionStart {
                 runtime: runtime_val,
-                initial_prompt: req.content,
+                initial_prompt: String::new(),
                 workspace_path,
                 api_key: token,
             })),
-        }
-    } else {
-        AgentSessionCommand {
+        };
+        producer
+            .publish(
+                TOPIC_AGENT_COMMANDS,
+                session_id.as_bytes(),
+                EventEnvelope::new(tenant_id, start_cmd),
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("failed to publish chat start: {e}");
+                AppError::Internal(anyhow::anyhow!("Kafka publish failed"))
+            })?;
+
+        let input_cmd = AgentSessionCommand {
             session_id: session_id.to_string(),
             command: Some(agent_session_command::Command::Input(AgentSessionInput {
                 input: req.content,
             })),
-        }
-    };
-
-    let envelope = EventEnvelope::new(tenant_id, command);
-
-    producer
-        .publish(TOPIC_AGENT_COMMANDS, session_id.as_bytes(), envelope)
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to publish chat message: {e}");
-            AppError::Internal(anyhow::anyhow!("Kafka publish failed"))
-        })?;
+        };
+        producer
+            .publish(
+                TOPIC_AGENT_COMMANDS,
+                session_id.as_bytes(),
+                EventEnvelope::new(tenant_id, input_cmd),
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("failed to publish chat input (seq=1): {e}");
+                AppError::Internal(anyhow::anyhow!("Kafka publish failed"))
+            })?;
+    } else {
+        // Subsequent messages: forward as stdin Input turns directly.
+        let input_cmd = AgentSessionCommand {
+            session_id: session_id.to_string(),
+            command: Some(agent_session_command::Command::Input(AgentSessionInput {
+                input: req.content,
+            })),
+        };
+        producer
+            .publish(
+                TOPIC_AGENT_COMMANDS,
+                session_id.as_bytes(),
+                EventEnvelope::new(tenant_id, input_cmd),
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("failed to publish chat input: {e}");
+                AppError::Internal(anyhow::anyhow!("Kafka publish failed"))
+            })?;
+    }
 
     Ok((
         StatusCode::ACCEPTED,
