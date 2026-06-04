@@ -166,7 +166,12 @@ async fn ingest_chat_session_events(
         }
     }
 
-    Ok((StatusCode::OK, Json(IngestEventsResponse { inserted: fanned_out })))
+    Ok((
+        StatusCode::OK,
+        Json(IngestEventsResponse {
+            inserted: fanned_out,
+        }),
+    ))
 }
 
 /// Agent-session path for [`ingest_session_events`]: bulk-inserts events into
