@@ -15,6 +15,7 @@ import {
   AUDIT_WITH_TOOL_CALL,
   LIST_SESSIONS_ONE,
   LIST_MESSAGES_MCP_EXCHANGE,
+  LIST_MESSAGES_WITH_TOOL_USE,
   MID_SEND_SSE,
 } from "./fixtures/chat-mock-api";
 
@@ -218,6 +219,73 @@ test.describe("Chat panel — mid-send message persistence", () => {
     await expect(
       page.getByText("You can use the bash tool to run shell commands in the workspace."),
     ).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug A — Optimistic user bubble: visible before SSE user_input echo
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — optimistic user bubble (Bug A)", () => {
+  // AC1: user bubble visible BEFORE any SSE user_input event arrives.
+  // SSE stream is empty (never delivers user_input), so the bubble must come
+  // from the optimistic pending-send path in ChatPage.
+  test("user bubble appears immediately after send with no SSE events yet", async ({ page }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // Empty SSE — no user_input echo will ever arrive.
+    await mockChatStream(page, CHAT_SESSION_ID, "");
+    await mockSendChatMessage(page);
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_MCP_EXCHANGE);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // Wait for history to load so we know the session is active.
+    await expect(page.getByText("What MCP tools are available?")).toBeVisible();
+
+    // Type and send a new message — do NOT wait for any SSE event.
+    await page.getByRole("textbox", { name: "Chat message" }).fill("Tell me about Rust");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    // Bubble must appear immediately from the optimistic path (no SSE yet).
+    await expect(page.getByText("Tell me about Rust")).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug B — Tool-use blocks survive reload
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — tool_use blocks survive reload (Bug B)", () => {
+  // AC2: tool_use block present after reload (loaded from DB history with JSON body).
+  test("tool_use block from JSON content-block history renders on load and after reload", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // History contains an assistant message with tool_use in JSON array body.
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_WITH_TOOL_USE);
+    await mockChatStream(page, CHAT_SESSION_ID, "");
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // User prompt and tool_use block are visible on initial load.
+    await expect(page.getByText("Search for recent Rust news")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /mcp__rust_brain__search_demo tool call/ }),
+    ).toBeVisible();
+    await expect(page.getByText("Here are the recent Rust news results.")).toBeVisible();
+
+    // Hard reload — both must survive (history re-fetched from mocked listMessages).
+    await page.reload();
+
+    await expect(page.getByText("Search for recent Rust news")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /mcp__rust_brain__search_demo tool call/ }),
+    ).toBeVisible();
+    await expect(page.getByText("Here are the recent Rust news results.")).toBeVisible();
   });
 });
 

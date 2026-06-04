@@ -15,6 +15,7 @@ use axum::{
 };
 use rb_schemas::{RuntimeEvent, TenantId};
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{error::AppError, routes::chat::db::db_insert_chat_message, state::AppState};
@@ -110,7 +111,12 @@ pub async fn ingest_session_events(
 }
 
 /// Chat-session path for [`ingest_session_events`]: fans events out to the SSE bus and
-/// persists accumulated `Text` events as `role=assistant` rows in `control.chat_messages`.
+/// persists each assistant turn as a single `role=assistant` row in `control.chat_messages`.
+///
+/// The row `body` is a JSON array of content blocks so all block types survive reload:
+/// `[{"type":"text","text":"…"},{"type":"tool_use","id":"…","name":"…","input":{…}},…]`
+/// Plain-`Text`-only turns also use the array format. Pre-1896 rows (plain text) continue
+/// to render as plain text via the frontend fallback path in `buildTranscriptFromHistory`.
 async fn ingest_chat_session_events(
     state: &AppState,
     session_id: Uuid,
@@ -118,7 +124,11 @@ async fn ingest_chat_session_events(
 ) -> Result<(StatusCode, Json<IngestEventsResponse>), AppError> {
     let tenant_id = TenantId::from(req.tenant_id);
     let mut fanned_out: usize = 0;
-    let mut pending_assistant_text = String::new();
+
+    // Content-block accumulator for the current assistant turn.
+    // Consecutive `Text` payloads are merged into one block via `pending_text`.
+    let mut pending_blocks: Vec<serde_json::Value> = Vec::new();
+    let mut pending_text = String::new();
 
     for (seq, ev) in req.events.iter().enumerate() {
         let et = event_type(ev);
@@ -143,53 +153,48 @@ async fn ingest_chat_session_events(
 
         match ev {
             RuntimeEvent::UserInput { .. } => {
-                if !pending_assistant_text.is_empty() {
-                    let msg_id = Uuid::new_v4();
-                    if let Err(e) = db_insert_chat_message(
-                        &state.pool,
-                        msg_id,
-                        session_id,
-                        req.tenant_id,
-                        "assistant",
-                        &pending_assistant_text,
-                    )
-                    .await
-                    {
-                        tracing::warn!(
-                            session_id = %session_id,
-                            error = %e,
-                            "chat ingest: failed to persist assistant turn — reload may miss this message"
-                        );
-                    }
-                    pending_assistant_text.clear();
-                }
+                flush_pending_turn(
+                    &state.pool,
+                    session_id,
+                    req.tenant_id,
+                    &mut pending_text,
+                    &mut pending_blocks,
+                )
+                .await;
             }
             RuntimeEvent::Text { text } => {
-                pending_assistant_text.push_str(text);
+                pending_text.push_str(text);
             }
-            _ => {}
+            RuntimeEvent::Thinking { thinking } => {
+                commit_text_block(&mut pending_text, &mut pending_blocks);
+                pending_blocks
+                    .push(serde_json::json!({ "type": "thinking", "thinking": thinking }));
+            }
+            RuntimeEvent::ToolUse { id, name, input } => {
+                commit_text_block(&mut pending_text, &mut pending_blocks);
+                pending_blocks.push(serde_json::json!({ "type": "tool_use", "id": id, "name": name, "input": input }));
+            }
+            RuntimeEvent::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
+                commit_text_block(&mut pending_text, &mut pending_blocks);
+                pending_blocks.push(serde_json::json!({ "type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": is_error }));
+            }
+            RuntimeEvent::Error { .. } => {}
         }
     }
 
-    if !pending_assistant_text.is_empty() {
-        let msg_id = Uuid::new_v4();
-        if let Err(e) = db_insert_chat_message(
-            &state.pool,
-            msg_id,
-            session_id,
-            req.tenant_id,
-            "assistant",
-            &pending_assistant_text,
-        )
-        .await
-        {
-            tracing::warn!(
-                session_id = %session_id,
-                error = %e,
-                "chat ingest: failed to persist final assistant turn — reload may miss this message"
-            );
-        }
-    }
+    // Flush the final assistant turn.
+    flush_pending_turn(
+        &state.pool,
+        session_id,
+        req.tenant_id,
+        &mut pending_text,
+        &mut pending_blocks,
+    )
+    .await;
 
     Ok((
         StatusCode::OK,
@@ -197,6 +202,47 @@ async fn ingest_chat_session_events(
             inserted: fanned_out,
         }),
     ))
+}
+
+/// Move any buffered text into `pending_blocks` as a `{"type":"text",…}` entry.
+fn commit_text_block(pending_text: &mut String, pending_blocks: &mut Vec<serde_json::Value>) {
+    if !pending_text.is_empty() {
+        pending_blocks.push(serde_json::json!({ "type": "text", "text": pending_text.as_str() }));
+        pending_text.clear();
+    }
+}
+
+/// Flush accumulated content blocks as a single `role=assistant` chat message (JSON array body).
+async fn flush_pending_turn(
+    pool: &PgPool,
+    session_id: Uuid,
+    tenant_id: Uuid,
+    pending_text: &mut String,
+    pending_blocks: &mut Vec<serde_json::Value>,
+) {
+    commit_text_block(pending_text, pending_blocks);
+    if pending_blocks.is_empty() {
+        return;
+    }
+    let body = match serde_json::to_string(pending_blocks.as_slice()) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(session_id = %session_id, error = %e, "chat ingest: failed to serialize content blocks");
+            pending_blocks.clear();
+            return;
+        }
+    };
+    let msg_id = Uuid::new_v4();
+    if let Err(e) =
+        db_insert_chat_message(pool, msg_id, session_id, tenant_id, "assistant", &body).await
+    {
+        tracing::warn!(
+            session_id = %session_id,
+            error = %e,
+            "chat ingest: failed to persist assistant turn — reload may miss this message"
+        );
+    }
+    pending_blocks.clear();
 }
 
 /// Agent-session path for [`ingest_session_events`]: bulk-inserts events into

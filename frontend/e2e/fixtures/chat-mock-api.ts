@@ -157,6 +157,45 @@ export const MID_SEND_SSE = [
   "",
 ].join("\n");
 
+// Tool-use exchange stored in the new JSON content-block body format (post-1896).
+// body is a JSON array: [tool_use block, tool_result block, text block].
+export const LIST_MESSAGES_WITH_TOOL_USE = {
+  messages: [
+    {
+      id: "msg-tool-u1",
+      seq: 1,
+      role: "user",
+      body: "Search for recent Rust news",
+      created_at: "2026-06-04T00:00:00Z",
+    },
+    {
+      id: "msg-tool-a1",
+      seq: 2,
+      role: "assistant",
+      body: JSON.stringify([
+        {
+          type: "tool_use",
+          id: "tu-001",
+          name: "mcp__rust_brain__search_demo",
+          input: { q: "recent Rust news" },
+        },
+        {
+          type: "tool_result",
+          tool_use_id: "tu-001",
+          content: "Found 5 results for recent Rust news",
+          is_error: false,
+        },
+        {
+          type: "text",
+          text: "Here are the recent Rust news results.",
+        },
+      ]),
+      created_at: "2026-06-04T00:00:01Z",
+    },
+  ],
+  has_more: false,
+};
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
