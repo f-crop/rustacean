@@ -204,6 +204,43 @@ export function getMinSseUserInputSeq(events: ReadonlyArray<StreamedEvent>): num
   return null;
 }
 
+// Try to parse a message body as a JSON content-block array (post-1896 format).
+// Returns null if the body is plain text (pre-1896 rows) or invalid JSON.
+function tryParseContentBlocks(body: string): ReadonlyArray<AssistantItem> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+
+  const result: AssistantItem[] = [];
+  for (let idx = 0; idx < parsed.length; idx++) {
+    const block: unknown = parsed[idx];
+    if (typeof block !== "object" || block === null) continue;
+    const b = block as Record<string, unknown>;
+
+    if (b.type === "text" && typeof b.text === "string") {
+      result.push({ type: "text", text: b.text, seq: idx });
+    } else if (b.type === "thinking" && typeof b.thinking === "string") {
+      result.push({ type: "thinking", thinking: b.thinking, seq: idx });
+    } else if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
+      result.push({ type: "tool_use", id: b.id, name: b.name, input: b.input, seq: idx });
+    } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+      result.push({
+        type: "tool_result",
+        toolUseId: b.tool_use_id as string,
+        content: b.content,
+        isError: Boolean(b.is_error),
+        seq: idx,
+      });
+    }
+  }
+
+  return result.length > 0 ? result : null;
+}
+
 export function buildTranscriptFromHistory(
   messages: ReadonlyArray<ChatMessage>,
 ): ReadonlyArray<TranscriptItem> {
@@ -212,10 +249,12 @@ export function buildTranscriptFromHistory(
     if (msg.role === "user") {
       items.push({ kind: "user", id: msg.id, text: msg.body, seq: msg.seq });
     } else if (msg.role === "assistant") {
+      // Try JSON content-block array (post-1896); fall back to plain text for old rows.
+      const contentBlocks = tryParseContentBlocks(msg.body);
       items.push({
         kind: "assistant",
         id: msg.id,
-        items: [{ type: "text", text: msg.body, seq: msg.seq }],
+        items: contentBlocks ?? [{ type: "text", text: msg.body, seq: msg.seq }],
       });
     }
     // system / tool rows are not rendered in the transcript UI

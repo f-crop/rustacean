@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useMe } from "@/api";
 import {
@@ -14,6 +14,7 @@ import { MessageComposer } from "@/components/chat/MessageComposer";
 import {
   buildTranscript,
   buildTranscriptFromHistory,
+  type TranscriptItem,
   type UserTranscriptItem,
 } from "@/components/chat/transcript";
 import { formatApiError } from "@/lib/errors/api";
@@ -50,6 +51,11 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
   const navigate = useNavigate();
   const { sessionId: activeSessionId = null } = useSearch({ from: routes.chat });
   const [composerValue, setComposerValue] = useState("");
+  // Optimistic user bubbles: entries pushed immediately on send, removed once SSE
+  // echoes user_input or the DB history reflects the message (Bug A fix).
+  const [pendingUserSends, setPendingUserSends] = useState<
+    ReadonlyArray<{ id: string; text: string }>
+  >([]);
 
   const setActiveSessionId = (id: string | null) => {
     void navigate({
@@ -58,6 +64,11 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       replace: false,
     });
   };
+
+  // Clear pending sends when the user navigates to a different session.
+  useEffect(() => {
+    setPendingUserSends([]);
+  }, [activeSessionId]);
 
   const sessions = useChatSessions(tenantId);
   const createSession = useCreateChatSession(tenantId);
@@ -75,31 +86,56 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       (item): item is UserTranscriptItem => item.kind === "user",
     );
 
+    let base: ReadonlyArray<TranscriptItem>;
+
     if (!firstLiveUser) {
       // No live user turn in SSE — show historical + any live non-user items (e.g. session.error).
-      return [...buildTranscriptFromHistory(historical), ...liveItems];
-    }
-
-    // The SSE stream is covering at least one user turn.  Find the last historical
-    // user message whose body matches the first SSE user turn and exclude it (and
-    // all subsequent rows) from the historical slice — those rows will be supplied
-    // by the live stream instead, preventing duplication.
-    //
-    // If the matching message is not yet in the DB cache (common: messages query
-    // has a 30 s staleTime and POST /messages doesn't invalidate it), cutIdx stays
-    // -1 and all historical messages are shown before the live items.
-    let cutIdx = -1;
-    for (let i = historical.length - 1; i >= 0; i--) {
-      const msg = historical[i];
-      if (msg && msg.role === "user" && msg.body === firstLiveUser.text) {
-        cutIdx = i;
-        break;
+      base = [...buildTranscriptFromHistory(historical), ...liveItems];
+    } else {
+      // The SSE stream is covering at least one user turn.  Find the last historical
+      // user message whose body matches the first SSE user turn and exclude it (and
+      // all subsequent rows) from the historical slice — those rows will be supplied
+      // by the live stream instead, preventing duplication.
+      //
+      // If the matching message is not yet in the DB cache (common: messages query
+      // has a 30 s staleTime and POST /messages doesn't invalidate it), cutIdx stays
+      // -1 and all historical messages are shown before the live items.
+      let cutIdx = -1;
+      for (let i = historical.length - 1; i >= 0; i--) {
+        const msg = historical[i];
+        if (msg && msg.role === "user" && msg.body === firstLiveUser.text) {
+          cutIdx = i;
+          break;
+        }
       }
+
+      const historicalFiltered = cutIdx >= 0 ? historical.slice(0, cutIdx) : historical;
+      base = [...buildTranscriptFromHistory(historicalFiltered), ...liveItems];
     }
 
-    const historicalFiltered = cutIdx >= 0 ? historical.slice(0, cutIdx) : historical;
-    return [...buildTranscriptFromHistory(historicalFiltered), ...liveItems];
-  }, [historicalMessages.data, events]);
+    if (pendingUserSends.length === 0) return base;
+
+    // Collect user texts already present in live SSE or historical so we don't
+    // duplicate a pending send that has already been echoed.
+    const coveredTexts = new Set<string>();
+    for (const item of liveItems) {
+      if (item.kind === "user") coveredTexts.add(item.text);
+    }
+    for (const msg of historical) {
+      if (msg.role === "user") coveredTexts.add(msg.body);
+    }
+
+    const pendingItems: UserTranscriptItem[] = pendingUserSends
+      .filter((p) => !coveredTexts.has(p.text))
+      .map((p, i) => ({
+        kind: "user" as const,
+        id: p.id,
+        text: p.text,
+        seq: -(i + 1),
+      }));
+
+    return pendingItems.length > 0 ? [...base, ...pendingItems] : base;
+  }, [historicalMessages.data, events, pendingUserSends]);
 
   const isStreaming = sendMessage.isPending;
 
@@ -109,6 +145,11 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
   };
 
   const handleSend = async (content: string) => {
+    if (activeSessionId) {
+      // Optimistic: show user bubble immediately before the SSE user_input echo arrives.
+      const pendingId = `p-${Date.now().toString()}`;
+      setPendingUserSends((prev) => [...prev, { id: pendingId, text: content }]);
+    }
     if (!activeSessionId) {
       const result = await createSession.mutateAsync({ runtime: "claude_code" });
       setActiveSessionId(result.session_id);
