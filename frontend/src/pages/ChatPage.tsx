@@ -14,6 +14,7 @@ import { MessageComposer } from "@/components/chat/MessageComposer";
 import {
   buildTranscript,
   buildTranscriptFromHistory,
+  type AssistantTranscriptItem,
   type TranscriptItem,
   type UserTranscriptItem,
 } from "@/components/chat/transcript";
@@ -134,7 +135,30 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
         seq: -(i + 1),
       }));
 
-    return pendingItems.length > 0 ? [...base, ...pendingItems] : base;
+    if (pendingItems.length === 0) return base;
+
+    // Slot pending bubbles BEFORE any trailing in-progress assistant turn from the
+    // live stream.  Without this, the pending bubble appends after a streaming
+    // assistant response, reversing chronological order during the SSE echo race
+    // window (between POST completing and user_input echo arriving).
+    //
+    // Corner case: no prior user turn yet (session-start greeting only) → append
+    // at the end so the greeting stays first.
+    const firstInProgressIdx = liveItems.findIndex(
+      (item): item is AssistantTranscriptItem =>
+        item.kind === "assistant" && item.inProgress === true,
+    );
+
+    let insertAt = base.length;
+    if (firstInProgressIdx !== -1 && base.some((item) => item.kind === "user")) {
+      insertAt = base.length - liveItems.length + firstInProgressIdx;
+    }
+
+    return [
+      ...base.slice(0, insertAt),
+      ...pendingItems,
+      ...base.slice(insertAt),
+    ];
   }, [historicalMessages.data, events, pendingUserSends]);
 
   const isStreaming = sendMessage.isPending;
