@@ -114,6 +114,11 @@ export const LIST_MESSAGES_TWO_TURNS = {
   has_more: false,
 };
 
+export const LIST_MESSAGES_EMPTY = {
+  messages: [] as never[],
+  has_more: false,
+};
+
 // Two-turn history using "What MCP tools…" prompt (matches AC3 reload assertion).
 export const LIST_MESSAGES_MCP_EXCHANGE = {
   messages: [
