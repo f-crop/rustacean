@@ -106,13 +106,16 @@ pub async fn ingest_session_events(
         return Err(AppError::Unauthorized);
     }
 
-    // Fan-out to the SSE bus and persist assistant turns to control.chat_messages
-    // so that message history survives a hard reload (RUSAA-1893).
-    //
-    // Accumulate Text payloads between UserInput boundaries: flush the accumulated
-    // text as a single role=assistant row whenever a new UserInput arrives or after
-    // the last event in the batch.  Persistence errors are logged and swallowed so a
-    // transient DB failure never blocks the SSE fan-out.
+    ingest_chat_session_events(&state, session_id, &req).await
+}
+
+/// Chat-session path for [`ingest_session_events`]: fans events out to the SSE bus and
+/// persists accumulated `Text` events as `role=assistant` rows in `control.chat_messages`.
+async fn ingest_chat_session_events(
+    state: &AppState,
+    session_id: Uuid,
+    req: &IngestEventsRequest,
+) -> Result<(StatusCode, Json<IngestEventsResponse>), AppError> {
     let tenant_id = TenantId::from(req.tenant_id);
     let mut fanned_out: usize = 0;
     let mut pending_assistant_text = String::new();
@@ -140,8 +143,6 @@ pub async fn ingest_session_events(
 
         match ev {
             RuntimeEvent::UserInput { .. } => {
-                // A new user turn starts: flush any accumulated assistant text from the
-                // preceding assistant turn as a persisted row before moving on.
                 if !pending_assistant_text.is_empty() {
                     let msg_id = Uuid::new_v4();
                     if let Err(e) = db_insert_chat_message(
@@ -170,7 +171,6 @@ pub async fn ingest_session_events(
         }
     }
 
-    // Flush the final assistant turn (if any) at the end of the batch.
     if !pending_assistant_text.is_empty() {
         let msg_id = Uuid::new_v4();
         if let Err(e) = db_insert_chat_message(
