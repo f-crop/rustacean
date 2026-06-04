@@ -142,16 +142,20 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     // assistant response, reversing chronological order during the SSE echo race
     // window (between POST completing and user_input echo arriving).
     //
-    // The inProgress flag only exists on streaming assistant turns, which are
-    // always in response to a user message — so the slot is always correct even
-    // on turn-1 where base has no prior user item yet.
+    // Guard: only slot when the live SSE stream has NO user_input echo yet.
+    // If liveItems already contains a user_input event, the in-progress assistant
+    // is the stale-inProgress completed response from the prior turn (inProgress is
+    // only cleared when a subsequent user_input flushes pendingAssistant).
+    // Slotting before it would misplace turn-2's pending bubble between user-1 and
+    // the completed assistant-1.
     const firstInProgressIdx = liveItems.findIndex(
       (item): item is AssistantTranscriptItem =>
         item.kind === "assistant" && item.inProgress === true,
     );
+    const liveHasUserEcho = liveItems.some((item) => item.kind === "user");
 
     let insertAt = base.length;
-    if (firstInProgressIdx !== -1) {
+    if (firstInProgressIdx !== -1 && !liveHasUserEcho) {
       insertAt = base.length - liveItems.length + firstInProgressIdx;
     }
 

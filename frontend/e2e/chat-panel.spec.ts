@@ -18,6 +18,8 @@ import {
   LIST_MESSAGES_WITH_TOOL_USE,
   MID_SEND_SSE,
   IN_PROGRESS_NO_ECHO_SSE,
+  TURN1_COMPLETE_STALE_INPROGRESS_SSE,
+  TURN2_WITH_ECHO_SSE,
   LIST_MESSAGES_EMPTY,
 } from "./fixtures/chat-mock-api";
 
@@ -431,6 +433,99 @@ test.describe("Chat panel — turn-1 pending bubble ordering (Bug C turn-1)", ()
     expect(pendingBox).not.toBeNull();
     expect(inProgressBox).not.toBeNull();
     expect(pendingBox!.y).toBeLessThan(inProgressBox!.y);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug C turn-2 regression — stale inProgress after completed turn-1
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — turn-2 pending bubble ordering (Bug C turn-2)", () => {
+  // Regression guard for RUSAA-1904: PR #701 removed the user-guard entirely,
+  // fixing turn-1 but breaking turn-2.  After turn-1 completes (user_input echo
+  // arrived + all text tokens received), the assistant's inProgress flag stays
+  // true until a NEW user_input event flushes it.  The slot predicate previously
+  // found this stale-inProgress assistant and mis-slotted the turn-2 pending
+  // bubble before it: [user-1, user-2-pending, assistant-1] instead of
+  // [user-1, assistant-1, user-2-pending].
+  //
+  // Scenario: SSE has completed turn-1 (user_input + text, both received);
+  // user sends U2 optimistically.  Pending U2 must appear AFTER assistant-1.
+  test("turn-2: pending user bubble appears after completed assistant-1, not before it", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // SSE has full turn-1 (user_input + text) but no turn-2 user_input.
+    // The assistant-1 item keeps inProgress: true (stale — no flush event).
+    await mockChatStream(page, CHAT_SESSION_ID, TURN1_COMPLETE_STALE_INPROGRESS_SSE);
+    await mockSendChatMessage(page);
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_EMPTY);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // Both turn-1 items must be visible from SSE.
+    await expect(page.getByText("what are the tools available")).toBeVisible();
+    await expect(page.getByText("Here are the available tools.")).toBeVisible();
+
+    // Send turn-2 optimistically.
+    await page.getByRole("textbox", { name: "Chat message" }).fill("second message");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    // Pending bubble must be visible.
+    await expect(page.getByText("second message")).toBeVisible();
+
+    // The pending U2 bubble must appear BELOW (after) assistant-1, not before it.
+    const pendingBubble = page.getByText("second message");
+    const assistantContent = page.getByText("Here are the available tools.");
+
+    const pendingBox = await pendingBubble.boundingBox();
+    const assistantBox = await assistantContent.boundingBox();
+
+    expect(pendingBox).not.toBeNull();
+    expect(assistantBox).not.toBeNull();
+    // pending bubble renders below the completed assistant-1 content
+    expect(pendingBox!.y).toBeGreaterThan(assistantBox!.y);
+  });
+
+  // AC3: after turn-2's user_input echo arrives, transcript reads
+  // [user-1, assistant-1, user-2, assistant-2-streaming] — items 1 and 2
+  // retain correct order with no visual reshuffle.
+  test("turn-2 echo: completed exchange maintains [user-1, assistant-1, user-2, assistant-2] order", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // SSE delivers both turns: user_input(1)+text(1)+user_input(2)+text(2).
+    // buildTranscript produces [user-1, assistant-1, user-2, assistant-2(inProgress)].
+    await mockChatStream(page, CHAT_SESSION_ID, TURN2_WITH_ECHO_SSE);
+    await mockSendChatMessage(page);
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_EMPTY);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // All four items must be visible.
+    await expect(page.getByText("what are the tools available")).toBeVisible();
+    await expect(page.getByText("Here are the available tools.")).toBeVisible();
+    await expect(page.getByText("Tell me about ownership")).toBeVisible();
+    await expect(page.getByText("Ownership is Rust's key memory feature.")).toBeVisible();
+
+    // Verify top-to-bottom order: user-1 < assistant-1 < user-2 < assistant-2.
+    const user1Box = await page.getByText("what are the tools available").boundingBox();
+    const asst1Box = await page.getByText("Here are the available tools.").boundingBox();
+    const user2Box = await page.getByText("Tell me about ownership").boundingBox();
+    const asst2Box = await page.getByText("Ownership is Rust's key memory feature.").boundingBox();
+
+    expect(user1Box).not.toBeNull();
+    expect(asst1Box).not.toBeNull();
+    expect(user2Box).not.toBeNull();
+    expect(asst2Box).not.toBeNull();
+
+    expect(user1Box!.y).toBeLessThan(asst1Box!.y);
+    expect(asst1Box!.y).toBeLessThan(user2Box!.y);
+    expect(user2Box!.y).toBeLessThan(asst2Box!.y);
   });
 });
 
