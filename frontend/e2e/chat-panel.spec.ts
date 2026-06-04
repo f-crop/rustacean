@@ -18,6 +18,7 @@ import {
   LIST_MESSAGES_WITH_TOOL_USE,
   MID_SEND_SSE,
   IN_PROGRESS_NO_ECHO_SSE,
+  LIST_MESSAGES_EMPTY,
 } from "./fixtures/chat-mock-api";
 
 const CHAT_URL = "/chat";
@@ -378,6 +379,57 @@ test.describe("Chat panel — pending bubble ordering (Bug C)", () => {
     expect(pendingBox).not.toBeNull();
     expect(inProgressBox).not.toBeNull();
     // pending bubble renders above the in-progress assistant content
+    expect(pendingBox!.y).toBeLessThan(inProgressBox!.y);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug C turn-1 regression — ordering on first turn of a brand-new session
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — turn-1 pending bubble ordering (Bug C turn-1)", () => {
+  // Regression guard for RUSAA-1900: on the very first turn of a fresh session
+  // the slot predicate guard (base.some("user")) was false because base held
+  // only the streaming assistant item with no prior user row, so the pending
+  // bubble was appended AFTER the assistant turn instead of slotted before it.
+  //
+  // Scenario: fresh session (empty history); SSE delivers assistant tokens
+  // WITHOUT a user_input echo; user sends U1 optimistically.  The pending
+  // bubble must appear BEFORE the in-progress assistant content.
+  test("turn-1: pending user bubble appears before in-progress assistant on a fresh session", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // SSE delivers assistant tokens with no user_input echo.
+    await mockChatStream(page, CHAT_SESSION_ID, IN_PROGRESS_NO_ECHO_SSE);
+    await mockSendChatMessage(page);
+    // Empty history — this is the first turn of a brand-new session.
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_EMPTY);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // Wait for the in-progress assistant content from SSE to render.
+    await expect(page.getByText("I'm analyzing your request now...")).toBeVisible();
+
+    // Send the first user message — no SSE user_input echo will arrive.
+    await page.getByRole("textbox", { name: "Chat message" }).fill("what are the tools available");
+    await page.getByRole("button", { name: "Send" }).click();
+
+    // Pending bubble must be visible.
+    await expect(page.getByText("what are the tools available")).toBeVisible();
+
+    // The pending bubble must render ABOVE (before) the in-progress assistant
+    // content — smaller Y coordinate means higher on the page.
+    const pendingBubble = page.getByText("what are the tools available");
+    const inProgressContent = page.getByText("I'm analyzing your request now...");
+
+    const pendingBox = await pendingBubble.boundingBox();
+    const inProgressBox = await inProgressContent.boundingBox();
+
+    expect(pendingBox).not.toBeNull();
+    expect(inProgressBox).not.toBeNull();
     expect(pendingBox!.y).toBeLessThan(inProgressBox!.y);
   });
 });
