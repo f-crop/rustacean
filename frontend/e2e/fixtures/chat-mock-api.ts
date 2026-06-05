@@ -283,6 +283,38 @@ export const TURN2_WITH_ECHO_SSE = [
   "",
 ].join("\n");
 
+// Edge case (RUSAA-1907): SSE joined after user_input was emitted — only text
+// content arrives.  buildTranscript produces [assistant-1(inProgress)] with
+// no user_input item.  Historical DB supplies user-1.  Together base becomes
+// [user-1-hist, assistant-1(inProgress)].  The slot predicate must NOT insert
+// the turn-2 pending bubble at position 1 (between user-1 and assistant-1).
+export const TURN1_ASSISTANT_ONLY_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "Here are the available tools." },
+  })}`,
+  "",
+  "",
+].join("\n");
+
+// Historical with only user-1 — assistant row not yet flushed to DB.
+// Pairs with TURN1_ASSISTANT_ONLY_SSE to reproduce the edge case.
+export const LIST_MESSAGES_TURN1_USER_ONLY = {
+  messages: [
+    {
+      id: "msg-001",
+      seq: 1,
+      role: "user",
+      body: "what are the tools available",
+      created_at: "2026-06-03T00:00:00Z",
+    },
+  ],
+  has_more: false,
+};
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [

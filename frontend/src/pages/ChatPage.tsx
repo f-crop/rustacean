@@ -156,7 +156,15 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
 
     let insertAt = base.length;
     if (firstInProgressIdx !== -1 && !liveHasUserEcho) {
-      insertAt = base.length - liveItems.length + firstInProgressIdx;
+      const candidateSlot = base.length - liveItems.length + firstInProgressIdx;
+      // Secondary guard: if the item immediately before the candidate slot is a
+      // user turn, the in-progress assistant is already paired with that user
+      // message (sourced from DB history when SSE missed the user_input event).
+      // Inserting here would wedge the pending bubble between the historical
+      // user turn and its response — the same inversion we're preventing.
+      if (base[candidateSlot - 1]?.kind !== "user") {
+        insertAt = candidateSlot;
+      }
     }
 
     return [
