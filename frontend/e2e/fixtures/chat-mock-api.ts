@@ -315,6 +315,39 @@ export const LIST_MESSAGES_TURN1_USER_ONLY = {
   has_more: false,
 };
 
+// Sequential turn-2 reconnect: SSE joined after turn-1 completed and the
+// connection dropped. Only assistant-2 streaming tokens arrive — no user_input
+// echoes.  Used to test RUSAA-1915: pending user-2 must slot BEFORE the
+// in-progress assistant-2, not after it.
+export const TURN2_ASSISTANT_ONLY_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 4,
+    payload: { type: "text", text: "Lift is a higher-order function that maps a regular function into a functor." },
+  })}`,
+  "",
+  "",
+].join("\n");
+
+// Historical with only user-1 "what is monad" — assistant-1 not yet flushed to DB.
+// Pairs with TURN2_ASSISTANT_ONLY_SSE to reproduce the RUSAA-1915 edge case where
+// the secondary guard mis-fires: candidateSlot-1 is user-1-hist (kind "user"),
+// but user-1 was already answered; the in-progress is for user-2 (pending).
+export const LIST_MESSAGES_MONAD_USER_ONLY = {
+  messages: [
+    {
+      id: "msg-seq1",
+      seq: 1,
+      role: "user",
+      body: "what is monad",
+      created_at: "2026-06-03T00:00:00Z",
+    },
+  ],
+  has_more: false,
+};
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
