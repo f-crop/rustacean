@@ -167,6 +167,19 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       }
     }
 
+    // When slotting before an in-progress assistant turn, only the first (oldest)
+    // pending item belongs there — it triggered the current streaming response.
+    // Subsequent pending items represent future turns not yet started; they must
+    // appear after the in-progress turn, not wedged before it.
+    if (insertAt < base.length && pendingItems.length > 1) {
+      return [
+        ...base.slice(0, insertAt),
+        pendingItems[0]!,
+        ...base.slice(insertAt),
+        ...pendingItems.slice(1),
+      ];
+    }
+
     return [
       ...base.slice(0, insertAt),
       ...pendingItems,
