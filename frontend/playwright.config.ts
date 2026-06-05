@@ -30,32 +30,32 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       // Quarantine specs and feature-flag-gated specs run under dedicated projects.
-      // chat-panel.spec.ts requires VITE_FEATURE_CHAT_PANEL=true at build time;
-      // it is exercised by the chat-smoke CI job, not the main suite.
-      testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts"],
+      // chat-panel*.spec.ts files require VITE_FEATURE_CHAT_PANEL=true at build time;
+      // they are exercised by the chat-smoke CI job, not the main suite.
+      testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts"],
     },
     ...(isNightly
       ? [
           {
             name: "firefox",
             use: { ...devices["Desktop Firefox"] },
-            testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts"],
+            testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts"],
           },
           {
             name: "webkit",
             use: { ...devices["Desktop Safari"] },
-            testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts"],
+            testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts"],
           },
         ]
       : []),
     // Dedicated project for the chat-smoke CI job.
     // Only registered when PLAYWRIGHT_CHAT_SMOKE=1 so the main CI run
-    // (which does not set that env var) never picks up chat-panel.spec.ts.
+    // (which does not set that env var) never picks up chat-panel*.spec.ts files.
     ...(process.env.PLAYWRIGHT_CHAT_SMOKE
       ? [
           {
             name: "chat-smoke",
-            testMatch: "**/chat-panel.spec.ts",
+            testMatch: ["**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts"],
             use: { ...devices["Desktop Chrome"] },
             retries: process.env.CI ? 2 : 0,
           },

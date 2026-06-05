@@ -39,6 +39,7 @@ jobs:
               - 'frontend/src/hooks/useChatStream.ts'
               - 'frontend/src/lib/chat-api.ts'
               - 'frontend/e2e/chat-panel.spec.ts'
+              - 'frontend/e2e/chat-panel-rusaa-1907.spec.ts'
               - 'frontend/e2e/fixtures/chat-mock-api.ts'
               - '.github/workflows/chat-smoke.yml'
 
@@ -68,9 +69,9 @@ jobs:
           VITE_FEATURE_CHAT_PANEL: "true"
           VITE_TEMPO_URL: http://localhost:3200
 
-      - name: Run chat panel smoke spec
+      - name: Run chat panel smoke specs
         if: steps.changes.outputs.chat == 'true'
-        run: npx playwright test e2e/chat-panel.spec.ts --project=chat-smoke
+        run: npx playwright test --project=chat-smoke
         env:
           CI: "true"
           PLAYWRIGHT_CHAT_SMOKE: "1"
