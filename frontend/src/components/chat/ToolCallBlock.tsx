@@ -33,7 +33,7 @@ export function ToolCallBlock({
   const statusLabel = hasResult && isError ? "Error" : hasResult ? "Done" : "Running…";
 
   return (
-    <div className={containerClass}>
+    <div className={containerClass} data-testid="tool-call-block">
       <button
         type="button"
         className="flex w-full items-center gap-2 text-left"
