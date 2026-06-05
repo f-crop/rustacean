@@ -12,7 +12,9 @@ import {
   CHAT_SESSION_ID,
   LIST_SESSIONS_ONE,
   TURN1_ASSISTANT_ONLY_SSE,
+  TURN2_ASSISTANT_ONLY_SSE,
   LIST_MESSAGES_TURN1_USER_ONLY,
+  LIST_MESSAGES_MONAD_USER_ONLY,
   LIST_MESSAGES_EMPTY,
 } from "./fixtures/chat-mock-api";
 
@@ -138,5 +140,76 @@ test.describe("Chat panel — 3-turn rapid-send ordering (RUSAA-1912)", () => {
     expect(box3!.y).toBeGreaterThan(assistantBox!.y);
     // user-3 must appear below user-2.
     expect(box3!.y).toBeGreaterThan(box2!.y);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug — RUSAA-1915: sequential 2-turn — user-2 pending jumps to bottom after
+// assistant-2 starts streaming (SSE reconnect, history has user-1 only)
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — sequential turn-2 pending bubble ordering (RUSAA-1915)", () => {
+  // Regression guard for RUSAA-1915: when the user sends two sequential turns
+  // (not rapid-fire), the SSE reconnects after turn-1, and history has user-1
+  // but not assistant-1 yet, liveItems = [assistant-2(inProgress)] with no
+  // user_input echo.
+  //
+  // base = [user-1-hist, assistant-2(inProgress)]
+  // candidateSlot = 1, base[0] = user-1-hist (kind "user")
+  //
+  // Without the priorTurnsCompleted guard, the secondary check fires (prior row
+  // IS a user) and insertAt moves to base.length — appending user-2-pending
+  // AFTER the in-progress assistant instead of before it.
+  //
+  // The fix: if pendingUserSends.length > pendingItems.length (prior sends are
+  // covered, meaning prior turns completed), the in-progress assistant is for
+  // the CURRENT pending turn, so slot before it even if a user precedes.
+  test("turn-2 pending bubble appears BEFORE assistant-2 streaming when history has turn-1 user only", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // SSE: only assistant-2 streaming — no user_input echo (post-reconnect state).
+    await mockChatStream(page, CHAT_SESSION_ID, TURN2_ASSISTANT_ONLY_SSE);
+    await mockSendChatMessage(page);
+    // Historical: user-1 present, assistant-1 not yet flushed to DB.
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_MONAD_USER_ONLY);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // Historical user-1 and SSE assistant-2 must both be visible on load.
+    await expect(page.getByText("what is monad")).toBeVisible();
+    await expect(page.getByText("Lift is a higher-order function that maps a regular function into a functor.")).toBeVisible();
+
+    const composer = page.getByRole("textbox", { name: "Chat message" });
+    const sendButton = page.getByRole("button", { name: "Send" });
+
+    // Send turn-1 ("what is monad") — adds to pendingUserSends; will be covered
+    // by history (coveredTexts), so it won't appear as a duplicate bubble but
+    // priorTurnsCompleted becomes true when turn-2 is also pending.
+    await composer.fill("what is monad");
+    await sendButton.click();
+
+    // Send turn-2 ("what is lift") — the pending bubble that must slot BEFORE
+    // the in-progress assistant-2.
+    await composer.fill("what is lift");
+    await sendButton.click();
+
+    await expect(page.getByText("what is lift")).toBeVisible();
+
+    // user-2 "what is lift" must appear ABOVE (before) the streaming assistant.
+    const pendingBubble2 = page.getByText("what is lift");
+    const assistantContent = page.getByText("Lift is a higher-order function that maps a regular function into a functor.");
+
+    const [bubbleBox, assistantBox] = await Promise.all([
+      pendingBubble2.boundingBox(),
+      assistantContent.boundingBox(),
+    ]);
+
+    expect(bubbleBox).not.toBeNull();
+    expect(assistantBox).not.toBeNull();
+    // user-2 pending must appear above (lower y = higher on page) the assistant.
+    expect(bubbleBox!.y).toBeLessThan(assistantBox!.y);
   });
 });

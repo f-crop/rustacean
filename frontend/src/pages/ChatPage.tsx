@@ -162,7 +162,17 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       // message (sourced from DB history when SSE missed the user_input event).
       // Inserting here would wedge the pending bubble between the historical
       // user turn and its response — the same inversion we're preventing.
-      if (base[candidateSlot - 1]?.kind !== "user") {
+      // Secondary guard: if the row immediately before candidateSlot is a completed
+      // user turn, that user may be paired with the in-progress assistant — don't
+      // wedge a new pending bubble between them.
+      //
+      // Exception: if prior sends have already been covered by liveItems or history
+      // (priorTurnsCompleted), the in-progress assistant is responding to the CURRENT
+      // pending turn, not the historical user before it. In that case slot here even
+      // though a user precedes the candidate position.
+      const priorRowIsUser = base[candidateSlot - 1]?.kind === "user";
+      const priorTurnsCompleted = pendingUserSends.length > pendingItems.length;
+      if (!priorRowIsUser || priorTurnsCompleted) {
         insertAt = candidateSlot;
       }
     }
