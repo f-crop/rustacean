@@ -94,16 +94,17 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     if (!firstLiveUser) {
       const histItems = buildTranscriptFromHistory(historical);
       // SSE has no user_input events; liveItems holds only assistant turns.
-      // Skip leading assistant items already represented in history to prevent
-      // them appearing twice when invalidateQueries re-supplies prior turns.
-      const coveredCount = histItems.filter((i) => i.kind === "assistant").length;
-      let skipped = 0;
+      // Deduplicate by matching each live assistant's startSeq against the DB
+      // seq values of persisted assistant messages. This correctly handles both
+      // the 4-turn replay case (RUSAA-1934) and the normal reconnect case where
+      // only the current in-progress turn streams (no false positives from count).
+      const histAssistantSeqs = new Set<number>(
+        historical.filter((m) => m.role === "assistant").map((m) => m.seq),
+      );
       const extraLive = liveItems.filter((item) => {
-        if (item.kind === "assistant" && skipped < coveredCount) {
-          skipped++;
-          return false;
-        }
-        return true;
+        if (item.kind !== "assistant") return true;
+        const { startSeq } = item;
+        return startSeq === undefined || !histAssistantSeqs.has(startSeq);
       });
       base = [...histItems, ...extraLive];
     } else {

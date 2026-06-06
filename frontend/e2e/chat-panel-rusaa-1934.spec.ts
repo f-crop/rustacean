@@ -11,9 +11,85 @@ import {
   mockListChatMessages,
   CHAT_SESSION_ID,
   LIST_SESSIONS_ONE,
-  FOUR_TURN_ASSISTANT_ONLY_SSE,
-  LIST_MESSAGES_FOUR_TURNS,
 } from "./fixtures/chat-mock-api";
+
+// Four-turn session history (3 complete user+assistant pairs + user-4 in-flight).
+// SSE re-streams all 4 assistants without user_input echoes (firstLiveUser=null path).
+const LIST_MESSAGES_FOUR_TURNS = {
+  messages: [
+    { id: "t4-u1", seq: 1, role: "user", body: "what is 2+@", created_at: "2026-06-06T00:00:00Z" },
+    { id: "t4-a1", seq: 2, role: "assistant", body: "2+2 equals 4.", created_at: "2026-06-06T00:00:01Z" },
+    { id: "t4-u2", seq: 4, role: "user", body: "@ is 5", created_at: "2026-06-06T00:00:02Z" },
+    { id: "t4-a2", seq: 5, role: "assistant", body: "2 plus 5 is 7.", created_at: "2026-06-06T00:00:03Z" },
+    { id: "t4-u3", seq: 7, role: "user", body: "what is @+7", created_at: "2026-06-06T00:00:04Z" },
+    { id: "t4-a3", seq: 8, role: "assistant", body: "5 plus 7 is 12.", created_at: "2026-06-06T00:00:05Z" },
+    { id: "t4-u4", seq: 10, role: "user", body: "what is @+12", created_at: "2026-06-06T00:00:06Z" },
+  ],
+  has_more: false,
+};
+
+// SSE fixture: 4 assistant turns, NO user_input events. Sequences match DB seq values
+// in LIST_MESSAGES_FOUR_TURNS so startSeq-based dedup correctly identifies asst1-3 as
+// already in history and keeps only asst4(inProgress).
+const FOUR_TURN_ASSISTANT_ONLY_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "2+2 equals 4." },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 3,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 5,
+    payload: { type: "text", text: "2 plus 5 is 7." },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 6,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 8,
+    payload: { type: "text", text: "5 plus 7 is 12." },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 9,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 11,
+    payload: { type: "text", text: "5 plus 12 is 17." },
+  })}`,
+  "",
+  "",
+].join("\n");
 
 // Regression guard for RUSAA-1934: when SSE delivers assistant chunks without
 // user_input echoes (firstLiveUser=null), prior-turn assistant responses must

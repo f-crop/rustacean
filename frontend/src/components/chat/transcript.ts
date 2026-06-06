@@ -18,6 +18,9 @@ export interface AssistantTranscriptItem {
   // user_input event.  Used by ChatPage to slot optimistic pending bubbles in
   // chronological order during the SSE echo race window.
   inProgress?: boolean;
+  // Sequence number of the first SSE event for this assistant turn. Used by
+  // ChatPage to deduplicate live items against history by matching DB seq values.
+  startSeq?: number;
 }
 
 export interface ErrorTranscriptItem {
@@ -42,6 +45,7 @@ export type AssistantItem =
 interface ReducerState {
   readonly items: ReadonlyArray<TranscriptItem>;
   readonly pendingAssistant: ReadonlyArray<AssistantItem> | null;
+  readonly pendingStartSeq: number | null;
   readonly counter: number;
 }
 
@@ -112,16 +116,18 @@ function appendAssistantItem(
 
 function flushPendingAssistant(state: ReducerState): ReducerState {
   if (state.pendingAssistant === null || state.pendingAssistant.length === 0) {
-    return { ...state, pendingAssistant: null };
+    return { ...state, pendingAssistant: null, pendingStartSeq: null };
   }
   const assistantItem: AssistantTranscriptItem = {
     kind: "assistant",
     id: `a-${state.counter}`,
     items: state.pendingAssistant,
+    ...(state.pendingStartSeq !== null ? { startSeq: state.pendingStartSeq } : {}),
   };
   return {
     items: [...state.items, assistantItem],
     pendingAssistant: null,
+    pendingStartSeq: null,
     counter: state.counter + 1,
   };
 }
@@ -129,6 +135,7 @@ function flushPendingAssistant(state: ReducerState): ReducerState {
 export const EMPTY_TRANSCRIPT_STATE: ReducerState = {
   items: [],
   pendingAssistant: null,
+  pendingStartSeq: null,
   counter: 0,
 };
 
@@ -152,6 +159,7 @@ export function buildTranscript(
       state = {
         items: [...state.items, errorEntry],
         pendingAssistant: null,
+        pendingStartSeq: null,
         counter: state.counter + 1,
       };
       continue;
@@ -177,6 +185,7 @@ export function buildTranscript(
           { kind: "user", id: `u-${sequence}`, text: payload.text, seq: sequence },
         ],
         pendingAssistant: [],
+        pendingStartSeq: null,
         counter: state.counter + 1,
       };
       continue;
@@ -186,6 +195,8 @@ export function buildTranscript(
     state = {
       ...state,
       pendingAssistant: appendAssistantItem(pending, payload, sequence),
+      // Record the sequence of the first event so ChatPage can match against DB seq.
+      pendingStartSeq: state.pendingStartSeq ?? sequence,
     };
   }
 
@@ -193,7 +204,13 @@ export function buildTranscript(
   if (state.pendingAssistant !== null && state.pendingAssistant.length > 0) {
     return [
       ...state.items,
-      { kind: "assistant", id: `a-${state.counter}`, items: state.pendingAssistant, inProgress: true },
+      {
+        kind: "assistant",
+        id: `a-${state.counter}`,
+        items: state.pendingAssistant,
+        inProgress: true,
+        ...(state.pendingStartSeq !== null ? { startSeq: state.pendingStartSeq } : {}),
+      },
     ];
   }
 
