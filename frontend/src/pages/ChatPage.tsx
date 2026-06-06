@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useMe } from "@/api";
 import {
@@ -14,7 +14,6 @@ import { MessageComposer } from "@/components/chat/MessageComposer";
 import {
   buildTranscript,
   buildTranscriptFromHistory,
-  type AssistantTranscriptItem,
   type TranscriptItem,
   type UserTranscriptItem,
 } from "@/components/chat/transcript";
@@ -53,10 +52,12 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
   const { sessionId: activeSessionId = null } = useSearch({ from: routes.chat });
   const [composerValue, setComposerValue] = useState("");
   // Optimistic user bubbles: entries pushed immediately on send, removed once SSE
-  // echoes user_input or the DB history reflects the message (Bug A fix).
+  // echoes user_input or the DB history reflects the message.
   const [pendingUserSends, setPendingUserSends] = useState<
     ReadonlyArray<{ id: string; text: string }>
   >([]);
+  // Messages typed while the assistant is streaming — drained in order after completion.
+  const [queuedSends, setQueuedSends] = useState<ReadonlyArray<string>>([]);
 
   const setActiveSessionId = (id: string | null) => {
     void navigate({
@@ -66,9 +67,10 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     });
   };
 
-  // Clear pending sends when the user navigates to a different session.
+  // Clear optimistic + queued state when navigating to a different session.
   useEffect(() => {
     setPendingUserSends([]);
+    setQueuedSends([]);
   }, [activeSessionId]);
 
   const sessions = useChatSessions(tenantId);
@@ -90,17 +92,9 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     let base: ReadonlyArray<TranscriptItem>;
 
     if (!firstLiveUser) {
-      // No live user turn in SSE — show historical + any live non-user items (e.g. session.error).
       base = [...buildTranscriptFromHistory(historical), ...liveItems];
     } else {
-      // The SSE stream is covering at least one user turn.  Find the last historical
-      // user message whose body matches the first SSE user turn and exclude it (and
-      // all subsequent rows) from the historical slice — those rows will be supplied
-      // by the live stream instead, preventing duplication.
-      //
-      // If the matching message is not yet in the DB cache (common: messages query
-      // has a 30 s staleTime and POST /messages doesn't invalidate it), cutIdx stays
-      // -1 and all historical messages are shown before the live items.
+      // Exclude historical rows that are covered by the live stream to prevent duplication.
       let cutIdx = -1;
       for (let i = historical.length - 1; i >= 0; i--) {
         const msg = historical[i];
@@ -116,8 +110,7 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
 
     if (pendingUserSends.length === 0) return base;
 
-    // Collect user texts already present in live SSE or historical so we don't
-    // duplicate a pending send that has already been echoed.
+    // Collect user texts already present so we don't duplicate an echoed pending send.
     const coveredTexts = new Set<string>();
     for (const item of liveItems) {
       if (item.kind === "user") coveredTexts.add(item.text);
@@ -126,6 +119,9 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       if (msg.role === "user") coveredTexts.add(msg.body);
     }
 
+    // F-3: With the queue gate in place, pendingUserSends.length is provably ≤ 1
+    // (one in-flight message paired with the streaming assistant). The complex slot
+    // heuristic from previous PRs is replaced with a simple append of uncovered items.
     const pendingItems: UserTranscriptItem[] = pendingUserSends
       .filter((p) => !coveredTexts.has(p.text))
       .map((p, i) => ({
@@ -135,78 +131,34 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
         seq: -(i + 1),
       }));
 
-    if (pendingItems.length === 0) return base;
-
-    // Slot pending bubbles BEFORE any trailing in-progress assistant turn from the
-    // live stream.  Without this, the pending bubble appends after a streaming
-    // assistant response, reversing chronological order during the SSE echo race
-    // window (between POST completing and user_input echo arriving).
-    //
-    // Guard: only slot when the live SSE stream has NO user_input echo yet.
-    // If liveItems already contains a user_input event, the in-progress assistant
-    // is the stale-inProgress completed response from the prior turn (inProgress is
-    // only cleared when a subsequent user_input flushes pendingAssistant).
-    // Slotting before it would misplace turn-2's pending bubble between user-1 and
-    // the completed assistant-1.
-    const firstInProgressIdx = liveItems.findIndex(
-      (item): item is AssistantTranscriptItem =>
-        item.kind === "assistant" && item.inProgress === true,
-    );
-    const liveHasUserEcho = liveItems.some((item) => item.kind === "user");
-
-    let insertAt = base.length;
-    if (firstInProgressIdx !== -1 && !liveHasUserEcho) {
-      const candidateSlot = base.length - liveItems.length + firstInProgressIdx;
-      // Secondary guard: if the item immediately before the candidate slot is a
-      // user turn, the in-progress assistant is already paired with that user
-      // message (sourced from DB history when SSE missed the user_input event).
-      // Inserting here would wedge the pending bubble between the historical
-      // user turn and its response — the same inversion we're preventing.
-      // Secondary guard: if the row immediately before candidateSlot is a completed
-      // user turn, that user may be paired with the in-progress assistant — don't
-      // wedge a new pending bubble between them.
-      //
-      // Exception: if prior sends have already been covered by liveItems or history
-      // (priorTurnsCompleted), the in-progress assistant is responding to the CURRENT
-      // pending turn, not the historical user before it. In that case slot here even
-      // though a user precedes the candidate position.
-      const priorRowIsUser = base[candidateSlot - 1]?.kind === "user";
-      const priorTurnsCompleted = pendingUserSends.length > pendingItems.length;
-      if (!priorRowIsUser || priorTurnsCompleted) {
-        insertAt = candidateSlot;
-      }
-    }
-
-    // When slotting before an in-progress assistant turn, only the first (oldest)
-    // pending item belongs there — it triggered the current streaming response.
-    // Subsequent pending items represent future turns not yet started; they must
-    // appear after the in-progress turn, not wedged before it.
-    if (insertAt < base.length && pendingItems.length > 1) {
-      return [
-        ...base.slice(0, insertAt),
-        pendingItems[0]!,
-        ...base.slice(insertAt),
-        ...pendingItems.slice(1),
-      ];
-    }
-
-    return [
-      ...base.slice(0, insertAt),
-      ...pendingItems,
-      ...base.slice(insertAt),
-    ];
+    return [...base, ...pendingItems];
   }, [historicalMessages.data, events, pendingUserSends]);
 
-  const isStreaming = sendMessage.isPending;
+  // F-1: Gate on assistant-stream completion, not POST completion.
+  // sendMessage.isPending clears ~200 ms after POST; the assistant streams for 5–60 s.
+  const assistantStreaming = transcript.some(
+    (item) => item.kind === "assistant" && item.inProgress === true,
+  );
+  const isComposerLocked =
+    assistantStreaming || sendMessage.isPending || createSession.isPending;
 
   const handleNewSession = async (runtime: ChatRuntime) => {
     const result = await createSession.mutateAsync({ runtime });
     setActiveSessionId(result.session_id);
   };
 
+  // Stable ref so the drain effect always calls the latest handleSend without
+  // adding it to the effect dependency array (which would re-fire on every render).
+  const handleSendRef = useRef<(content: string) => Promise<void>>(async () => {});
+
   const handleSend = async (content: string) => {
+    // F-2: Queue if the assistant is still streaming or a send/session is in flight.
+    if (isComposerLocked) {
+      setQueuedSends((prev) => [...prev, content]);
+      setComposerValue("");
+      return;
+    }
     if (activeSessionId) {
-      // Optimistic: show user bubble immediately before the SSE user_input echo arrives.
       const pendingId = `p-${Date.now().toString()}`;
       setPendingUserSends((prev) => [...prev, { id: pendingId, text: content }]);
     }
@@ -218,6 +170,16 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     }
     await sendMessage.mutateAsync({ sessionId: activeSessionId, content });
   };
+
+  handleSendRef.current = handleSend;
+
+  // F-2: Drain the queue head-first when the assistant finishes streaming.
+  useEffect(() => {
+    if (assistantStreaming || queuedSends.length === 0) return;
+    const [next, ...rest] = queuedSends;
+    setQueuedSends(rest);
+    void handleSendRef.current(next!);
+  }, [assistantStreaming, queuedSends]);
 
   const sessionList = sessions.data?.sessions ?? [];
 
@@ -270,14 +232,16 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
           </div>
         ) : (
           <>
-            <MessageThread items={transcript} isStreaming={isStreaming} />
+            <MessageThread items={transcript} isStreaming={isComposerLocked} />
             <MessageComposer
               value={composerValue}
               onChange={setComposerValue}
               onSend={(content) => {
                 void handleSend(content);
               }}
-              isDisabled={isStreaming || createSession.isPending}
+              isDisabled={createSession.isPending}
+              isQueuing={assistantStreaming || sendMessage.isPending}
+              queuedMessages={queuedSends}
             />
           </>
         )}

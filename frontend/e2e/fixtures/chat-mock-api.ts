@@ -348,6 +348,42 @@ export const LIST_MESSAGES_MONAD_USER_ONLY = {
   has_more: false,
 };
 
+// SSE fixture that starts streaming assistant tokens immediately (simulates assistant-1
+// in-progress with no user_input echo). Used to test composer queue behaviour.
+export const STREAMING_ASSISTANT_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "I am currently processing your request…" },
+  })}`,
+  "",
+  "",
+].join("\n");
+
+// SSE fixture with a completed full exchange — used to test that the queue drains
+// after the assistant finishes streaming (inProgress transitions to false).
+export const COMPLETED_EXCHANGE_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 1,
+    payload: { type: "user_input", text: "hello" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "Hello! How can I help you today?" },
+  })}`,
+  "",
+  "",
+].join("\n");
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
