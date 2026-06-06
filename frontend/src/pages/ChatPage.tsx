@@ -92,7 +92,21 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     let base: ReadonlyArray<TranscriptItem>;
 
     if (!firstLiveUser) {
-      base = [...buildTranscriptFromHistory(historical), ...liveItems];
+      const histItems = buildTranscriptFromHistory(historical);
+      // SSE has no user_input events; liveItems holds only assistant turns.
+      // Deduplicate by matching each live assistant's startSeq against the DB
+      // seq values of persisted assistant messages. This correctly handles both
+      // the 4-turn replay case (RUSAA-1934) and the normal reconnect case where
+      // only the current in-progress turn streams (no false positives from count).
+      const histAssistantSeqs = new Set<number>(
+        historical.filter((m) => m.role === "assistant").map((m) => m.seq),
+      );
+      const extraLive = liveItems.filter((item) => {
+        if (item.kind !== "assistant") return true;
+        const { startSeq } = item;
+        return startSeq === undefined || !histAssistantSeqs.has(startSeq);
+      });
+      base = [...histItems, ...extraLive];
     } else {
       // Exclude historical rows that are covered by the live stream to prevent duplication.
       let cutIdx = -1;
