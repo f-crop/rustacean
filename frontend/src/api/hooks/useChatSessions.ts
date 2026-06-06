@@ -79,6 +79,7 @@ export function useChatMessages(sessionId: string | null) {
 export type SendMessageVariables = SendMessageRequest & { sessionId: string };
 
 export function useSendChatMessage() {
+  const qc = useQueryClient();
   return useMutation<SendMessageResponse, ApiError, SendMessageVariables>({
     mutationFn: async ({ sessionId, ...body }) => {
       const { data, error, response } = await chatApiClient.sendMessage(sessionId, body);
@@ -86,6 +87,14 @@ export function useSendChatMessage() {
         throw toApiError(response.status, error, response);
       }
       return data;
+    },
+    onSuccess: (_, { sessionId }) => {
+      // Refresh historical messages so that the sent message is covered by
+      // coveredTexts in ChatPage's transcript memo. Without this, if the SSE
+      // relay drops the user_input echo, the pending bubble stays uncovered and
+      // gets appended after all assistant content, causing the classic ordering
+      // inversion (assistant1, assistant2, user1, user2).
+      void qc.invalidateQueries({ queryKey: chatMessagesQueryKey(sessionId) });
     },
   });
 }

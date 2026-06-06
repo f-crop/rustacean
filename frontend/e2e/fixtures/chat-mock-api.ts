@@ -415,6 +415,61 @@ export const SINGLE_TURN_COMPLETE_SSE = [
   "",
 ].join("\n");
 
+// Two complete turns, each terminated by turn_complete.
+// buildTranscript must produce: [user-1, assistant-1, user-2, assistant-2]
+// Used to verify multi-turn queue-drain ordering when turn_complete is present.
+export const TURN2_WITH_TURN_COMPLETE_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 1,
+    payload: { type: "user_input", text: "what are the tools available" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "Here are the available tools." },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 3,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 4,
+    payload: { type: "user_input", text: "Tell me about ownership" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 5,
+    payload: { type: "text", text: "Ownership is Rust's key memory feature." },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 6,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "",
+].join("\n");
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
