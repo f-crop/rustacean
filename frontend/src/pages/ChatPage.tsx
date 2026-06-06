@@ -173,13 +173,17 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
 
   handleSendRef.current = handleSend;
 
-  // F-2: Drain the queue head-first when the assistant finishes streaming.
+  // F-2: Drain the queue head-first when the composer is fully unlocked.
+  // Guard on isComposerLocked (not assistantStreaming alone) so that the effect
+  // does not re-fire while sendMessage.isPending is still true — otherwise
+  // handleSend queues the next item at the tail instead of sending it, inverting
+  // FIFO order across multi-message drains.
   useEffect(() => {
-    if (assistantStreaming || queuedSends.length === 0) return;
+    if (isComposerLocked || queuedSends.length === 0) return;
     const [next, ...rest] = queuedSends;
     setQueuedSends(rest);
     void handleSendRef.current(next!);
-  }, [assistantStreaming, queuedSends]);
+  }, [isComposerLocked, queuedSends]);
 
   const sessionList = sessions.data?.sessions ?? [];
 
