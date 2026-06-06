@@ -199,7 +199,9 @@ fn extract_result_events(payload: ResultPayload) -> Vec<RuntimeEvent> {
             code: Some(payload.subtype),
         }]
     } else {
-        vec![]
+        vec![RuntimeEvent::TurnComplete {
+            stop_reason: payload.subtype,
+        }]
     }
 }
 
@@ -414,7 +416,7 @@ mod tests {
     // --- result: success ---
 
     #[test]
-    fn result_success_produces_no_events() {
+    fn result_success_produces_turn_complete_event() {
         let line = json!({
             "type": "result",
             "subtype": "success",
@@ -426,7 +428,14 @@ mod tests {
         })
         .to_string();
 
-        assert!(normalize(&line).is_empty());
+        let events = normalize(&line);
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0],
+            RuntimeEvent::TurnComplete {
+                stop_reason: "success".into()
+            }
+        );
     }
 
     // --- result: error ---

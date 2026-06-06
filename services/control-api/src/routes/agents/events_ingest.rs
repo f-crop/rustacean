@@ -51,6 +51,7 @@ fn event_type(ev: &RuntimeEvent) -> &'static str {
         RuntimeEvent::ToolResult { .. } => "session.tool_result",
         RuntimeEvent::Error { .. } => "session.error",
         RuntimeEvent::UserInput { .. } => "session.user_input",
+        RuntimeEvent::TurnComplete { .. } => "session.turn_complete",
     }
 }
 
@@ -182,7 +183,8 @@ async fn ingest_chat_session_events(
                 commit_text_block(&mut pending_text, &mut pending_blocks);
                 pending_blocks.push(serde_json::json!({ "type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": is_error }));
             }
-            RuntimeEvent::Error { .. } => {}
+            // Error and TurnComplete are control signals — not content rows.
+            RuntimeEvent::Error { .. } | RuntimeEvent::TurnComplete { .. } => {}
         }
     }
 
@@ -368,6 +370,12 @@ mod tests {
                 text: "hello".into()
             }),
             "session.user_input"
+        );
+        assert_eq!(
+            event_type(&RuntimeEvent::TurnComplete {
+                stop_reason: "success".into()
+            }),
+            "session.turn_complete"
         );
     }
 
