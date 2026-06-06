@@ -28,9 +28,10 @@ fn basic_session_event_count() {
     // thinking + text + tool_use = 3 from first assistant turn
     // tool_result = 1 from user turn
     // text = 1 from second assistant turn
-    // system init and success result produce no events
-    // Total = 6
-    assert_eq!(events.len(), 6, "events: {events:?}");
+    // turn_complete = 1 from success result
+    // system init produces no events
+    // Total = 7
+    assert_eq!(events.len(), 7, "events: {events:?}");
 }
 
 #[test]
@@ -93,12 +94,12 @@ fn basic_session_tool_result_is_not_error() {
 }
 
 #[test]
-fn basic_session_last_event_is_text() {
+fn basic_session_last_event_is_turn_complete() {
     let events = normalize_fixture("session_basic.ndjson");
     let last = events.last().expect("at least one event");
     assert!(
-        matches!(last, RuntimeEvent::Text { .. }),
-        "last event should be Text, got: {last:?}"
+        matches!(last, RuntimeEvent::TurnComplete { .. }),
+        "last event should be TurnComplete, got: {last:?}"
     );
 }
 
