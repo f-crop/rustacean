@@ -75,7 +75,8 @@ test.describe("Chat panel — golden path", () => {
     await page.getByRole("button", { name: "New chat session", exact: false }).first().click();
 
     await expect(page.getByRole("textbox", { name: "Chat message" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+    // Button label is "Send" when idle or "Queue" when assistant streams — both confirm the composer is mounted.
+    await expect(page.getByRole("button", { name: /send|queue/i })).toBeVisible();
   });
 
   test("renders user message, tool call, and text response from SSE stream", async ({ page }) => {
@@ -363,25 +364,15 @@ test.describe("Chat panel — pending bubble ordering (Bug C)", () => {
     await expect(page.getByText("What MCP tools are available?")).toBeVisible();
     await expect(page.getByText("I'm analyzing your request now...")).toBeVisible();
 
-    // Send a new message optimistically.
+    // Assistant is streaming — button label is "Queue" (queue-gate contract).
     await page.getByRole("textbox", { name: "Chat message" }).fill("What's next?");
-    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("button", { name: /queue/i }).click();
 
-    // Pending bubble must be visible.
-    await expect(page.getByText("What's next?")).toBeVisible();
-
-    // The pending bubble must appear ABOVE (before) the in-progress assistant
-    // content in the rendered DOM — i.e. its bounding box Y is smaller.
-    const pendingBubble = page.getByText("What's next?");
-    const inProgressContent = page.getByText("I'm analyzing your request now...");
-
-    const pendingBox = await pendingBubble.boundingBox();
-    const inProgressBox = await inProgressContent.boundingBox();
-
-    expect(pendingBox).not.toBeNull();
-    expect(inProgressBox).not.toBeNull();
-    // pending bubble renders above the in-progress assistant content
-    expect(pendingBox!.y).toBeLessThan(inProgressBox!.y);
+    // With queue-gate the message becomes a queued chip — the slot-append bug
+    // (RUSAA-1898) is impossible since the message never enters the transcript
+    // as a pending bubble while the assistant is streaming.
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toContainText("What's next?");
   });
 });
 
@@ -415,24 +406,15 @@ test.describe("Chat panel — turn-1 pending bubble ordering (Bug C turn-1)", ()
     // Wait for the in-progress assistant content from SSE to render.
     await expect(page.getByText("I'm analyzing your request now...")).toBeVisible();
 
-    // Send the first user message — no SSE user_input echo will arrive.
+    // Assistant is streaming — button label is "Queue" (queue-gate contract).
     await page.getByRole("textbox", { name: "Chat message" }).fill("what are the tools available");
-    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("button", { name: /queue/i }).click();
 
-    // Pending bubble must be visible.
-    await expect(page.getByText("what are the tools available")).toBeVisible();
-
-    // The pending bubble must render ABOVE (before) the in-progress assistant
-    // content — smaller Y coordinate means higher on the page.
-    const pendingBubble = page.getByText("what are the tools available");
-    const inProgressContent = page.getByText("I'm analyzing your request now...");
-
-    const pendingBox = await pendingBubble.boundingBox();
-    const inProgressBox = await inProgressContent.boundingBox();
-
-    expect(pendingBox).not.toBeNull();
-    expect(inProgressBox).not.toBeNull();
-    expect(pendingBox!.y).toBeLessThan(inProgressBox!.y);
+    // With queue-gate the message becomes a queued chip — the slot-append bug
+    // (RUSAA-1900) is impossible since the message never enters the transcript
+    // as a pending bubble while the assistant is streaming.
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toContainText("what are the tools available");
   });
 });
 
@@ -469,24 +451,15 @@ test.describe("Chat panel — turn-2 pending bubble ordering (Bug C turn-2)", ()
     await expect(page.getByText("what are the tools available")).toBeVisible();
     await expect(page.getByText("Here are the available tools.")).toBeVisible();
 
-    // Send turn-2 optimistically.
+    // Stale-inProgress still makes assistantStreaming = true → button label is "Queue".
     await page.getByRole("textbox", { name: "Chat message" }).fill("second message");
-    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("button", { name: /queue/i }).click();
 
-    // Pending bubble must be visible.
-    await expect(page.getByText("second message")).toBeVisible();
-
-    // The pending U2 bubble must appear BELOW (after) assistant-1, not before it.
-    const pendingBubble = page.getByText("second message");
-    const assistantContent = page.getByText("Here are the available tools.");
-
-    const pendingBox = await pendingBubble.boundingBox();
-    const assistantBox = await assistantContent.boundingBox();
-
-    expect(pendingBox).not.toBeNull();
-    expect(assistantBox).not.toBeNull();
-    // pending bubble renders below the completed assistant-1 content
-    expect(pendingBox!.y).toBeGreaterThan(assistantBox!.y);
+    // With queue-gate the message becomes a queued chip — the stale-inProgress
+    // mis-slot bug (RUSAA-1904) is impossible since no pending bubble enters the
+    // transcript while assistantStreaming is true.
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toContainText("second message");
   });
 
   // AC3: after turn-2's user_input echo arrives, transcript reads

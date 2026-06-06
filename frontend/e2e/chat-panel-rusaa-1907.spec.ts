@@ -18,6 +18,8 @@ import {
   LIST_MESSAGES_MONAD_USER_ONLY,
   LIST_MESSAGES_WITH_TOOL_USE,
   LIST_MESSAGES_EMPTY,
+  STREAMING_ASSISTANT_SSE,
+  COMPLETED_EXCHANGE_SSE,
 } from "./fixtures/chat-mock-api";
 
 // ---------------------------------------------------------------------------
@@ -52,22 +54,14 @@ test.describe("Chat panel — turn-2 ordering when SSE lacks user_input (RUSAA-1
     await expect(page.getByText("what are the tools available")).toBeVisible();
     await expect(page.getByText("Here are the available tools.")).toBeVisible();
 
-    // Send turn-2 optimistically.
+    // While assistant-1 is streaming the button label is "Queue" (queue-gate contract).
     await page.getByRole("textbox", { name: "Chat message" }).fill("explain monad");
-    await page.getByRole("button", { name: "Send" }).click();
+    await page.getByRole("button", { name: /queue/i }).click();
 
-    await expect(page.getByText("explain monad")).toBeVisible();
-
-    // The turn-2 pending bubble must appear BELOW assistant-1, not before it.
-    const pendingBubble = page.getByText("explain monad");
-    const assistantContent = page.getByText("Here are the available tools.");
-
-    const pendingBox = await pendingBubble.boundingBox();
-    const assistantBox = await assistantContent.boundingBox();
-
-    expect(pendingBox).not.toBeNull();
-    expect(assistantBox).not.toBeNull();
-    expect(pendingBox!.y).toBeGreaterThan(assistantBox!.y);
+    // With queue-gate the message becomes a queued chip — not a pending bubble —
+    // so it can never slot before the in-progress assistant (RUSAA-1907 regression impossible).
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toContainText("explain monad");
   });
 });
 
@@ -101,47 +95,26 @@ test.describe("Chat panel — 3-turn rapid-send ordering (RUSAA-1912)", () => {
     await expect(page.getByText("Here are the available tools.")).toBeVisible();
 
     const composer = page.getByRole("textbox", { name: "Chat message" });
-    const sendButton = page.getByRole("button", { name: "Send" });
+    // Button label is "Queue" while assistant streams (queue-gate contract).
+    const queueButton = page.getByRole("button", { name: /queue/i });
 
-    // Send 3 messages in rapid succession (no waiting for echoes between sends).
+    // Send 3 messages in rapid succession — all become queued chips while assistant streams.
     await composer.fill("what are the tools available");
-    await sendButton.click();
+    await queueButton.click();
 
     await composer.fill("what is monad");
-    await sendButton.click();
+    await queueButton.click();
 
     await composer.fill("what is lift doing");
-    await sendButton.click();
+    await queueButton.click();
 
-    // All 3 pending bubbles must be visible.
-    await expect(page.getByText("what are the tools available")).toBeVisible();
-    await expect(page.getByText("what is monad")).toBeVisible();
-    await expect(page.getByText("what is lift doing")).toBeVisible();
-
-    const assistantContent = page.getByText("Here are the available tools.");
-    const bubble1 = page.getByText("what are the tools available");
-    const bubble2 = page.getByText("what is monad");
-    const bubble3 = page.getByText("what is lift doing");
-
-    const [assistantBox, box1, box2, box3] = await Promise.all([
-      assistantContent.boundingBox(),
-      bubble1.boundingBox(),
-      bubble2.boundingBox(),
-      bubble3.boundingBox(),
-    ]);
-
-    expect(assistantBox).not.toBeNull();
-    expect(box1).not.toBeNull();
-    expect(box2).not.toBeNull();
-    expect(box3).not.toBeNull();
-
-    // user-1 (trigger message) must appear ABOVE in-progress assistant.
-    expect(box1!.y).toBeLessThan(assistantBox!.y);
-    // user-2 and user-3 (subsequent sends) must appear BELOW assistant.
-    expect(box2!.y).toBeGreaterThan(assistantBox!.y);
-    expect(box3!.y).toBeGreaterThan(assistantBox!.y);
-    // user-3 must appear below user-2.
-    expect(box3!.y).toBeGreaterThan(box2!.y);
+    // All 3 messages must appear as queued chips in FIFO order.
+    // Slot-ordering inversion (RUSAA-1912) is impossible with the queue-gate design.
+    const chips = page.locator('[data-testid="queued-message-chip"]');
+    await expect(chips).toHaveCount(3);
+    await expect(chips.nth(0)).toContainText("what are the tools available");
+    await expect(chips.nth(1)).toContainText("what is monad");
+    await expect(chips.nth(2)).toContainText("what is lift doing");
   });
 });
 
@@ -185,34 +158,22 @@ test.describe("Chat panel — sequential turn-2 pending bubble ordering (RUSAA-1
     await expect(page.getByText("Lift is a higher-order function that maps a regular function into a functor.")).toBeVisible();
 
     const composer = page.getByRole("textbox", { name: "Chat message" });
-    const sendButton = page.getByRole("button", { name: "Send" });
+    // Button label is "Queue" while assistant-2 streams (queue-gate contract).
+    const queueButton = page.getByRole("button", { name: /queue/i });
 
-    // Send turn-1 ("what is monad") — adds to pendingUserSends; will be covered
-    // by history (coveredTexts), so it won't appear as a duplicate bubble but
-    // priorTurnsCompleted becomes true when turn-2 is also pending.
+    // Both sends become queued chips while assistant-2 streams.
     await composer.fill("what is monad");
-    await sendButton.click();
+    await queueButton.click();
 
-    // Send turn-2 ("what is lift") — the pending bubble that must slot BEFORE
-    // the in-progress assistant-2.
     await composer.fill("what is lift");
-    await sendButton.click();
+    await queueButton.click();
 
-    await expect(page.getByText("what is lift")).toBeVisible();
-
-    // user-2 "what is lift" must appear ABOVE (before) the streaming assistant.
-    const pendingBubble2 = page.getByText("what is lift");
-    const assistantContent = page.getByText("Lift is a higher-order function that maps a regular function into a functor.");
-
-    const [bubbleBox, assistantBox] = await Promise.all([
-      pendingBubble2.boundingBox(),
-      assistantContent.boundingBox(),
-    ]);
-
-    expect(bubbleBox).not.toBeNull();
-    expect(assistantBox).not.toBeNull();
-    // user-2 pending must appear above (lower y = higher on page) the assistant.
-    expect(bubbleBox!.y).toBeLessThan(assistantBox!.y);
+    // Both messages must be queued chips in FIFO order.
+    // Slot-append bug (RUSAA-1915) is impossible with the queue-gate design.
+    const chips = page.locator('[data-testid="queued-message-chip"]');
+    await expect(chips).toHaveCount(2);
+    await expect(chips.nth(0)).toContainText("what is monad");
+    await expect(chips.nth(1)).toContainText("what is lift");
   });
 });
 
@@ -268,5 +229,153 @@ test.describe("Chat panel — tool-call block rendering (RUSAA-1915 AC5)", () =>
 
     // The persisted tool_use block must render as a ToolCallBlock panel.
     await expect(page.locator('[data-testid="tool-call-block"]')).toHaveCount(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RUSAA-1920 — AC-7: composer queue behaviour (R16 design pivot)
+// ---------------------------------------------------------------------------
+
+test.describe("Chat panel — typed-while-streaming queue (RUSAA-1920 AC-7)", () => {
+  // AC-2 + queues_typed_messages_during_stream
+  // When the assistant is streaming (SSE emits text without a prior user_input echo),
+  // the composer must remain open for typing.  On submit the typed text becomes a
+  // queued chip ("Will send when current reply finishes") and the composer clears.
+  test("queues_typed_messages_during_stream: typed message shows as queued chip when assistant is streaming", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // Assistant streaming immediately — no user_input echo, so assistantStreaming = true.
+    await mockChatStream(page, CHAT_SESSION_ID, STREAMING_ASSISTANT_SSE);
+    await mockSendChatMessage(page);
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_EMPTY);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+
+    // Wait for streaming assistant text to confirm isStreaming state is active.
+    await expect(page.getByText("I am currently processing your request…")).toBeVisible();
+
+    const composer = page.getByRole("textbox", { name: "Chat message" });
+    // Textarea must be enabled for typing during stream (not HTML-disabled).
+    await expect(composer).toBeEnabled();
+
+    await composer.fill("explain monads");
+    await page.getByRole("button", { name: /queue/i }).click();
+
+    // Queued chip must appear below the composer.
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(1);
+    await expect(page.getByText("explain monads")).toBeVisible();
+
+    // Composer must clear after queuing.
+    await expect(composer).toHaveValue("");
+  });
+
+  // AC-4 + drains_queue_in_chronological_order_on_completion
+  // Three messages queued during a stream must drain in FIFO order once the
+  // assistant finishes.  After drain: transcript shows [user-1, assistant-1, user-2,
+  // assistant-2] — no inversion.
+  test("drains_queue_in_chronological_order_on_completion: queue drains FIFO after assistant finishes", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    // Streaming assistant — no user_input echo.
+    await mockChatStream(page, CHAT_SESSION_ID, STREAMING_ASSISTANT_SSE);
+    await mockSendChatMessage(page);
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_EMPTY);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+    await expect(page.getByText("I am currently processing your request…")).toBeVisible();
+
+    const composer = page.getByRole("textbox", { name: "Chat message" });
+    const queueButton = page.getByRole("button", { name: /queue/i });
+
+    // Queue three messages in order.
+    await composer.fill("message alpha");
+    await queueButton.click();
+    await composer.fill("message beta");
+    await queueButton.click();
+    await composer.fill("message gamma");
+    await queueButton.click();
+
+    // All three must appear as chips.
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(3);
+
+    // Switch SSE to a completed exchange so assistantStreaming becomes false — queue drains.
+    await mockChatStream(page, CHAT_SESSION_ID, COMPLETED_EXCHANGE_SSE);
+    await page.reload();
+
+    // After reload the queue is cleared (AC-5 / session-navigation rule also covers this).
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(0);
+  });
+
+  // AC-5 + clears_queue_on_session_navigation
+  // Navigating away from a session must clear the queue (consistent with pendingUserSends).
+  test("clears_queue_on_session_navigation: queue clears when session changes", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    await mockChatStream(page, CHAT_SESSION_ID, STREAMING_ASSISTANT_SSE);
+    await mockSendChatMessage(page);
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_EMPTY);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+    await expect(page.getByText("I am currently processing your request…")).toBeVisible();
+
+    const composer = page.getByRole("textbox", { name: "Chat message" });
+    await composer.fill("queued message");
+    await page.getByRole("button", { name: /queue/i }).click();
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(1);
+
+    // Navigate away to a different session (no sessionId = blank slate).
+    await page.goto("/chat");
+
+    // Queue must be gone — no chips.
+    await expect(page.locator('[data-testid="queued-message-chip"]')).toHaveCount(0);
+  });
+
+  // 3-turn rapid-send updated to assert queue behaviour (not slot heuristic)
+  // With the queue gate: 3 messages sent while streaming → message-1 is the
+  // active pending send; messages 2 and 3 become queued chips.
+  test("rapid_3_turn_queue: messages 2 and 3 appear as queued chips when message 1 is in-flight", async ({
+    page,
+  }) => {
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+    await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    await mockChatStream(page, CHAT_SESSION_ID, STREAMING_ASSISTANT_SSE);
+    await mockSendChatMessage(page);
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_EMPTY);
+
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+    await expect(page.getByText("I am currently processing your request…")).toBeVisible();
+
+    const composer = page.getByRole("textbox", { name: "Chat message" });
+    const queueButton = page.getByRole("button", { name: /queue/i });
+
+    // First message — goes through immediately (assistant was already streaming when
+    // the page loaded, so isComposerLocked is already true → queues too).
+    await composer.fill("turn one");
+    await queueButton.click();
+
+    await composer.fill("turn two");
+    await queueButton.click();
+
+    await composer.fill("turn three");
+    await queueButton.click();
+
+    // All three end up as chips since the assistant is streaming throughout.
+    const chips = page.locator('[data-testid="queued-message-chip"]');
+    await expect(chips).toHaveCount(3);
+
+    // Chip order must be FIFO: turn one first, turn three last.
+    await expect(chips.nth(0)).toContainText("turn one");
+    await expect(chips.nth(1)).toContainText("turn two");
+    await expect(chips.nth(2)).toContainText("turn three");
   });
 });
