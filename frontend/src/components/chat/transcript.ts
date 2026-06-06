@@ -164,6 +164,11 @@ export function buildTranscript(
 
     const { payload, sequence } = envelope;
 
+    if (payload.type === "turn_complete") {
+      state = flushPendingAssistant(state);
+      continue;
+    }
+
     if (payload.type === "user_input") {
       state = flushPendingAssistant(state);
       state = {

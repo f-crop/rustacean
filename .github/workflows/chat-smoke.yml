@@ -40,6 +40,7 @@ jobs:
               - 'frontend/src/lib/chat-api.ts'
               - 'frontend/e2e/chat-panel.spec.ts'
               - 'frontend/e2e/chat-panel-rusaa-1907.spec.ts'
+              - 'frontend/e2e/chat-panel-turn-complete-flush.spec.ts'
               - 'frontend/e2e/fixtures/chat-mock-api.ts'
               - '.github/workflows/chat-smoke.yml'
 

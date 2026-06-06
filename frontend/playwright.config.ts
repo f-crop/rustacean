@@ -32,19 +32,19 @@ export default defineConfig({
       // Quarantine specs and feature-flag-gated specs run under dedicated projects.
       // chat-panel*.spec.ts files require VITE_FEATURE_CHAT_PANEL=true at build time;
       // they are exercised by the chat-smoke CI job, not the main suite.
-      testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts"],
+      testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts", "**/chat-panel-turn-complete-flush.spec.ts"],
     },
     ...(isNightly
       ? [
           {
             name: "firefox",
             use: { ...devices["Desktop Firefox"] },
-            testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts"],
+            testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts", "**/chat-panel-turn-complete-flush.spec.ts"],
           },
           {
             name: "webkit",
             use: { ...devices["Desktop Safari"] },
-            testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts"],
+            testIgnore: ["**/quarantine/**", "**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts", "**/chat-panel-turn-complete-flush.spec.ts"],
           },
         ]
       : []),
@@ -55,7 +55,7 @@ export default defineConfig({
       ? [
           {
             name: "chat-smoke",
-            testMatch: ["**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts"],
+            testMatch: ["**/chat-panel.spec.ts", "**/chat-panel-rusaa-1907.spec.ts", "**/chat-panel-turn-complete-flush.spec.ts"],
             use: { ...devices["Desktop Chrome"] },
             retries: process.env.CI ? 2 : 0,
           },

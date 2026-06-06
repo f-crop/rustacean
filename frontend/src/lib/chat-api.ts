@@ -47,7 +47,8 @@ export type ChatRuntimePayload =
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "tool_result"; tool_use_id: string; content: unknown; is_error: boolean }
   | { type: "error"; message: string; code?: string }
-  | { type: "user_input"; text: string };
+  | { type: "user_input"; text: string }
+  | { type: "turn_complete"; stop_reason: string };
 
 export interface ChatSessionEventEnvelope {
   session_id: string;

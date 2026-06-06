@@ -384,6 +384,37 @@ export const COMPLETED_EXCHANGE_SSE = [
   "",
 ].join("\n");
 
+// A single completed turn that includes the turn_complete event.
+// buildTranscript must flush the pending assistant so inProgress is never set,
+// which means assistantStreaming = false and the composer button reads "Send".
+export const SINGLE_TURN_COMPLETE_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 1,
+    payload: { type: "user_input", text: "what is ownership?" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "Ownership is Rust's core memory safety mechanism." },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 3,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "",
+].join("\n");
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
