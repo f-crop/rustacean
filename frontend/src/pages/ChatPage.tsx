@@ -92,7 +92,20 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
     let base: ReadonlyArray<TranscriptItem>;
 
     if (!firstLiveUser) {
-      base = [...buildTranscriptFromHistory(historical), ...liveItems];
+      const histItems = buildTranscriptFromHistory(historical);
+      // SSE has no user_input events; liveItems holds only assistant turns.
+      // Skip leading assistant items already represented in history to prevent
+      // them appearing twice when invalidateQueries re-supplies prior turns.
+      const coveredCount = histItems.filter((i) => i.kind === "assistant").length;
+      let skipped = 0;
+      const extraLive = liveItems.filter((item) => {
+        if (item.kind === "assistant" && skipped < coveredCount) {
+          skipped++;
+          return false;
+        }
+        return true;
+      });
+      base = [...histItems, ...extraLive];
     } else {
       // Exclude historical rows that are covered by the live stream to prevent duplication.
       let cutIdx = -1;
