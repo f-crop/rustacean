@@ -15,11 +15,7 @@ import {
   SINGLE_TURN_COMPLETE_SSE,
 } from "./fixtures/chat-mock-api";
 
-// ---------------------------------------------------------------------------
-// RUSAA-1929: flush pending assistant on turn_complete
-// ---------------------------------------------------------------------------
-
-test.describe("Chat panel — turn_complete flushes pending assistant (RUSAA-1929)", () => {
+test.describe("Chat panel — turn_complete flushes pending assistant", () => {
   // AC #1: after a single-turn reply that ends with turn_complete, the composer
   // button reads "Send" (not "Queue"), confirming isComposerLocked === false.
   test("button reads Send and composer is unlocked after turn_complete arrives", async ({
