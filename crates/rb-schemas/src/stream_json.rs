@@ -63,6 +63,10 @@ pub enum RuntimeEvent {
 
     /// User input relayed into the session.
     UserInput { text: String },
+
+    /// Signals that the assistant has completed a turn (maps to `result.subtype == "success"`).
+    /// This is a control signal only — it is NOT persisted as a content row.
+    TurnComplete { stop_reason: String },
 }
 
 impl RuntimeEvent {
@@ -76,6 +80,7 @@ impl RuntimeEvent {
             RuntimeEvent::ToolResult { .. } => AgentEventKind::ToolResult,
             RuntimeEvent::Error { .. } => AgentEventKind::Error,
             RuntimeEvent::UserInput { .. } => AgentEventKind::UserInput,
+            RuntimeEvent::TurnComplete { .. } => AgentEventKind::TurnComplete,
         }
     }
 
@@ -258,6 +263,26 @@ mod tests {
             text: "hello".into(),
         };
         assert_eq!(ev.kind(), AgentEventKind::UserInput);
+    }
+
+    #[test]
+    fn turn_complete_roundtrip() {
+        let ev = RuntimeEvent::TurnComplete {
+            stop_reason: "success".into(),
+        };
+        assert_eq!(roundtrip(&ev), ev);
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        assert_eq!(v["type"], "turn_complete");
+        assert_eq!(v["stop_reason"], "success");
+    }
+
+    #[test]
+    fn kind_mapping_turn_complete() {
+        let ev = RuntimeEvent::TurnComplete {
+            stop_reason: "success".into(),
+        };
+        assert_eq!(ev.kind(), AgentEventKind::TurnComplete);
     }
 
     #[test]

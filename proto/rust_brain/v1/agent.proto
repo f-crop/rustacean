@@ -27,7 +27,8 @@ enum AgentEventKind {
   AGENT_EVENT_KIND_THINKING    = 7;  // extended thinking block
   AGENT_EVENT_KIND_TOOL_USE    = 8;  // tool invocation by the assistant
   AGENT_EVENT_KIND_TOOL_RESULT = 9;  // tool result returned to the assistant
-  AGENT_EVENT_KIND_USER_INPUT  = 10; // user input relayed into the session
+  AGENT_EVENT_KIND_USER_INPUT    = 10; // user input relayed into the session
+  AGENT_EVENT_KIND_TURN_COMPLETE = 11; // assistant turn complete control signal
 }
 
 enum AgentErrorCategory {
