@@ -47,6 +47,46 @@ interface ChatInnerProps {
   readonly tenantId: string;
 }
 
+// Within the firstLiveUser path, the CLI may restart and replay all historical
+// assistant responses after the current user_input in the SSE stream. For each
+// user-input segment [user, ...assistants...], keep only the LAST assistant.
+// Non-assistant items and single-assistant segments are unaffected.
+function dedupeAssistantsPerSegment(
+  items: ReadonlyArray<TranscriptItem>,
+): ReadonlyArray<TranscriptItem> {
+  const result: TranscriptItem[] = [];
+  let i = 0;
+  while (i < items.length) {
+    const item = items[i];
+    if (!item) { i++; continue; }
+    if (item.kind !== "user") {
+      result.push(item);
+      i++;
+      continue;
+    }
+    // Collect this user-input and everything until the next user-input.
+    result.push(item);
+    i++;
+    const segStart = i;
+    while (i < items.length && items[i]?.kind !== "user") {
+      i++;
+    }
+    const segment = items.slice(segStart, i);
+    // Find the last assistant in the segment (current turn's response).
+    let lastAsstIdx = -1;
+    for (let k = segment.length - 1; k >= 0; k--) {
+      if (segment[k]?.kind === "assistant") { lastAsstIdx = k; break; }
+    }
+    for (let k = 0; k < segment.length; k++) {
+      const seg = segment[k];
+      if (!seg) continue;
+      if (seg.kind === "assistant" && k !== lastAsstIdx) continue;
+      result.push(seg);
+    }
+  }
+  return result;
+}
+
 function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
   const navigate = useNavigate();
   const { sessionId: activeSessionId = null } = useSearch({ from: routes.chat });
@@ -95,14 +135,16 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       const histItems = buildTranscriptFromHistory(historical);
       // SSE has no user_input events; liveItems holds only assistant turns.
       // Deduplicate by matching each live assistant's startSeq against the DB
-      // seq values of persisted assistant messages. This correctly handles both
-      // the 4-turn replay case (RUSAA-1934) and the normal reconnect case where
-      // only the current in-progress turn streams (no false positives from count).
+      // seq values of persisted assistant messages. Always keep the in-progress
+      // (streaming) assistant regardless of startSeq — its sequence may collide
+      // with a persisted assistant when all turns use the same batch slot (e.g.
+      // simple single-text-block turns where Text is always at position 2).
       const histAssistantSeqs = new Set<number>(
         historical.filter((m) => m.role === "assistant").map((m) => m.seq),
       );
       const extraLive = liveItems.filter((item) => {
         if (item.kind !== "assistant") return true;
+        if (item.inProgress === true) return true;
         const { startSeq } = item;
         return startSeq === undefined || !histAssistantSeqs.has(startSeq);
       });
@@ -119,7 +161,12 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       }
 
       const historicalFiltered = cutIdx >= 0 ? historical.slice(0, cutIdx) : historical;
-      base = [...buildTranscriptFromHistory(historicalFiltered), ...liveItems];
+      // Deduplicate assistant items within each user-input segment of liveItems.
+      // When the CLI restarts mid-session, it outputs the full conversation history
+      // for each new user message, producing extra historical assistant turns after
+      // the current user_input in the SSE stream. Strip them by keeping only the
+      // last assistant per user-input segment (the current turn's response).
+      base = [...buildTranscriptFromHistory(historicalFiltered), ...dedupeAssistantsPerSegment(liveItems)];
     }
 
     if (pendingUserSends.length === 0) return base;
