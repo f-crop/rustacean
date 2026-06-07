@@ -186,23 +186,50 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       const hasLiveInProgress = liveItems.some(
         (item) => item.kind === "assistant" && item.inProgress === true,
       );
+
+      // Build a set of historical assistant text bodies for content-based replay
+      // detection. When the CLI restarts and assigns NEW sequence numbers to
+      // replayed responses (not reusing original DB seqs), the seq-based filter
+      // below cannot distinguish replays from the fresh answer. As a fallback,
+      // if a live completed assistant's full text matches any historical
+      // assistant's body verbatim it is a replay and must be dropped.
+      // This handles the turn-2 bug (R27): fresh arrives first in SSE (lower
+      // startSeq), prior-turn replay arrives second — content matching identifies
+      // which is which regardless of SSE ordering.
+      const histAssistantTexts = new Set<string>();
+      for (const histItem of histItems) {
+        if (histItem.kind !== "assistant") continue;
+        const text = histItem.items
+          .filter((i) => i.type === "text")
+          .map((i) => (i.type === "text" ? i.text : ""))
+          .join("");
+        if (text) histAssistantTexts.add(text);
+      }
+
       const extraLive = liveItems.filter((item) => {
         if (item.kind !== "assistant") return true;
         if (item.inProgress === true) return true;
         // When the live stream contains an in-progress response, all completed
         // assistants are CLI-replayed prior-turn responses — drop them.
         if (hasLiveInProgress) return false;
-        // Keep any completed assistant whose startSeq is not already represented
-        // in histAssistantSeqs. This retains fresh completions that haven't been
-        // written to DB yet while discarding CLI-replay duplicates.
+        // Drop replays identified by seq (same-seq CLI restart: CLI reuses the
+        // original DB sequence numbers when replaying prior-turn responses).
         const { startSeq } = item;
-        return startSeq === undefined || !histAssistantSeqs.has(startSeq);
+        if (startSeq !== undefined && histAssistantSeqs.has(startSeq)) return false;
+        // Drop replays identified by content (new-seq CLI restart: CLI assigns
+        // new sequence numbers to replayed responses, so seq matching fails).
+        // If the live assistant's text matches any historical assistant verbatim,
+        // it is a prior-turn replay regardless of sequence number.
+        const liveText = item.items
+          .filter((i) => i.type === "text")
+          .map((i) => (i.type === "text" ? i.text : ""))
+          .join("");
+        if (liveText && histAssistantTexts.has(liveText)) return false;
+        return true;
       });
-      // Deduplicate: when the CLI restarts and SSE replays prior-turn assistant
-      // responses (with new sequence numbers), the startSeq filter above lets them
-      // through because their seqs don't match the DB. Apply per-segment dedup,
-      // passing histAssistantSeqs so only confirmed replays are dropped and fresh
-      // completions are preserved.
+      // Deduplicate: per-segment safety net in case a replay slips past both
+      // the seq and content filters (e.g. new seqs AND novel content — edge
+      // case). histAssistantSeqs bounds the replay count in those cases.
       base = dedupeAssistantsPerSegment([...histItems, ...extraLive], histAssistantSeqs);
     } else {
       // Exclude historical rows that are covered by the live stream to prevent duplication.

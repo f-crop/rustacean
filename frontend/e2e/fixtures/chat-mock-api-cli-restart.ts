@@ -367,6 +367,52 @@ export const THREE_TURN_COMPLETED_NO_INPROGRESS_SSE = [
   "",
 ].join("\n");
 
+// ─── 2-turn R27 scenario (RUSAA-1949) ──────────────────────────────────────
+// Session: turn-1 complete, turn-2 just completed.
+// CLI restart with NEW sequence numbers (does NOT reuse DB seqs).
+// The SSE stream emits the fresh turn-2 answer FIRST (lower seqs), then
+// the CLI replays turn-1's response SECOND (higher seqs).
+// The existing seq-based filter cannot drop the replay (new seq not in histAssistantSeqs);
+// the content-based filter catches it because the replay text matches historical ass-1.
+//
+// Bug (R26 under-correction): position-based slice kept the SECOND item = replay of
+// turn-1's "Did you mean 2+2?" instead of fresh turn-2's "Then 2+2=4".
+// Fix: content-match filter drops the replay before dedupeAssistantsPerSegment runs.
+
+// DB state: turn-1 fully persisted; turn-2 user stored, assistant not yet.
+// histAssistantSeqs = {2} (only ass-1 in DB).
+export const LIST_MESSAGES_R27_TURN2_IN_PROGRESS = {
+  messages: [
+    { id: "r49-u1", seq: 1, role: "user", body: "what is 2+@", created_at: "2026-06-07T00:00:00Z" },
+    { id: "r49-a1", seq: 2, role: "assistant", body: "Did you mean 2+2? That equals 4.", created_at: "2026-06-07T00:00:01Z" },
+    { id: "r49-u2", seq: 3, role: "user", body: "@ is 2", created_at: "2026-06-07T00:00:02Z" },
+    // turn-2 assistant NOT yet persisted
+  ],
+  has_more: false,
+};
+
+// SSE: no user_input events; CLI uses NEW seqs (not matching DB).
+// Fresh turn-2 answer arrives FIRST (seq=100), then turn-1 replay arrives SECOND (seq=102).
+// This is the R27 bug ordering: fresh first, replay second.
+export const TWO_TURN_R27_FRESH_FIRST_REPLAY_SECOND_SSE = [
+  // Fresh answer to "@ is 2": "Then 2+2=4." arrives first (seq=100).
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "text", sequence: 100, payload: { type: "text", text: "Then 2+2=4." } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "turn_complete", sequence: 101, payload: { type: "turn_complete", stop_reason: "end_turn" } })}`,
+  "",
+  // CLI replay of turn-1 ("Did you mean 2+2? That equals 4.") arrives second (seq=102).
+  // Same text as DB ass-1 body → content filter must drop it.
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "text", sequence: 102, payload: { type: "text", text: "Did you mean 2+2? That equals 4." } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "turn_complete", sequence: 103, payload: { type: "turn_complete", stop_reason: "end_turn" } })}`,
+  "",
+  "",
+].join("\n");
+
 // Same as above but turn-3's stream is still in-progress (no turn_complete after "16").
 // The CLI replays turns 1+2 as completed, then turn-3 is still streaming.
 export const THREE_TURN_MIDSTREAM_NO_INPROGRESS_SSE = [
