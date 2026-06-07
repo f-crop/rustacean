@@ -5,6 +5,53 @@
 
 import { CHAT_SESSION_ID } from "./chat-mock-api";
 
+// ─── 2-turn UAT scenario (RUSAA-1942) ──────────────────────────────────────
+// Session: 2 turns of math (4+4=8, 8+8=16).
+// CLI restarts AFTER user_input("8+8") was processed; the SSE stream reconnects
+// mid-turn-2 and has NO user_input event — only replayed + streaming assistant tokens.
+// Without the fix, the replayed "8" appears as a duplicate after "what is 8+8".
+
+// DB state: turn-1 complete, turn-2 user stored but asst not yet flushed.
+export const LIST_MESSAGES_TWO_TURNS_MATH_IN_PROGRESS = {
+  messages: [
+    { id: "r42-u1", seq: 1, role: "user", body: "what is 4+4", created_at: "2026-06-07T00:00:00Z" },
+    { id: "r42-a1", seq: 2, role: "assistant", body: "8", created_at: "2026-06-07T00:00:01Z" },
+    { id: "r42-u2", seq: 3, role: "user", body: "what is 8+8", created_at: "2026-06-07T00:00:02Z" },
+  ],
+  has_more: false,
+};
+
+// SSE: no user_input event (CLI restarted mid-turn-2 after user_input processed).
+// text("8") is the replayed turn-1 assistant; turn_complete flushes it.
+// text("16") is the actual turn-2 response, still streaming (no final turn_complete).
+export const TWO_TURN_NO_USER_INPUT_REPLAY_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 5,
+    payload: { type: "text", text: "8" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 6,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 7,
+    payload: { type: "text", text: "16" },
+  })}`,
+  "",
+  "",
+].join("\n");
+
 // 3-turn session history (turns 1+2 complete, turn 3 in progress).
 export const LIST_MESSAGES_THREE_TURNS_IN_PROGRESS = {
   messages: [

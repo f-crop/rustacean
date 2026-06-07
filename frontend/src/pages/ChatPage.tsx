@@ -148,7 +148,11 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
         const { startSeq } = item;
         return startSeq === undefined || !histAssistantSeqs.has(startSeq);
       });
-      base = [...histItems, ...extraLive];
+      // Deduplicate: when the CLI restarts and SSE replays prior-turn assistant
+      // responses (with new sequence numbers), the startSeq filter above lets them
+      // through because their seqs don't match the DB. Apply the same per-segment
+      // dedup used in the firstLiveUser path so replayed assistants are dropped.
+      base = dedupeAssistantsPerSegment([...histItems, ...extraLive]);
     } else {
       // Exclude historical rows that are covered by the live stream to prevent duplication.
       let cutIdx = -1;
