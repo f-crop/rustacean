@@ -47,14 +47,13 @@ interface ChatInnerProps {
   readonly tenantId: string;
 }
 
-// Deduplicate assistant items within user-input segments (both merge paths pass
-// histAssistantSeqs so the logic is symmetric).
+// Deduplicate assistant items within user-input segments.
 //
 // Per segment [user, ...assistants...]:
 //   - In-progress present: keep only the last in-progress; discard completed replays.
-//   - 2+ completed, no in-progress: CLI always replays ALL prior turns first, then
-//     the fresh answer follows. Drop the first histAssistantSeqs.size completed items
-//     (replays); keep any beyond that count (fresh answers for this turn).
+//   - 2+ completed, no in-progress: CLI always replays ALL prior turns first; fresh
+//     answers (if any) follow. Drop the first min(histAssistantSeqs.size, count) items
+//     (replays); keep any beyond that count. Without histAssistantSeqs, drop all.
 //   - 0 or 1 completed: keep as-is.
 function dedupeAssistantsPerSegment(
   items: ReadonlyArray<TranscriptItem>,
