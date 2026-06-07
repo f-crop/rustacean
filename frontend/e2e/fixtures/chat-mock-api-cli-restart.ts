@@ -303,3 +303,88 @@ export const FOUR_TURN_CLI_REPLAY_SSE_WITH_INPROGRESS = [
   "",
   "",
 ].join("\n");
+
+// ─── 3-turn UAT scenario (RUSAA-1946 / R26 fixup) ──────────────────────────
+// Session: 2 completed turns (2+2=4, 4+4=8) + turn-3 (8+8) whose SSE stream
+// just finished.  The SSE has NO user_input events and replays turns 1+2 before
+// emitting the fresh turn-3 completion.
+//
+// DB seq values: ass1.seq=2, ass2.seq=4 → histAssistantSeqs = {2, 4}.
+// SSE replays use the same sequence numbers (startSeq=2, startSeq=4) so the
+// histAssistantSeqs filter drops them, leaving only the fresh ass3 (startSeq=6).
+
+// DB state: turns 1+2 fully persisted, turn-3 user stored but assistant not yet.
+export const LIST_MESSAGES_R26_NO_ASS3 = {
+  messages: [
+    { id: "r46-u1", seq: 1, role: "user", body: "what is 2+2", created_at: "2026-06-07T00:00:00Z" },
+    { id: "r46-a1", seq: 2, role: "assistant", body: "4", created_at: "2026-06-07T00:00:01Z" },
+    { id: "r46-u2", seq: 3, role: "user", body: "what is 4+4", created_at: "2026-06-07T00:00:02Z" },
+    { id: "r46-a2", seq: 4, role: "assistant", body: "8", created_at: "2026-06-07T00:00:03Z" },
+    { id: "r46-u3", seq: 5, role: "user", body: "what is 8+8", created_at: "2026-06-07T00:00:04Z" },
+    // turn-3 assistant NOT yet persisted
+  ],
+  has_more: false,
+};
+
+// DB state: turns 1+2+3 fully persisted, turn-4 user stored but assistant not yet.
+// Used for the R24-!firstLiveUser regression guard.
+export const LIST_MESSAGES_R26_THREE_FULL_PLUS_USER4 = {
+  messages: [
+    { id: "r46-r24-u1", seq: 1, role: "user", body: "what is 2+2", created_at: "2026-06-07T00:00:00Z" },
+    { id: "r46-r24-a1", seq: 2, role: "assistant", body: "4", created_at: "2026-06-07T00:00:01Z" },
+    { id: "r46-r24-u2", seq: 3, role: "user", body: "what is 4+4", created_at: "2026-06-07T00:00:02Z" },
+    { id: "r46-r24-a2", seq: 4, role: "assistant", body: "8", created_at: "2026-06-07T00:00:03Z" },
+    { id: "r46-r24-u3", seq: 5, role: "user", body: "what is 8+8", created_at: "2026-06-07T00:00:04Z" },
+    { id: "r46-r24-a3", seq: 6, role: "assistant", body: "16", created_at: "2026-06-07T00:00:05Z" },
+    { id: "r46-r24-u4", seq: 7, role: "user", body: "what is 16+16", created_at: "2026-06-07T00:00:06Z" },
+    // turn-4 assistant NOT yet arrived
+  ],
+  has_more: false,
+};
+
+// SSE: no user_input events; CLI replays turns 1+2 (startSeq=2 and startSeq=4,
+// matching DB seq values so they are dropped by histAssistantSeqs), then emits
+// the fresh turn-3 completion (startSeq=6, not in DB yet → kept).
+export const THREE_TURN_COMPLETED_NO_INPROGRESS_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "text", sequence: 2, payload: { type: "text", text: "4" } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "turn_complete", sequence: 3, payload: { type: "turn_complete", stop_reason: "end_turn" } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "text", sequence: 4, payload: { type: "text", text: "8" } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "turn_complete", sequence: 5, payload: { type: "turn_complete", stop_reason: "end_turn" } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "text", sequence: 6, payload: { type: "text", text: "16" } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "turn_complete", sequence: 7, payload: { type: "turn_complete", stop_reason: "end_turn" } })}`,
+  "",
+  "",
+].join("\n");
+
+// Same as above but turn-3's stream is still in-progress (no turn_complete after "16").
+// The CLI replays turns 1+2 as completed, then turn-3 is still streaming.
+export const THREE_TURN_MIDSTREAM_NO_INPROGRESS_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "text", sequence: 2, payload: { type: "text", text: "4" } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "turn_complete", sequence: 3, payload: { type: "turn_complete", stop_reason: "end_turn" } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "text", sequence: 4, payload: { type: "text", text: "8" } })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "turn_complete", sequence: 5, payload: { type: "turn_complete", stop_reason: "end_turn" } })}`,
+  "",
+  // Turn-3 still streaming — no turn_complete.
+  "event: session.event",
+  `data: ${JSON.stringify({ session_id: CHAT_SESSION_ID, event_type: "text", sequence: 6, payload: { type: "text", text: "16" } })}`,
+  "",
+  "",
+].join("\n");
