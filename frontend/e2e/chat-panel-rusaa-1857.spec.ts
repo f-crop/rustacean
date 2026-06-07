@@ -81,3 +81,4 @@ test.describe("Chat panel — CLI restart replay dedup (RUSAA-1857)", () => {
     expect(user3Box!.y).toBeLessThan(asst3Box!.y);
   });
 });
+
