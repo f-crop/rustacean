@@ -471,6 +471,128 @@ export const TURN2_WITH_TURN_COMPLETE_SSE = [
 ].join("\n");
 
 
+// RUSAA-1857: 3-turn session history (turns 1+2 complete, turn 3 in progress).
+// Used to test the firstLiveUser path dedup when the CLI restart replays
+// historical assistant content after the current user_input in the SSE stream.
+export const LIST_MESSAGES_THREE_TURNS_IN_PROGRESS = {
+  messages: [
+    { id: "r57-u1", seq: 1, role: "user", body: "what is 2+2", created_at: "2026-06-07T00:00:00Z" },
+    { id: "r57-a1", seq: 2, role: "assistant", body: "4", created_at: "2026-06-07T00:00:01Z" },
+    { id: "r57-u2", seq: 3, role: "user", body: "what is 7+7", created_at: "2026-06-07T00:00:02Z" },
+    { id: "r57-a2", seq: 4, role: "assistant", body: "14", created_at: "2026-06-07T00:00:03Z" },
+    { id: "r57-u3", seq: 5, role: "user", body: "what is 8+8", created_at: "2026-06-07T00:00:04Z" },
+  ],
+  has_more: false,
+};
+
+// RUSAA-1857: SSE for the CLI-restart scenario. The restart causes the CLI to
+// replay the full conversation history after user_input("8+8"). The SSE stream
+// therefore contains, after the user_input for turn 3, duplicate assistant
+// responses for turns 1 and 2, followed by the actual turn-3 response.
+// Without the fix the transcript shows "4", "14", "16" as three bubbles after
+// "what is 8+8"; with the fix only "16" should appear.
+export const THREE_TURN_REPLAY_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 1,
+    payload: { type: "user_input", text: "what is 2+2" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 2,
+    payload: { type: "text", text: "4" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 3,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 4,
+    payload: { type: "user_input", text: "what is 7+7" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 5,
+    payload: { type: "text", text: "14" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 6,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  // Turn 3: user_input followed by REPLAYED historical responses (turns 1+2),
+  // then the actual turn-3 response.
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 7,
+    payload: { type: "user_input", text: "what is 8+8" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 8,
+    payload: { type: "text", text: "4" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 9,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 10,
+    payload: { type: "text", text: "14" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 11,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 12,
+    payload: { type: "text", text: "16" },
+  })}`,
+  "",
+  "",
+].join("\n");
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
