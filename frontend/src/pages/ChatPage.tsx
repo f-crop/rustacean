@@ -47,18 +47,17 @@ interface ChatInnerProps {
   readonly tenantId: string;
 }
 
-// Within the firstLiveUser path, the CLI may restart and replay all historical
-// assistant responses after the current user_input in the SSE stream. For each
-// user-input segment [user, ...assistants...]:
-//   - If the segment contains an in-progress (streaming) assistant, keep only that
-//     one — the completed items are replays of prior turns.
-//   - If the segment contains 2+ completed assistants but no in-progress one, drop
-//     them all — they are all replayed prior-turn responses; the real answer has not
-//     started streaming yet and will arrive as an in-progress item.
-//   - If the segment contains exactly 1 completed assistant (normal flow) or none,
-//     keep it as-is.
+// Deduplicate assistant items within user-input segments.
+//
+// Per segment [user, ...assistants...]:
+//   - In-progress present: keep only the last in-progress; discard completed replays.
+//   - 2+ completed, no in-progress: CLI always replays ALL prior turns first; fresh
+//     answers (if any) follow. Drop the first min(histAssistantSeqs.size, count) items
+//     (replays); keep any beyond that count. Without histAssistantSeqs, drop all.
+//   - 0 or 1 completed: keep as-is.
 function dedupeAssistantsPerSegment(
   items: ReadonlyArray<TranscriptItem>,
+  histAssistantSeqs?: ReadonlySet<number>,
 ): ReadonlyArray<TranscriptItem> {
   const result: TranscriptItem[] = [];
   let i = 0;
@@ -101,10 +100,18 @@ function dedupeAssistantsPerSegment(
       // No streaming response. Count completed assistants in this segment.
       const completedCount = segment.filter((s) => s?.kind === "assistant").length;
       if (completedCount >= 2) {
-        // 2+ completed = CLI-replayed prior responses; the real answer hasn't
-        // started streaming yet. Drop them all; keep non-assistant items (errors).
+        // 2+ completed, no in-progress. CLI replays all prior turns first; the fresh
+        // answer (if it has arrived) follows. Drop the first replayCount completed
+        // items; keep the remainder.
+        const replayCount = histAssistantSeqs
+          ? Math.min(histAssistantSeqs.size, completedCount)
+          : completedCount;
+        const completedItems = segment.filter((s) => s?.kind === "assistant");
+        const freshSet = new Set(completedItems.slice(replayCount));
         for (const seg of segment) {
-          if (seg && seg.kind !== "assistant") result.push(seg);
+          if (!seg) continue;
+          if (seg.kind === "assistant" && !freshSet.has(seg)) continue;
+          result.push(seg);
         }
       } else {
         // 0 or 1 completed: real historical answer or no response yet; keep as-is.
@@ -159,6 +166,13 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       (item): item is UserTranscriptItem => item.kind === "user",
     );
 
+    // DB seq values of persisted assistant messages. Used by dedupeAssistantsPerSegment
+    // in both merge paths to distinguish CLI-replayed prior-turn responses (startSeq
+    // already in DB) from fresh completions (startSeq not yet written to DB).
+    const histAssistantSeqs = new Set<number>(
+      historical.filter((m) => m.role === "assistant").map((m) => m.seq),
+    );
+
     let base: ReadonlyArray<TranscriptItem>;
 
     if (!firstLiveUser) {
@@ -169,37 +183,27 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       // (streaming) assistant regardless of startSeq — its sequence may collide
       // with a persisted assistant when all turns use the same batch slot (e.g.
       // simple single-text-block turns where Text is always at position 2).
-      const histAssistantSeqs = new Set<number>(
-        historical.filter((m) => m.role === "assistant").map((m) => m.seq),
-      );
-      // Classify live assistants so we can detect CLI-replay contamination.
       const hasLiveInProgress = liveItems.some(
         (item) => item.kind === "assistant" && item.inProgress === true,
       );
-      const liveCompletedCount = liveItems.filter(
-        (item) => item.kind === "assistant" && item.inProgress !== true,
-      ).length;
       const extraLive = liveItems.filter((item) => {
         if (item.kind !== "assistant") return true;
         if (item.inProgress === true) return true;
         // When the live stream contains an in-progress response, all completed
         // assistants are CLI-replayed prior-turn responses — drop them.
         if (hasLiveInProgress) return false;
-        // When 2+ completed assistants appear with no streaming response, they are
-        // all replays for the current turn (the real answer hasn't arrived yet).
-        // Drop them; histItems already holds the correct completed answers.
-        if (liveCompletedCount >= 2) return false;
-        // Single completed assistant with no streaming peer: may be a turn that
-        // finished before the history query caught up (DB-write lag). Keep it only
-        // if it isn't already represented in histAssistantSeqs.
+        // Keep any completed assistant whose startSeq is not already represented
+        // in histAssistantSeqs. This retains fresh completions that haven't been
+        // written to DB yet while discarding CLI-replay duplicates.
         const { startSeq } = item;
         return startSeq === undefined || !histAssistantSeqs.has(startSeq);
       });
       // Deduplicate: when the CLI restarts and SSE replays prior-turn assistant
       // responses (with new sequence numbers), the startSeq filter above lets them
-      // through because their seqs don't match the DB. Apply the same per-segment
-      // dedup used in the firstLiveUser path so replayed assistants are dropped.
-      base = dedupeAssistantsPerSegment([...histItems, ...extraLive]);
+      // through because their seqs don't match the DB. Apply per-segment dedup,
+      // passing histAssistantSeqs so only confirmed replays are dropped and fresh
+      // completions are preserved.
+      base = dedupeAssistantsPerSegment([...histItems, ...extraLive], histAssistantSeqs);
     } else {
       // Exclude historical rows that are covered by the live stream to prevent duplication.
       let cutIdx = -1;
@@ -213,11 +217,11 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
 
       const historicalFiltered = cutIdx >= 0 ? historical.slice(0, cutIdx) : historical;
       // Deduplicate assistant items within each user-input segment of liveItems.
-      // When the CLI restarts mid-session, it outputs the full conversation history
-      // for each new user message, producing extra historical assistant turns after
-      // the current user_input in the SSE stream. Strip them by keeping only the
-      // last assistant per user-input segment (the current turn's response).
-      base = [...buildTranscriptFromHistory(historicalFiltered), ...dedupeAssistantsPerSegment(liveItems)];
+      // When the CLI restarts mid-session it replays all prior-turn responses within
+      // the current turn's segment. Pass histAssistantSeqs so only replay assistants
+      // (startSeq already in DB) are dropped; the real just-completed answer
+      // (startSeq not yet in DB) is preserved.
+      base = [...buildTranscriptFromHistory(historicalFiltered), ...dedupeAssistantsPerSegment(liveItems, histAssistantSeqs)];
     }
 
     if (pendingUserSends.length === 0) return base;
