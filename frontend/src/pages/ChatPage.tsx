@@ -49,8 +49,14 @@ interface ChatInnerProps {
 
 // Within the firstLiveUser path, the CLI may restart and replay all historical
 // assistant responses after the current user_input in the SSE stream. For each
-// user-input segment [user, ...assistants...], keep only the LAST assistant.
-// Non-assistant items and single-assistant segments are unaffected.
+// user-input segment [user, ...assistants...]:
+//   - If the segment contains an in-progress (streaming) assistant, keep only that
+//     one — the completed items are replays of prior turns.
+//   - If the segment contains 2+ completed assistants but no in-progress one, drop
+//     them all — they are all replayed prior-turn responses; the real answer has not
+//     started streaming yet and will arrive as an in-progress item.
+//   - If the segment contains exactly 1 completed assistant (normal flow) or none,
+//     keep it as-is.
 function dedupeAssistantsPerSegment(
   items: ReadonlyArray<TranscriptItem>,
 ): ReadonlyArray<TranscriptItem> {
@@ -72,16 +78,40 @@ function dedupeAssistantsPerSegment(
       i++;
     }
     const segment = items.slice(segStart, i);
-    // Find the last assistant in the segment (current turn's response).
-    let lastAsstIdx = -1;
+
+    // Find the last in-progress assistant (the actual streaming response).
+    let lastInProgressIdx = -1;
     for (let k = segment.length - 1; k >= 0; k--) {
-      if (segment[k]?.kind === "assistant") { lastAsstIdx = k; break; }
+      const s = segment[k];
+      if (s?.kind === "assistant" && s.inProgress === true) {
+        lastInProgressIdx = k;
+        break;
+      }
     }
-    for (let k = 0; k < segment.length; k++) {
-      const seg = segment[k];
-      if (!seg) continue;
-      if (seg.kind === "assistant" && k !== lastAsstIdx) continue;
-      result.push(seg);
+
+    if (lastInProgressIdx >= 0) {
+      // Streaming response present: keep only it, discard all completed replays.
+      for (let k = 0; k < segment.length; k++) {
+        const seg = segment[k];
+        if (!seg) continue;
+        if (seg.kind === "assistant" && k !== lastInProgressIdx) continue;
+        result.push(seg);
+      }
+    } else {
+      // No streaming response. Count completed assistants in this segment.
+      const completedCount = segment.filter((s) => s?.kind === "assistant").length;
+      if (completedCount >= 2) {
+        // 2+ completed = CLI-replayed prior responses; the real answer hasn't
+        // started streaming yet. Drop them all; keep non-assistant items (errors).
+        for (const seg of segment) {
+          if (seg && seg.kind !== "assistant") result.push(seg);
+        }
+      } else {
+        // 0 or 1 completed: real historical answer or no response yet; keep as-is.
+        for (const seg of segment) {
+          if (seg) result.push(seg);
+        }
+      }
     }
   }
   return result;
@@ -142,9 +172,26 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       const histAssistantSeqs = new Set<number>(
         historical.filter((m) => m.role === "assistant").map((m) => m.seq),
       );
+      // Classify live assistants so we can detect CLI-replay contamination.
+      const hasLiveInProgress = liveItems.some(
+        (item) => item.kind === "assistant" && item.inProgress === true,
+      );
+      const liveCompletedCount = liveItems.filter(
+        (item) => item.kind === "assistant" && item.inProgress !== true,
+      ).length;
       const extraLive = liveItems.filter((item) => {
         if (item.kind !== "assistant") return true;
         if (item.inProgress === true) return true;
+        // When the live stream contains an in-progress response, all completed
+        // assistants are CLI-replayed prior-turn responses — drop them.
+        if (hasLiveInProgress) return false;
+        // When 2+ completed assistants appear with no streaming response, they are
+        // all replays for the current turn (the real answer hasn't arrived yet).
+        // Drop them; histItems already holds the correct completed answers.
+        if (liveCompletedCount >= 2) return false;
+        // Single completed assistant with no streaming peer: may be a turn that
+        // finished before the history query caught up (DB-write lag). Keep it only
+        // if it isn't already represented in histAssistantSeqs.
         const { startSeq } = item;
         return startSeq === undefined || !histAssistantSeqs.has(startSeq);
       });
