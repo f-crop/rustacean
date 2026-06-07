@@ -471,6 +471,123 @@ export const TURN2_WITH_TURN_COMPLETE_SSE = [
 ].join("\n");
 
 
+// SSE fixture for a tool-using turn with the intermediate turn_complete(tool_use)
+// that claude-code emits between tool_use and tool_result events.
+// Regression fixture for RUSAA-1951: the intermediate turn_complete must NOT
+// split tool_use and tool_result into separate assistant items.
+export const TOOL_USE_WITH_INTERMEDIATE_TURN_COMPLETE_SSE = [
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "user_input",
+    sequence: 1,
+    payload: { type: "user_input", text: "Search for rust async patterns" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "tool_use",
+    sequence: 2,
+    payload: {
+      type: "tool_use",
+      id: "tu-live-001",
+      name: "mcp__rust_brain__recall",
+      input: { tags: ["rust", "async"] },
+    },
+  })}`,
+  "",
+  // Intermediate turn_complete emitted by claude-code when model pauses for tool execution.
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 3,
+    payload: { type: "turn_complete", stop_reason: "tool_use" },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "tool_result",
+    sequence: 4,
+    payload: {
+      type: "tool_result",
+      tool_use_id: "tu-live-001",
+      content: "Found 3 async patterns: tokio, async-std, smol",
+      is_error: false,
+    },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "text",
+    sequence: 5,
+    payload: { type: "text", text: "Here are the async patterns I found." },
+  })}`,
+  "",
+  "event: session.event",
+  `data: ${JSON.stringify({
+    session_id: CHAT_SESSION_ID,
+    event_type: "turn_complete",
+    sequence: 6,
+    payload: { type: "turn_complete", stop_reason: "end_turn" },
+  })}`,
+  "",
+  "",
+].join("\n");
+
+// Split-batch history: tool_use stored in one DB row, tool_result+text in next.
+// Simulates what happens when the agent-runner flushes mid-turn because the tool
+// takes time to execute (events arrive in separate HTTP batches).
+export const LIST_MESSAGES_SPLIT_TOOL_TURN = {
+  messages: [
+    {
+      id: "msg-split-u1",
+      seq: 1,
+      role: "user",
+      body: "Search for rust async patterns",
+      created_at: "2026-06-04T00:00:00Z",
+    },
+    {
+      id: "msg-split-a1",
+      seq: 2,
+      role: "assistant",
+      // First batch: only the tool_use (tool execution hadn't completed yet)
+      body: JSON.stringify([
+        {
+          type: "tool_use",
+          id: "tu-reload-001",
+          name: "mcp__rust_brain__recall",
+          input: { tags: ["rust", "async"] },
+        },
+      ]),
+      created_at: "2026-06-04T00:00:01Z",
+    },
+    {
+      id: "msg-split-a2",
+      seq: 3,
+      role: "assistant",
+      // Second batch: tool_result + final text
+      body: JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "tu-reload-001",
+          content: "Found 3 async patterns: tokio, async-std, smol",
+          is_error: false,
+        },
+        {
+          type: "text",
+          text: "Here are the async patterns I found.",
+        },
+      ]),
+      created_at: "2026-06-04T00:00:02Z",
+    },
+  ],
+  has_more: false,
+};
+
 export const AUDIT_WITH_TOOL_CALL = {
   total: 1,
   events: [
