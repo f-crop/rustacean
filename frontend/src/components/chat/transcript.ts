@@ -173,7 +173,12 @@ export function buildTranscript(
     const { payload, sequence } = envelope;
 
     if (payload.type === "turn_complete") {
-      state = flushPendingAssistant(state);
+      // "tool_use" stop_reason: the model paused to run a tool; the tool_result and
+      // follow-up text belong in the same assistant turn and arrive in later SSE events.
+      // Only flush on an actual turn completion (end_turn, success, error, etc.).
+      if (payload.stop_reason !== "tool_use") {
+        state = flushPendingAssistant(state);
+      }
       continue;
     }
 
@@ -277,11 +282,28 @@ export function buildTranscriptFromHistory(
     } else if (msg.role === "assistant") {
       // Try JSON content-block array (post-1896); fall back to plain text for old rows.
       const contentBlocks = tryParseContentBlocks(msg.body);
-      items.push({
-        kind: "assistant",
-        id: msg.id,
-        items: contentBlocks ?? [{ type: "text", text: msg.body, seq: msg.seq }],
-      });
+      const newItems: ReadonlyArray<AssistantItem> =
+        contentBlocks ?? [{ type: "text", text: msg.body, seq: msg.seq }];
+
+      // Split-batch merge: when the agent-runner flushes events in separate HTTP
+      // requests (tool execution spans a batch boundary), the DB may have one row
+      // ending with tool_use and a subsequent row starting with tool_result. Merge
+      // them so findToolResult can locate the result within the same items array.
+      const prev = items[items.length - 1];
+      if (
+        prev?.kind === "assistant" &&
+        contentBlocks !== null &&
+        prev.items[prev.items.length - 1]?.type === "tool_use"
+      ) {
+        items[items.length - 1] = {
+          kind: "assistant",
+          id: prev.id,
+          items: [...prev.items, ...newItems],
+          ...(prev.startSeq !== undefined ? { startSeq: prev.startSeq } : {}),
+        };
+      } else {
+        items.push({ kind: "assistant", id: msg.id, items: newItems });
+      }
     }
     // system / tool rows are not rendered in the transcript UI
   }
