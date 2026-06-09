@@ -17,7 +17,7 @@ import {
   TOOL_USE_REPLAY_THEN_TURN2_STREAMING_SSE,
   LIST_MESSAGES_R29_THREE_TURNS_TURN3_USER,
   TOOL_USE_TWO_REPLAYS_THEN_TURN3_STREAMING_SSE,
-} from "./fixtures/chat-mock-api-cli-restart";
+} from "./fixtures/chat-mock-api-cli-restart-r29";
 
 // Regression guard for RUSAA-1962 (R29 fixup): sending turn-2 wipes turn-1
 // transcript when turn-1 used tool calls and the CLI restarts without emitting
@@ -45,6 +45,7 @@ test.describe("Chat panel — turn-2 preserves turn-1 transcript [RUSAA-1962]", 
     await mockAuthenticatedSession(page);
     await mockReposList(page, REPOS_EMPTY_RESPONSE);
     await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    await mockSendChatMessage(page);
     // History: turn-1 complete (user-1 + assistant-1 with tool use), turn-2 user stored
     await mockListChatMessages(
       page,
@@ -54,12 +55,11 @@ test.describe("Chat panel — turn-2 preserves turn-1 transcript [RUSAA-1962]", 
     // SSE: no user_input; CLI replays turn-1 with intermediate turn_complete(tool_use),
     // then starts streaming turn-2's new tool call.
     await mockChatStream(page, CHAT_SESSION_ID, TOOL_USE_REPLAY_THEN_TURN2_STREAMING_SSE);
-    await mockSendChatMessage(page);
 
     await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
 
     // Turn-1 user bubble must be visible.
-    await expect(page.getByText("in rust brain")).toBeVisible();
+    await expect(page.getByText("in rust brain", { exact: true })).toBeVisible();
 
     // Turn-1 assistant tool block must be visible (this is the regression: it was dropped).
     const toolBlocks = page.getByTestId("tool-call-block");
@@ -77,7 +77,7 @@ test.describe("Chat panel — turn-2 preserves turn-1 transcript [RUSAA-1962]", 
     await expect(toolBlocks.last()).toContainText("mcp_rust_brain_get_item");
 
     // Ordering: turn-1 user < turn-1 tool block < turn-1 text < turn-2 user < turn-2 tool block
-    const turn1UserBox = await page.getByText("in rust brain").boundingBox();
+    const turn1UserBox = await page.getByText("in rust brain", { exact: true }).boundingBox();
     const turn1ToolBox = await toolBlocks.first().boundingBox();
     const turn1TextBox = await page
       .getByText("Here is what I found in rust brain.")
@@ -102,6 +102,7 @@ test.describe("Chat panel — turn-2 preserves turn-1 transcript [RUSAA-1962]", 
     await mockAuthenticatedSession(page);
     await mockReposList(page, REPOS_EMPTY_RESPONSE);
     await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    await mockSendChatMessage(page);
     await mockListChatMessages(
       page,
       CHAT_SESSION_ID,
@@ -109,11 +110,10 @@ test.describe("Chat panel — turn-2 preserves turn-1 transcript [RUSAA-1962]", 
     );
     // No live SSE events — pure reload from history.
     await mockChatStream(page, CHAT_SESSION_ID, ["", ""].join("\n"));
-    await mockSendChatMessage(page);
 
     await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
 
-    await expect(page.getByText("in rust brain")).toBeVisible();
+    await expect(page.getByText("in rust brain", { exact: true })).toBeVisible();
     const toolBlock = page.getByTestId("tool-call-block");
     await expect(toolBlock).toBeVisible();
     await expect(toolBlock).toContainText("Done");
@@ -127,6 +127,7 @@ test.describe("Chat panel — turn-2 preserves turn-1 transcript [RUSAA-1962]", 
     await mockAuthenticatedSession(page);
     await mockReposList(page, REPOS_EMPTY_RESPONSE);
     await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
+    await mockSendChatMessage(page);
     await mockListChatMessages(
       page,
       CHAT_SESSION_ID,
@@ -137,12 +138,11 @@ test.describe("Chat panel — turn-2 preserves turn-1 transcript [RUSAA-1962]", 
       CHAT_SESSION_ID,
       TOOL_USE_TWO_REPLAYS_THEN_TURN3_STREAMING_SSE,
     );
-    await mockSendChatMessage(page);
 
     await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
 
     // All three user bubbles visible.
-    await expect(page.getByText("in rust brain")).toBeVisible();
+    await expect(page.getByText("in rust brain", { exact: true })).toBeVisible();
     await expect(page.getByText("show me more")).toBeVisible();
     await expect(page.getByText("what else?")).toBeVisible();
 
@@ -157,7 +157,7 @@ test.describe("Chat panel — turn-2 preserves turn-1 transcript [RUSAA-1962]", 
     await expect(toolBlocks.nth(2)).toContainText("mcp_rust_brain_list");
 
     // Strict ordering: user-1 < tool-1 < user-2 < tool-2 < user-3 < tool-3
-    const u1Box = await page.getByText("in rust brain").boundingBox();
+    const u1Box = await page.getByText("in rust brain", { exact: true }).boundingBox();
     const a1Box = await toolBlocks.nth(0).boundingBox();
     const u2Box = await page.getByText("show me more").boundingBox();
     const a2Box = await toolBlocks.nth(1).boundingBox();
