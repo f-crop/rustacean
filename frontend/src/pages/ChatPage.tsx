@@ -230,7 +230,13 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       // Deduplicate: per-segment safety net in case a replay slips past both
       // the seq and content filters (e.g. new seqs AND novel content — edge
       // case). histAssistantSeqs bounds the replay count in those cases.
-      base = dedupeAssistantsPerSegment([...histItems, ...extraLive], histAssistantSeqs);
+      // When an inProgress live item exists, all completed replays were already
+      // dropped by extraLive; skip dedup (it would cross-contaminate segments
+      // because assistant-N(inProgress) lands in user-(N-1)'s segment and the
+      // "has inProgress → discard completed" rule drops assistant-(N-1) entirely).
+      base = hasLiveInProgress
+        ? [...histItems, ...extraLive]
+        : dedupeAssistantsPerSegment([...histItems, ...extraLive], histAssistantSeqs);
     } else {
       // Exclude historical rows that are covered by the live stream to prevent duplication.
       let cutIdx = -1;
