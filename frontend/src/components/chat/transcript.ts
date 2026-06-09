@@ -206,20 +206,64 @@ export function buildTranscript(
   }
 
   // Flush any in-progress assistant turn (streaming).
-  if (state.pendingAssistant !== null && state.pendingAssistant.length > 0) {
-    return [
-      ...state.items,
-      {
-        kind: "assistant",
-        id: `a-${state.counter}`,
-        items: state.pendingAssistant,
-        inProgress: true,
-        ...(state.pendingStartSeq !== null ? { startSeq: state.pendingStartSeq } : {}),
-      },
-    ];
-  }
+  const raw: ReadonlyArray<TranscriptItem> =
+    state.pendingAssistant !== null && state.pendingAssistant.length > 0
+      ? [
+          ...state.items,
+          {
+            kind: "assistant",
+            id: `a-${state.counter}`,
+            items: state.pendingAssistant,
+            inProgress: true,
+            ...(state.pendingStartSeq !== null ? { startSeq: state.pendingStartSeq } : {}),
+          },
+        ]
+      : state.items;
 
-  return state.items;
+  // Merge consecutive assistant items where the second starts with tool_use.
+  // Guards against the text-before-tool_use split (end_turn emitted between text and
+  // tool_use events) producing two items in the same turn, which would cause
+  // dedupeAssistantsPerSegment to miscount and drop the text item.
+  //
+  // Only apply when the stream has user_input events (live/firstLiveUser sessions).
+  // In CLI restart SSE (no user_input), consecutive assistant items are from DIFFERENT
+  // turns with no separator — merging here would incorrectly combine cross-turn content.
+  // The CLI restart path uses buildTranscriptFromHistory for the transcript, which
+  // handles the same text→tool_use split via its own split-batch merge logic.
+  const hasUserItems = raw.some((item) => item.kind === "user");
+  return hasUserItems ? mergeAdjacentToolUseAssistants(raw) : raw;
+}
+
+// Merge consecutive assistant items where the second one starts with tool_use.
+// This handles the pattern where the model emitted text (end_turn) and later tool_use
+// events arrived as separate SSE flushes — the same split-batch artifact that
+// buildTranscriptFromHistory handles for DB rows. Without this, dedupeAssistantsPerSegment
+// sees 2 completed items in a segment and may drop the text item as a stale replay.
+function mergeAdjacentToolUseAssistants(
+  items: ReadonlyArray<TranscriptItem>,
+): ReadonlyArray<TranscriptItem> {
+  const result: TranscriptItem[] = [];
+  for (const item of items) {
+    const prev = result[result.length - 1];
+    if (
+      prev !== undefined &&
+      prev.kind === "assistant" &&
+      !prev.inProgress &&
+      item.kind === "assistant" &&
+      item.items[0]?.type === "tool_use"
+    ) {
+      result[result.length - 1] = {
+        kind: "assistant",
+        id: prev.id,
+        items: [...prev.items, ...item.items],
+        ...(prev.startSeq !== undefined ? { startSeq: prev.startSeq } : {}),
+        ...(item.inProgress === true ? { inProgress: true } : {}),
+      };
+    } else {
+      result.push(item);
+    }
+  }
+  return result;
 }
 
 // Finds the sequence number of the first user_input event in the SSE stream.
@@ -286,14 +330,19 @@ export function buildTranscriptFromHistory(
         contentBlocks ?? [{ type: "text", text: msg.body, seq: msg.seq }];
 
       // Split-batch merge: when the agent-runner flushes events in separate HTTP
-      // requests (tool execution spans a batch boundary), the DB may have one row
-      // ending with tool_use and a subsequent row starting with tool_result. Merge
-      // them so findToolResult can locate the result within the same items array.
+      // requests, the DB may split a single turn across multiple rows. Two patterns:
+      //   A) prev row ends with tool_use, next starts with tool_result (batch boundary)
+      //   B) prev row ends with text,     next starts with tool_use   (RUSAA-1966: text
+      //      emitted before tool call, persisted separately before tools ran)
+      // Merge both so all blocks for one turn land in a single AssistantTranscriptItem.
+      // Safe because consecutive assistant rows without a user row between them are
+      // always from the same agent turn.
       const prev = items[items.length - 1];
       if (
         prev?.kind === "assistant" &&
         contentBlocks !== null &&
-        prev.items[prev.items.length - 1]?.type === "tool_use"
+        (prev.items[prev.items.length - 1]?.type === "tool_use" ||
+          contentBlocks[0]?.type === "tool_use")
       ) {
         items[items.length - 1] = {
           kind: "assistant",
