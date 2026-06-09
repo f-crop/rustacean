@@ -382,4 +382,33 @@ describe("buildTranscript — text-before-tool_use merge (RUSAA-1966)", () => {
     expect(a1?.kind).toBe("assistant");
     expect(a2?.kind).toBe("assistant");
   });
+
+  it("CLI restart SSE (no user_input): does NOT merge adjacent turns even when second starts with tool_use", () => {
+    // Regression guard for RUSAA-1962: CLI restart replays prior turns without
+    // user_input events. Two consecutive assistant items from different turns must
+    // NOT be merged even if the second starts with tool_use. The !firstLiveUser path
+    // in ChatPage handles transcript merging via buildTranscriptFromHistory.
+    const events: StreamedEvent[] = [
+      // Turn 1 replay: text only (no user_input)
+      sseEvent({ type: "text", text: "Turn 1 answer." }, 1),
+      sseEvent({ type: "turn_complete", stop_reason: "end_turn" }, 2),
+      // Turn 2 streaming: starts with tool_use (genuinely different turn)
+      sseEvent({ type: "tool_use", id: "tu-1", name: "search", input: {} }, 3),
+      sseEvent({ type: "turn_complete", stop_reason: "tool_use" }, 4),
+    ];
+
+    const items = buildTranscript(events);
+
+    // Two separate assistants — no merge
+    expect(items).toHaveLength(2);
+    const [a1, a2] = items;
+    expect(a1?.kind).toBe("assistant");
+    if (a1?.kind !== "assistant") throw new Error("unreachable");
+    expect(a1.items[0]?.type).toBe("text");
+
+    expect(a2?.kind).toBe("assistant");
+    if (a2?.kind !== "assistant") throw new Error("unreachable");
+    expect(a2.items[0]?.type).toBe("tool_use");
+    expect(a2.inProgress).toBe(true);
+  });
 });

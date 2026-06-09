@@ -78,7 +78,7 @@ test.describe("Chat panel — prior turn text preserved when new turn completes 
     // Turn-2 tool block must be visible (the tool call that follows the text).
     const toolBlocks = page.getByTestId("tool-call-block");
     await expect(toolBlocks).toHaveCount(1);
-    await expect(toolBlocks.first()).toContainText("mcp_rust_brain_search_items");
+    await expect(toolBlocks.first()).toContainText("mcp__rust_brain__search_items");
     await expect(toolBlocks.first()).toContainText("Done");
 
     // Turn-3 text must be visible.
@@ -131,7 +131,7 @@ test.describe("Chat panel — prior turn text preserved when new turn completes 
 
     const toolBlocks = page.getByTestId("tool-call-block");
     await expect(toolBlocks).toHaveCount(1);
-    await expect(toolBlocks.first()).toContainText("mcp_rust_brain_search_items");
+    await expect(toolBlocks.first()).toContainText("mcp__rust_brain__search_items");
     await expect(toolBlocks.first()).toContainText("Done");
 
     await expect(page.getByText("Here are the details for the first result.")).toBeVisible();
@@ -174,7 +174,7 @@ test.describe("Chat panel — prior turn text preserved when new turn completes 
 
     const toolBlocks = page.getByTestId("tool-call-block");
     await expect(toolBlocks).toHaveCount(1);
-    await expect(toolBlocks.first()).toContainText("mcp_rust_brain_search_items");
+    await expect(toolBlocks.first()).toContainText("mcp__rust_brain__search_items");
 
     await expect(page.getByText("Here are the details for the first result.")).toBeVisible();
 

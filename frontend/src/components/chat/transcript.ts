@@ -224,7 +224,14 @@ export function buildTranscript(
   // Guards against the text-before-tool_use split (end_turn emitted between text and
   // tool_use events) producing two items in the same turn, which would cause
   // dedupeAssistantsPerSegment to miscount and drop the text item.
-  return mergeAdjacentToolUseAssistants(raw);
+  //
+  // Only apply when the stream has user_input events (live/firstLiveUser sessions).
+  // In CLI restart SSE (no user_input), consecutive assistant items are from DIFFERENT
+  // turns with no separator — merging here would incorrectly combine cross-turn content.
+  // The CLI restart path uses buildTranscriptFromHistory for the transcript, which
+  // handles the same text→tool_use split via its own split-batch merge logic.
+  const hasUserItems = raw.some((item) => item.kind === "user");
+  return hasUserItems ? mergeAdjacentToolUseAssistants(raw) : raw;
 }
 
 // Merge consecutive assistant items where the second one starts with tool_use.
