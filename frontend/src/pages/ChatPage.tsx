@@ -254,7 +254,41 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
       // the current turn's segment. Pass histAssistantSeqs so only replay assistants
       // (startSeq already in DB) are dropped; the real just-completed answer
       // (startSeq not yet in DB) is preserved.
-      base = [...buildTranscriptFromHistory(historicalFiltered), ...dedupeAssistantsPerSegment(liveItems, histAssistantSeqs)];
+      const liveDeduped = dedupeAssistantsPerSegment(liveItems, histAssistantSeqs);
+
+      // Historical fallback for the last live turn (R30 fix): the agent-runner
+      // replays user_input events first, then catches up with assistant events.
+      // During this window, liveDeduped ends with a user message and no response,
+      // even though the DB already has the persisted assistant for that turn.
+      // When historicalFiltered is empty (cutIdx=0, history fully replaced by live),
+      // the DB response is discarded and the transcript shows a blank tail.
+      // Fix: if liveDeduped's last user segment has no assistant, append the
+      // DB-persisted response for that turn as a fallback.
+      let histTailItems: ReadonlyArray<TranscriptItem> = [];
+      if (cutIdx >= 0) {
+        let lastLiveUserIdx = -1;
+        for (let k = liveDeduped.length - 1; k >= 0; k--) {
+          if (liveDeduped[k]?.kind === "user") { lastLiveUserIdx = k; break; }
+        }
+        const liveLastTurnHasResponse =
+          lastLiveUserIdx < 0 ||
+          liveDeduped.slice(lastLiveUserIdx + 1).some((item) => item.kind === "assistant");
+        if (!liveLastTurnHasResponse && lastLiveUserIdx >= 0) {
+          const lastLiveUserText = (liveDeduped[lastLiveUserIdx] as UserTranscriptItem).text;
+          let histTailStart = -1;
+          for (let k = historical.length - 1; k >= 0; k--) {
+            if (historical[k]?.role === "user" && historical[k]?.body === lastLiveUserText) {
+              histTailStart = k + 1;
+              break;
+            }
+          }
+          if (histTailStart >= 0 && histTailStart < historical.length) {
+            histTailItems = buildTranscriptFromHistory(historical.slice(histTailStart));
+          }
+        }
+      }
+
+      base = [...buildTranscriptFromHistory(historicalFiltered), ...liveDeduped, ...histTailItems];
     }
 
     if (pendingUserSends.length === 0) return base;

@@ -81,6 +81,9 @@ export function useEventStream(
         if (cancelledRef.current) return;
         setReadyState("closed");
         es?.close();
+        // Clear stale events before reconnect so that events from the dropped
+        // connection do not accumulate alongside the new session's replay.
+        setEvents([]);
         reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
       };
     };
