@@ -48,6 +48,15 @@ export function useEventStream(
     const connect = () => {
       if (cancelledRef.current) return;
 
+      // On reconnect (not the initial connect), clear stale events from the
+      // previous connection before the server replay arrives.  onerror fires on
+      // both genuine errors AND natural stream-end, so we cannot safely call
+      // setEvents([]) there — we defer the clear to the moment we actually
+      // re-open the connection instead.
+      if (es !== null) {
+        setEvents([]);
+      }
+
       es = new EventSource(url, { withCredentials: true });
       setReadyState("connecting");
 
@@ -81,9 +90,6 @@ export function useEventStream(
         if (cancelledRef.current) return;
         setReadyState("closed");
         es?.close();
-        // Clear stale events before reconnect so that events from the dropped
-        // connection do not accumulate alongside the new session's replay.
-        setEvents([]);
         reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
       };
     };
