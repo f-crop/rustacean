@@ -1,6 +1,7 @@
 import { type Page } from "@playwright/test";
 
 export * from "./chat-fixtures";
+export * from "./chat-fixtures-v2";
 import {
   CHAT_SESSION_ID,
   CREATE_SESSION_RESPONSE,

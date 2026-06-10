@@ -19,8 +19,8 @@ import {
   V2_CLI_RESTART_STREAMING_SSE,
   LIST_MESSAGES_V2_TWO_TURNS,
   LIST_MESSAGES_V2_TURN_A_COMPLETE,
-  LIST_MESSAGES_EMPTY,
-} from "./fixtures/chat-fixtures";
+} from "./fixtures/chat-fixtures-v2";
+import { LIST_MESSAGES_EMPTY } from "./fixtures/chat-fixtures";
 
 // Regression guard for RUSAA-1974: identity-based transcript merge by turn_id.
 // Each test corresponds to one signal shape from the design matrix.
