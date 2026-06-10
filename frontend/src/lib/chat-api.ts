@@ -36,6 +36,8 @@ export interface SendMessageRequest {
 
 export interface SendMessageResponse {
   message_id: string;
+  /** UUID v4 minted per-turn; ties the optimistic bubble to the SSE stream. */
+  turn_id: string;
 }
 
 // SSE event envelope — reuses the same agent-runner relay format (ADR-013 §7).
@@ -55,6 +57,10 @@ export interface ChatSessionEventEnvelope {
   event_type: string;
   sequence: number;
   payload: ChatRuntimePayload;
+  /** v2: UUID of the turn this event belongs to. Absent for legacy v1 events. */
+  turn_id?: string;
+  /** v2: protocol version (2 when turn_id is present). */
+  protocol_version?: number;
 }
 
 export interface ChatSessionErrorEnvelope {
@@ -69,6 +75,10 @@ export interface ChatMessage {
   role: ChatMessageRole;
   body: string;
   created_at: string;
+  /** v2: UUID of the turn this message belongs to. Absent for legacy rows (pre-022). */
+  turn_id?: string;
+  /** v2: for assistant rows — the user message id that triggered this turn. */
+  parent_user_id?: string;
 }
 
 export interface ListMessagesResponse {
