@@ -49,6 +49,13 @@ pub struct ChatMessageDto {
     pub role: String,
     pub body: String,
     pub created_at: DateTime<Utc>,
+    /// UUID v4 of the turn this message belongs to. NULL for legacy rows (pre-022).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<Uuid>,
+    /// ID of the user row that triggered this assistant turn. NULL for user rows
+    /// and for legacy assistant rows (pre-022).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_user_id: Option<Uuid>,
 }
 
 impl From<ChatMessageRow> for ChatMessageDto {
@@ -59,6 +66,8 @@ impl From<ChatMessageRow> for ChatMessageDto {
             role: r.role,
             body: r.body,
             created_at: r.created_at,
+            turn_id: r.turn_id,
+            parent_user_id: r.parent_user_id,
         }
     }
 }

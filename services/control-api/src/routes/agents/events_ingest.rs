@@ -24,6 +24,10 @@ use crate::{error::AppError, routes::chat::db::db_insert_chat_message, state::Ap
 // Request / response types
 // ---------------------------------------------------------------------------
 
+/// Protocol version stamped on every chat SSE envelope.
+/// v1 = seq-only (pre-1973); v2 = `turn_id` present.
+pub const CHAT_PROTOCOL_VERSION: u32 = 2;
+
 #[derive(Debug, Deserialize)]
 pub struct IngestEventsRequest {
     /// Tenant that owns this session.  Verified against the DB row to prevent
@@ -31,6 +35,11 @@ pub struct IngestEventsRequest {
     pub tenant_id: Uuid,
     /// Ordered batch of runtime events from the agent-runner relay.
     pub events: Vec<RuntimeEvent>,
+    /// `turn_id` per event (parallel array; absent or shorter = legacy, defaults to None).
+    /// Each entry is the UUID v4 minted by control-api for the user message that
+    /// triggered the agent turn that produced this event.
+    #[serde(default)]
+    pub turn_ids: Vec<Option<Uuid>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,9 +139,13 @@ async fn ingest_chat_session_events(
     // Consecutive `Text` payloads are merged into one block via `pending_text`.
     let mut pending_blocks: Vec<serde_json::Value> = Vec::new();
     let mut pending_text = String::new();
+    // turn_id for the blocks currently being accumulated.
+    let mut pending_turn_id: Option<Uuid> = None;
 
     for (seq, ev) in req.events.iter().enumerate() {
         let et = event_type(ev);
+        let turn_id: Option<Uuid> = req.turn_ids.get(seq).copied().flatten();
+
         let payload_value: serde_json::Value = ev
             .to_payload_json()
             .ok()
@@ -140,12 +153,25 @@ async fn ingest_chat_session_events(
             .unwrap_or(serde_json::Value::Null);
 
         let seq_i64 = i64::try_from(seq + 1).unwrap_or(i64::MAX);
-        let sse_data = serde_json::json!({
-            "session_id": session_id,
-            "event_type": et,
-            "sequence": seq_i64,
-            "payload": payload_value,
-        });
+        // v2 SSE envelope: adds turn_id + protocol_version for identity-aware FE.
+        // Legacy events (turn_id = None) omit both additive fields so old clients
+        // continue to work unchanged (AC-4 backward compat).
+        let sse_data = match turn_id {
+            Some(tid) => serde_json::json!({
+                "session_id": session_id,
+                "event_type": et,
+                "sequence": seq_i64,
+                "payload": payload_value,
+                "turn_id": tid,
+                "protocol_version": CHAT_PROTOCOL_VERSION,
+            }),
+            None => serde_json::json!({
+                "session_id": session_id,
+                "event_type": et,
+                "sequence": seq_i64,
+                "payload": payload_value,
+            }),
+        };
 
         if let Ok(data) = serde_json::to_string(&sse_data) {
             state.sse_bus.publish_raw(&tenant_id, "session.event", data);
@@ -160,18 +186,30 @@ async fn ingest_chat_session_events(
                     req.tenant_id,
                     &mut pending_text,
                     &mut pending_blocks,
+                    pending_turn_id.take(),
                 )
                 .await;
+                // turn_id from the UserInput event marks the start of the next turn.
+                pending_turn_id = turn_id;
             }
             RuntimeEvent::Text { text } => {
+                if pending_turn_id.is_none() {
+                    pending_turn_id = turn_id;
+                }
                 pending_text.push_str(text);
             }
             RuntimeEvent::Thinking { thinking } => {
+                if pending_turn_id.is_none() {
+                    pending_turn_id = turn_id;
+                }
                 commit_text_block(&mut pending_text, &mut pending_blocks);
                 pending_blocks
                     .push(serde_json::json!({ "type": "thinking", "thinking": thinking }));
             }
             RuntimeEvent::ToolUse { id, name, input } => {
+                if pending_turn_id.is_none() {
+                    pending_turn_id = turn_id;
+                }
                 commit_text_block(&mut pending_text, &mut pending_blocks);
                 pending_blocks.push(serde_json::json!({ "type": "tool_use", "id": id, "name": name, "input": input }));
             }
@@ -180,6 +218,9 @@ async fn ingest_chat_session_events(
                 content,
                 is_error,
             } => {
+                if pending_turn_id.is_none() {
+                    pending_turn_id = turn_id;
+                }
                 commit_text_block(&mut pending_text, &mut pending_blocks);
                 pending_blocks.push(serde_json::json!({ "type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": is_error }));
             }
@@ -195,6 +236,7 @@ async fn ingest_chat_session_events(
         req.tenant_id,
         &mut pending_text,
         &mut pending_blocks,
+        pending_turn_id.take(),
     )
     .await;
 
@@ -221,6 +263,7 @@ async fn flush_pending_turn(
     tenant_id: Uuid,
     pending_text: &mut String,
     pending_blocks: &mut Vec<serde_json::Value>,
+    turn_id: Option<Uuid>,
 ) {
     commit_text_block(pending_text, pending_blocks);
     if pending_blocks.is_empty() {
@@ -234,9 +277,35 @@ async fn flush_pending_turn(
             return;
         }
     };
+    // Look up the parent user row ID so AC-2 is satisfied: every assistant row
+    // has parent_user_id pointing at the user row with the same turn_id.
+    let parent_user_id = if let Some(tid) = turn_id {
+        sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM control.chat_messages \
+             WHERE session_id = $1 AND turn_id = $2 AND role = 'user' \
+             LIMIT 1",
+        )
+        .bind(session_id)
+        .bind(tid)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None)
+    } else {
+        None
+    };
+
     let msg_id = Uuid::new_v4();
-    if let Err(e) =
-        db_insert_chat_message(pool, msg_id, session_id, tenant_id, "assistant", &body).await
+    if let Err(e) = db_insert_chat_message(
+        pool,
+        msg_id,
+        session_id,
+        tenant_id,
+        "assistant",
+        &body,
+        turn_id,
+        parent_user_id,
+    )
+    .await
     {
         tracing::warn!(
             session_id = %session_id,
@@ -412,5 +481,53 @@ mod tests {
         let resp = IngestEventsResponse { inserted: 5 };
         let v: serde_json::Value = serde_json::to_value(&resp).unwrap();
         assert_eq!(v["inserted"], 5);
+    }
+
+    #[test]
+    fn turn_ids_defaults_to_empty_when_absent() {
+        let json_str = serde_json::to_string(&serde_json::json!({
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "events": [{"type": "text", "text": "hi"}]
+        }))
+        .unwrap();
+        let req: IngestEventsRequest = serde_json::from_str(&json_str).unwrap();
+        assert!(req.turn_ids.is_empty(), "legacy payload must default to empty turn_ids");
+        // get with out-of-bounds → None (AC-4 backward compat)
+        assert_eq!(req.turn_ids.get(0).copied().flatten(), None);
+    }
+
+    #[test]
+    fn turn_ids_parallel_array_deserializes() {
+        let tid = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let json_str = serde_json::to_string(&serde_json::json!({
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "events": [
+                {"type": "text", "text": "hello"},
+                {"type": "turn_complete", "stop_reason": "end_turn"}
+            ],
+            "turn_ids": [tid.to_string(), tid.to_string()]
+        }))
+        .unwrap();
+        let req: IngestEventsRequest = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(req.turn_ids.len(), 2);
+        assert_eq!(req.turn_ids[0], Some(tid));
+        assert_eq!(req.turn_ids[1], Some(tid));
+    }
+
+    #[test]
+    fn turn_ids_null_entries_deserialize_to_none() {
+        let tid = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
+        let json_str = serde_json::to_string(&serde_json::json!({
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "events": [
+                {"type": "user_input", "text": "hi"},
+                {"type": "text", "text": "hello"}
+            ],
+            "turn_ids": [null, tid.to_string()]
+        }))
+        .unwrap();
+        let req: IngestEventsRequest = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(req.turn_ids[0], None);
+        assert_eq!(req.turn_ids[1], Some(tid));
     }
 }

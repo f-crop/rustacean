@@ -88,21 +88,28 @@ async fn flush_session(
 
     // Serialize each RuntimeEvent directly so the body matches IngestEventsRequest.events:
     // Vec<RuntimeEvent> with serde tag {"type": "text", "text": "..."}
-    let events_body: Vec<serde_json::Value> = items
-        .iter()
-        .filter_map(|i| match serde_json::to_value(&i.event) {
-            Ok(v) => Some(v),
+    // turn_ids is a parallel array; None entries are serialized as JSON null.
+    let mut events_body: Vec<serde_json::Value> = Vec::with_capacity(items.len());
+    let mut turn_ids: Vec<serde_json::Value> = Vec::with_capacity(items.len());
+    for item in items {
+        match serde_json::to_value(&item.event) {
+            Ok(v) => {
+                events_body.push(v);
+                turn_ids.push(match item.turn_id {
+                    Some(id) => serde_json::Value::String(id.to_string()),
+                    None => serde_json::Value::Null,
+                });
+            }
             Err(e) => {
                 tracing::warn!(
                     session_id = %session_id,
-                    seq = i.seq,
+                    seq = item.seq,
                     error = %e,
                     "relay: failed to serialize event — skipping"
                 );
-                None
             }
-        })
-        .collect();
+        }
+    }
 
     if events_body.is_empty() {
         return;
@@ -112,6 +119,7 @@ async fn flush_session(
     let body = serde_json::json!({
         "tenant_id": tenant_id,
         "events": events_body,
+        "turn_ids": turn_ids,
     });
 
     post_with_retry(client, &url, &body, session_id, event_count).await;

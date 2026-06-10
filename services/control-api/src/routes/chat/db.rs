@@ -31,6 +31,11 @@ pub struct ChatMessageRow {
     pub role: String,
     pub body: String,
     pub created_at: DateTime<Utc>,
+    /// UUID v4 minted by control-api per user message (AC-1). NULL for legacy rows.
+    pub turn_id: Option<Uuid>,
+    /// ID of the user row that triggered this assistant turn (AC-2). NULL for user rows
+    /// and for legacy assistant rows inserted before migration 022.
+    pub parent_user_id: Option<Uuid>,
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +92,7 @@ pub async fn db_get_chat_session(
 // Message helpers
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub async fn db_insert_chat_message(
     pool: &PgPool,
     id: Uuid,
@@ -94,6 +100,8 @@ pub async fn db_insert_chat_message(
     tenant_id: Uuid,
     role: &str,
     body: &str,
+    turn_id: Option<Uuid>,
+    parent_user_id: Option<Uuid>,
 ) -> Result<i32, AppError> {
     let mut tx = pool
         .begin()
@@ -119,10 +127,10 @@ pub async fn db_insert_chat_message(
 
     let (seq,): (i32,) = sqlx::query_as(
         r"
-        INSERT INTO control.chat_messages (id, session_id, tenant_id, seq, role, body)
+        INSERT INTO control.chat_messages (id, session_id, tenant_id, seq, role, body, turn_id, parent_user_id)
         SELECT $1, $2, $3,
                COALESCE((SELECT MAX(seq) FROM control.chat_messages WHERE session_id = $2), 0) + 1,
-               $4, $5
+               $4, $5, $6, $7
         RETURNING seq
         ",
     )
@@ -131,6 +139,8 @@ pub async fn db_insert_chat_message(
     .bind(tenant_id)
     .bind(role)
     .bind(body)
+    .bind(turn_id)
+    .bind(parent_user_id)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
@@ -181,7 +191,7 @@ pub async fn db_list_chat_messages(
 ) -> Result<Vec<ChatMessageRow>, AppError> {
     if let Some(after) = after_seq {
         sqlx::query_as::<_, ChatMessageRow>(
-            "SELECT id, session_id, seq, role, body, created_at \
+            "SELECT id, session_id, seq, role, body, created_at, turn_id, parent_user_id \
              FROM control.chat_messages \
              WHERE session_id = $1 AND tenant_id = $2 AND seq > $3 \
              ORDER BY seq ASC LIMIT $4",
@@ -194,7 +204,7 @@ pub async fn db_list_chat_messages(
         .await
     } else {
         sqlx::query_as::<_, ChatMessageRow>(
-            "SELECT id, session_id, seq, role, body, created_at \
+            "SELECT id, session_id, seq, role, body, created_at, turn_id, parent_user_id \
              FROM control.chat_messages \
              WHERE session_id = $1 AND tenant_id = $2 \
              ORDER BY seq ASC LIMIT $3",
