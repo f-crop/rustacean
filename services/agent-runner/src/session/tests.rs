@@ -217,6 +217,7 @@ fn make_stub_handle(
         tenant_id,
         _node_permit: permit,
         _tenant_guard: caps::TenantCountGuard::new_defused_for_test(),
+        current_turn_id: Arc::new(std::sync::RwLock::new(None)),
     }
 }
 

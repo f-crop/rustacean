@@ -39,8 +39,11 @@ pub struct PostMessageRequest {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PostMessageResponse {
+    /// UUID of the persisted user row (`user_message_id` alias per AC-3).
     pub message_id: Uuid,
     pub seq: i32,
+    /// UUID v4 minted per-turn; used by FE to self-identify the optimistic bubble (AC-3).
+    pub turn_id: Uuid,
 }
 
 #[utoipa::path(
@@ -82,6 +85,7 @@ pub async fn post_chat_message(
     }
 
     let message_id = Uuid::new_v4();
+    let turn_id = Uuid::new_v4();
     let seq = db_insert_chat_message(
         &state.pool,
         message_id,
@@ -89,6 +93,8 @@ pub async fn post_chat_message(
         caller.tenant_id,
         "user",
         &req.content,
+        Some(turn_id),
+        None, // user rows have no parent_user_id
     )
     .await?;
 
@@ -158,6 +164,7 @@ pub async fn post_chat_message(
             session_id: session_id.to_string(),
             command: Some(agent_session_command::Command::Input(AgentSessionInput {
                 input: req.content,
+                turn_id: turn_id.to_string(),
             })),
         };
         producer
@@ -177,6 +184,7 @@ pub async fn post_chat_message(
             session_id: session_id.to_string(),
             command: Some(agent_session_command::Command::Input(AgentSessionInput {
                 input: req.content,
+                turn_id: turn_id.to_string(),
             })),
         };
         producer
@@ -194,7 +202,11 @@ pub async fn post_chat_message(
 
     Ok((
         StatusCode::ACCEPTED,
-        Json(PostMessageResponse { message_id, seq }),
+        Json(PostMessageResponse {
+            message_id,
+            seq,
+            turn_id,
+        }),
     ))
 }
 

@@ -208,6 +208,8 @@ async fn concurrent_message_inserts_have_unique_seq() {
                     tenant_id,
                     "user",
                     "concurrent test message",
+                    None,
+                    None,
                 )
                 .await
             })

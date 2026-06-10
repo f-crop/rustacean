@@ -48,6 +48,9 @@ pub struct RelayItem {
     pub seq: i64,
     pub event: RuntimeEvent,
     pub emitted_at_ms: i64,
+    /// UUID v4 of the user message that triggered this turn.  `None` for
+    /// pre-migration sessions or when the Input command had no `turn_id`.
+    pub turn_id: Option<uuid::Uuid>,
 }
 
 /// Cloneable sender handle for the relay buffer.
@@ -97,6 +100,7 @@ pub fn relay_stdout_events(
     tenant_id: &str,
     seq: i64,
     line: &str,
+    turn_id: Option<uuid::Uuid>,
 ) {
     let now_ms = Utc::now().timestamp_millis();
     for runtime_event in crate::StreamJsonNormalizer::normalize_line(line) {
@@ -106,6 +110,7 @@ pub fn relay_stdout_events(
             seq,
             event: runtime_event,
             emitted_at_ms: now_ms,
+            turn_id,
         });
     }
 }
@@ -169,6 +174,7 @@ mod tests {
                 text: format!("event-{seq}"),
             },
             emitted_at_ms: 0,
+            turn_id: None,
         }
     }
 

@@ -48,7 +48,8 @@ message AgentSessionStart {
 }
 
 message AgentSessionInput {
-  string input = 1;
+  string input   = 1;
+  string turn_id = 2;  // UUID v4 minted by control-api per user message; empty = legacy
 }
 
 message AgentSessionTerminate {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Component, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -60,6 +60,10 @@ struct SessionHandle {
     /// The actual decrement at session-end is performed by `caps.release()` /
     /// `natural_exit` — the guard is defused before insertion into the map.
     _tenant_guard: caps::TenantCountGuard,
+    /// The `turn_id` of the most recently dispatched Input command for this
+    /// session.  Set by `send_input`; read by the stdout relay task so each
+    /// `RuntimeEvent` is stamped with the correct turn.
+    current_turn_id: Arc<RwLock<Option<uuid::Uuid>>>,
 }
 
 fn safe_join(base: &std::path::Path, rel: &str) -> Result<PathBuf> {
@@ -214,6 +218,8 @@ impl SessionManager {
             .take()
             .context("Process stderr not available")?;
 
+        let current_turn_id: Arc<RwLock<Option<uuid::Uuid>>> = Arc::new(RwLock::new(None));
+
         let (stdout_handle, stderr_handle) = self.spawn_output_handlers(
             session_id.to_string(),
             tenant_id,
@@ -222,6 +228,7 @@ impl SessionManager {
             event_sender.clone(),
             adapter,
             live_token,
+            Arc::clone(&current_turn_id),
         );
 
         let process_arc = Arc::new(Mutex::new(process));
@@ -274,6 +281,7 @@ impl SessionManager {
                     tenant_id,
                     _node_permit: node_permit,
                     _tenant_guard: tenant_guard,
+                    current_turn_id,
                 },
             );
         }
@@ -304,13 +312,26 @@ impl SessionManager {
     }
 
     pub async fn send_input(&self, session_id: &str, input: &AgentSessionInput) -> Result<()> {
-        let process = {
+        let (process, current_turn_id) = {
             let sessions = self.sessions.lock().await;
-            sessions
-                .get(session_id)
-                .map(|h| Arc::clone(&h.process))
-                .context("Session not found")?
+            let handle = sessions.get(session_id).context("Session not found")?;
+            (
+                Arc::clone(&handle.process),
+                Arc::clone(&handle.current_turn_id),
+            )
         };
+
+        // Stamp the session's active turn before forwarding the input so that
+        // any RuntimeEvents flushed from the buffer during this turn carry the
+        // correct turn_id.  Empty string = legacy caller; keep previous value.
+        if !input.turn_id.is_empty() {
+            if let Ok(tid) = input.turn_id.parse::<uuid::Uuid>() {
+                if let Ok(mut guard) = current_turn_id.write() {
+                    *guard = Some(tid);
+                }
+            }
+        }
+
         let mut proc = process.lock().await;
         let adapter = adapter_for_runtime(proc.runtime)?;
         adapter.send_input(&mut proc, &input.input).await
@@ -472,6 +493,7 @@ impl SessionManager {
         event_sender: tokio::sync::mpsc::Sender<(TenantId, AgentEvent)>,
         adapter: Box<dyn RuntimeAdapter>,
         live_token: String,
+        current_turn_id: Arc<RwLock<Option<uuid::Uuid>>>,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         let seq_counters = self.seq_counters.clone();
         let seq_timestamps = self.seq_counter_timestamps.clone();
@@ -524,12 +546,18 @@ impl SessionManager {
                             ) else {
                                 continue;
                             };
+                            // Snapshot the current turn_id atomically for this relay item.
+                            let turn_id = current_turn_id
+                                .read()
+                                .ok()
+                                .and_then(|g| *g);
                             agent_runner::relay_stdout_events(
                                 &relay_sender,
                                 &sid_stdout,
                                 &tenant_id.to_string(),
                                 seq,
                                 &redacted_line,
+                                turn_id,
                             );
                         }
                     }
