@@ -14,12 +14,10 @@ export interface AssistantTranscriptItem {
   kind: "assistant";
   id: string;
   items: ReadonlyArray<AssistantItem>;
-  // True only on the trailing pending turn that has not yet been flushed by a
-  // user_input event.  Used by ChatPage to slot optimistic pending bubbles in
-  // chronological order during the SSE echo race window.
+  // True only on the trailing pending turn that has not yet received turn_complete.
   inProgress?: boolean;
   // Sequence number of the first SSE event for this assistant turn. Used by
-  // ChatPage to deduplicate live items against history by matching DB seq values.
+  // legacy v1 merge path in ChatPage to deduplicate live items against history.
   startSeq?: number;
 }
 
@@ -42,12 +40,9 @@ export type AssistantItem =
   | { type: "tool_result"; toolUseId: string; content: unknown; isError: boolean; seq: number }
   | { type: "error"; message: string; code?: string; seq: number };
 
-interface ReducerState {
-  readonly items: ReadonlyArray<TranscriptItem>;
-  readonly pendingAssistant: ReadonlyArray<AssistantItem> | null;
-  readonly pendingStartSeq: number | null;
-  readonly counter: number;
-}
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 function parseJson<T>(s: string): T | null {
   try {
@@ -76,7 +71,6 @@ function appendAssistantItem(
   if (payload.type === "text") {
     const last = pending[pending.length - 1];
     if (last?.type === "text") {
-      // Merge consecutive text tokens into one entry (immutable update).
       return [
         ...pending.slice(0, -1),
         { type: "text", text: last.text + payload.text, seq: last.seq },
@@ -114,6 +108,355 @@ function appendAssistantItem(
   return pending;
 }
 
+// Try to parse a message body as a JSON content-block array (post-1896 format).
+// Returns null if the body is plain text (pre-1896 rows) or invalid JSON.
+function tryParseContentBlocks(body: string): ReadonlyArray<AssistantItem> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+
+  const result: AssistantItem[] = [];
+  for (let idx = 0; idx < parsed.length; idx++) {
+    const block: unknown = parsed[idx];
+    if (typeof block !== "object" || block === null) continue;
+    const b = block as Record<string, unknown>;
+
+    if (b.type === "text" && typeof b.text === "string") {
+      result.push({ type: "text", text: b.text, seq: idx });
+    } else if (b.type === "thinking" && typeof b.thinking === "string") {
+      result.push({ type: "thinking", thinking: b.thinking, seq: idx });
+    } else if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
+      result.push({ type: "tool_use", id: b.id, name: b.name, input: b.input, seq: idx });
+    } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
+      result.push({
+        type: "tool_result",
+        toolUseId: b.tool_use_id as string,
+        content: b.content,
+        isError: Boolean(b.is_error),
+        seq: idx,
+      });
+    }
+  }
+
+  return result.length > 0 ? result : null;
+}
+
+// ---------------------------------------------------------------------------
+// v2 identity-based merge: buildLiveTurnMap + mergeTranscript
+// ---------------------------------------------------------------------------
+
+/** Concatenate text items from a live turn for content-based dedup. */
+function extractLiveText(items: ReadonlyArray<AssistantItem>): string {
+  return items
+    .filter((i): i is Extract<AssistantItem, { type: "text" }> => i.type === "text")
+    .map((i) => i.text)
+    .join("");
+}
+
+interface LiveTurnEntry {
+  readonly items: ReadonlyArray<AssistantItem>;
+  readonly isInProgress: boolean;
+  readonly firstSeq: number;
+  /** User input text for this turn (from SSE user_input event). Used to render
+   *  the user bubble when the DB row has not yet been persisted. */
+  readonly userText?: string;
+}
+
+/** Parse SSE events into a Map<turn_id, LiveTurnEntry>.
+ *  Handles both v2 events (with turn_id) and v1 legacy events (no turn_id).
+ *  For v1 events a synthetic turn ID is generated to allow accumulation. */
+function buildLiveTurnMap(events: ReadonlyArray<StreamedEvent>): {
+  turnMap: Map<string, LiveTurnEntry>;
+  errorItem: ErrorTranscriptItem | null;
+} {
+  const turnMap = new Map<string, LiveTurnEntry>();
+  let currentTurnId: string | null = null;
+  let pendingItems: AssistantItem[] = [];
+  let pendingUserText: string | undefined;
+  let firstPendingSeq = -1;
+  let errorItem: ErrorTranscriptItem | null = null;
+  let counter = 0;
+  let v1TurnIdx = 0;
+
+  const flush = (inProgress: boolean) => {
+    if (currentTurnId !== null && pendingItems.length > 0) {
+      const entry: LiveTurnEntry = {
+        items: pendingItems,
+        isInProgress: inProgress,
+        firstSeq: firstPendingSeq,
+        ...(pendingUserText !== undefined ? { userText: pendingUserText } : {}),
+      };
+      turnMap.set(currentTurnId, entry);
+    }
+    currentTurnId = null;
+    pendingItems = [];
+    pendingUserText = undefined;
+    firstPendingSeq = -1;
+  };
+
+  for (const event of events) {
+    if (event.type === "stream-reset") {
+      turnMap.clear();
+      currentTurnId = null;
+      pendingItems = [];
+      pendingUserText = undefined;
+      firstPendingSeq = -1;
+      errorItem = null;
+      continue;
+    }
+
+    if (event.type === "session.error") {
+      flush(false);
+      const parsed = parseJson<{ error: string; status: string; message: string }>(event.data);
+      errorItem = parsed?.status !== undefined
+        ? { kind: "error", id: `e-${counter++}`, message: parsed.message ?? "Session ended.", code: parsed.status }
+        : { kind: "error", id: `e-${counter++}`, message: parsed?.message ?? "Session ended." };
+      continue;
+    }
+
+    if (event.type !== "session.event") continue;
+
+    const envelope = parseJson<unknown>(event.data);
+    if (!isChatSessionEventEnvelope(envelope)) continue;
+
+    const { payload, sequence } = envelope;
+    const turnId = (envelope as { turn_id?: string }).turn_id ?? null;
+
+    if (payload.type === "user_input") {
+      flush(false);
+      // v2: use the event's turn_id; v1: generate a synthetic turn ID.
+      currentTurnId = turnId ?? `v1-live-${v1TurnIdx++}`;
+      pendingUserText = typeof payload.text === "string" ? payload.text : undefined;
+      pendingItems = [];
+      firstPendingSeq = -1;
+      continue;
+    }
+
+    if (payload.type === "turn_complete") {
+      // tool_use stop_reason = intermediate pause; continue accumulating the same turn.
+      if (payload.stop_reason !== "tool_use") {
+        flush(false);
+      }
+      continue;
+    }
+
+    // Runtime content event — accumulate into current turn.
+    if (turnId !== null && currentTurnId === null) {
+      // First event for this turn (no preceding user_input in SSE, e.g. CLI restart).
+      currentTurnId = turnId;
+    } else if (turnId === null && currentTurnId === null) {
+      // v1 orphan content: no preceding user_input and no turn_id — create a synthetic turn.
+      currentTurnId = `v1-orphan-${sequence}`;
+    }
+    if (currentTurnId !== null) {
+      if (firstPendingSeq < 0) firstPendingSeq = sequence;
+      pendingItems = appendAssistantItem(pendingItems, payload, sequence) as AssistantItem[];
+    }
+  }
+
+  // Flush final in-progress turn.
+  if (currentTurnId !== null && pendingItems.length > 0) {
+    const entry: LiveTurnEntry = {
+      items: pendingItems,
+      isInProgress: true,
+      firstSeq: firstPendingSeq,
+      ...(pendingUserText !== undefined ? { userText: pendingUserText } : {}),
+    };
+    turnMap.set(currentTurnId, entry);
+  }
+
+  return { turnMap, errorItem };
+}
+
+export interface PendingUserSend {
+  id: string;
+  text: string;
+}
+
+/**
+ * Identity-based transcript merge (AC-2 of RUSAA-1974).
+ *
+ * Algorithm:
+ *  1. Build live turn map keyed by turn_id from SSE events.
+ *  2. Walk historical DB rows in seq order:
+ *     - user rows: render directly.
+ *     - assistant rows with turn_id: check live map; use live content if in-progress,
+ *       else DB content. Merge split-batch rows sharing the same turn_id.
+ *     - assistant rows without turn_id (legacy v1): render positionally, merging
+ *       consecutive rows that share a tool_use boundary (existing split-batch logic).
+ *  3. Append live turns whose turn_id is not yet in the DB (new in-flight turn).
+ *  4. Append pending user sends not yet covered by history or SSE echo.
+ *  5. Append SSE error item if present.
+ */
+export function mergeTranscript(
+  historical: ReadonlyArray<ChatMessage>,
+  liveEvents: ReadonlyArray<StreamedEvent>,
+  pendingQueue: ReadonlyArray<PendingUserSend> = [],
+): ReadonlyArray<TranscriptItem> {
+  const { turnMap, errorItem } = buildLiveTurnMap(liveEvents);
+
+  const result: TranscriptItem[] = [];
+  // Tracks the result-array index of each assistant item, keyed by turn_id.
+  // Used to merge split-batch rows (multiple DB rows sharing the same turn_id).
+  const assistantIndexByTurnId = new Map<string, number>();
+  const processedLiveTurnIds = new Set<string>();
+  // Tracks turn IDs for which a user row has been rendered from DB.
+  // Used to suppress live user bubbles for turns already persisted.
+  const processedUserTurnIds = new Set<string>();
+  // For v1 DB rows (no turn_id): track seq + text so CLI-replay orphan turns
+  // that duplicate already-persisted content can be filtered in the append loop.
+  const coveredV1Seqs = new Set<number>();
+  const coveredV1Bodies = new Set<string>();
+
+  for (const msg of historical) {
+    if (msg.role === "user") {
+      result.push({ kind: "user", id: msg.id, text: msg.body, seq: msg.seq });
+      if (msg.turn_id) processedUserTurnIds.add(msg.turn_id);
+      continue;
+    }
+
+    if (msg.role !== "assistant") continue;
+
+    const turnId = msg.turn_id;
+    const contentBlocks = tryParseContentBlocks(msg.body);
+    const newItems: ReadonlyArray<AssistantItem> =
+      contentBlocks ?? [{ type: "text", text: msg.body, seq: msg.seq }];
+
+    if (turnId) {
+      processedLiveTurnIds.add(turnId);
+      const live = turnMap.get(turnId);
+
+      const existingIdx = assistantIndexByTurnId.get(turnId);
+      if (existingIdx !== undefined) {
+        // Another DB row for the same turn_id (split-batch): merge content.
+        const existing = result[existingIdx] as AssistantTranscriptItem;
+        const mergedItems = live?.isInProgress
+          ? live.items
+          : [...existing.items, ...newItems];
+        const updatedItem: AssistantTranscriptItem = {
+          kind: "assistant",
+          id: existing.id,
+          items: mergedItems,
+          ...(existing.startSeq !== undefined ? { startSeq: existing.startSeq } : {}),
+          ...(live?.isInProgress ? { inProgress: true } : {}),
+        };
+        result[existingIdx] = updatedItem;
+      } else {
+        const items = live?.isInProgress ? live.items : newItems;
+        const item: AssistantTranscriptItem = {
+          kind: "assistant",
+          id: msg.id,
+          items,
+          ...(live?.isInProgress ? { inProgress: true } : {}),
+        };
+        assistantIndexByTurnId.set(turnId, result.length);
+        result.push(item);
+      }
+    } else {
+      // v1 legacy row (no turn_id): positional split-batch merge.
+      coveredV1Seqs.add(msg.seq);
+      const bodyText = contentBlocks
+        ? contentBlocks
+            .filter((b): b is Extract<AssistantItem, { type: "text" }> => b.type === "text")
+            .map((b) => b.text)
+            .join("")
+        : msg.body;
+      if (bodyText) coveredV1Bodies.add(bodyText);
+      const prev = result[result.length - 1];
+      if (
+        prev?.kind === "assistant" &&
+        contentBlocks !== null &&
+        (prev.items[prev.items.length - 1]?.type === "tool_use" ||
+          newItems[0]?.type === "tool_use")
+      ) {
+        result[result.length - 1] = {
+          kind: "assistant",
+          id: prev.id,
+          items: [...prev.items, ...newItems],
+          ...(prev.startSeq !== undefined ? { startSeq: prev.startSeq } : {}),
+        };
+      } else {
+        result.push({ kind: "assistant", id: msg.id, items: newItems });
+      }
+    }
+  }
+
+  // Append live turns not yet present in the DB.
+  // Also emit a user bubble when the SSE user_input arrived before the DB row was persisted,
+  // but only if the DB has not already supplied a user row for this turn.
+  for (const [turnId, live] of turnMap) {
+    if (!processedLiveTurnIds.has(turnId) && live.items.length > 0) {
+      // v1 turns (v1-orphan-* and v1-live-*) are synthetic IDs for legacy SSE without turn_id.
+      // Filter completed v1 turns that duplicate already-persisted DB content (matched by
+      // seq or text), so CLI-replayed and reconnected streams don't double the transcript.
+      if (turnId.startsWith("v1-") && !live.isInProgress) {
+        if (live.firstSeq !== -1 && coveredV1Seqs.has(live.firstSeq)) continue;
+        if (coveredV1Bodies.size > 0 && coveredV1Bodies.has(extractLiveText(live.items))) continue;
+      }
+      if (live.userText !== undefined && !processedUserTurnIds.has(turnId)) {
+        result.push({
+          kind: "user",
+          id: `u-live-${turnId}`,
+          text: live.userText,
+          seq: live.firstSeq - 1,
+        });
+      }
+      result.push({
+        kind: "assistant",
+        id: `a-live-${turnId}`,
+        items: live.items,
+        ...(live.isInProgress ? { inProgress: true } : {}),
+      });
+    }
+  }
+
+  // Append SSE error item.
+  if (errorItem !== null) {
+    result.push(errorItem);
+  }
+
+  // Collect all user texts already rendered so pending sends can be filtered.
+  const coveredTexts = new Set<string>();
+  for (const item of result) {
+    if (item.kind === "user") coveredTexts.add(item.text);
+  }
+  // Also cover from SSE user_input echoes (may arrive before DB persists the row).
+  for (const event of liveEvents) {
+    if (event.type !== "session.event") continue;
+    const env = parseJson<{ payload: { type: string; text?: string } }>(event.data);
+    if (env?.payload?.type === "user_input" && typeof env.payload.text === "string") {
+      coveredTexts.add(env.payload.text);
+    }
+  }
+
+  const pendingItems: UserTranscriptItem[] = pendingQueue
+    .filter((p) => !coveredTexts.has(p.text))
+    .map((p, i) => ({
+      kind: "user" as const,
+      id: p.id,
+      text: p.text,
+      seq: -(i + 1),
+    }));
+
+  return [...result, ...pendingItems];
+}
+
+// ---------------------------------------------------------------------------
+// Legacy v1 path — kept for backward compat and existing unit tests.
+// Used by transcript.test.ts; not used by ChatPage anymore.
+// ---------------------------------------------------------------------------
+
+interface ReducerState {
+  readonly items: ReadonlyArray<TranscriptItem>;
+  readonly pendingAssistant: ReadonlyArray<AssistantItem> | null;
+  readonly pendingStartSeq: number | null;
+  readonly counter: number;
+}
+
 function flushPendingAssistant(state: ReducerState): ReducerState {
   if (state.pendingAssistant === null || state.pendingAssistant.length === 0) {
     return { ...state, pendingAssistant: null, pendingStartSeq: null };
@@ -132,7 +475,7 @@ function flushPendingAssistant(state: ReducerState): ReducerState {
   };
 }
 
-export const EMPTY_TRANSCRIPT_STATE: ReducerState = {
+const EMPTY_TRANSCRIPT_STATE: ReducerState = {
   items: [],
   pendingAssistant: null,
   pendingStartSeq: null,
@@ -173,9 +516,6 @@ export function buildTranscript(
     const { payload, sequence } = envelope;
 
     if (payload.type === "turn_complete") {
-      // "tool_use" stop_reason: the model paused to run a tool; the tool_result and
-      // follow-up text belong in the same assistant turn and arrive in later SSE events.
-      // Only flush on an actual turn completion (end_turn, success, error, etc.).
       if (payload.stop_reason !== "tool_use") {
         state = flushPendingAssistant(state);
       }
@@ -199,13 +539,11 @@ export function buildTranscript(
     const pending = state.pendingAssistant ?? [];
     state = {
       ...state,
-      pendingAssistant: appendAssistantItem(pending, payload, sequence),
-      // Record the sequence of the first event so ChatPage can match against DB seq.
+      pendingAssistant: appendAssistantItem(pending, payload, sequence) as AssistantItem[],
       pendingStartSeq: state.pendingStartSeq ?? sequence,
     };
   }
 
-  // Flush any in-progress assistant turn (streaming).
   const raw: ReadonlyArray<TranscriptItem> =
     state.pendingAssistant !== null && state.pendingAssistant.length > 0
       ? [
@@ -220,25 +558,10 @@ export function buildTranscript(
         ]
       : state.items;
 
-  // Merge consecutive assistant items where the second starts with tool_use.
-  // Guards against the text-before-tool_use split (end_turn emitted between text and
-  // tool_use events) producing two items in the same turn, which would cause
-  // dedupeAssistantsPerSegment to miscount and drop the text item.
-  //
-  // Only apply when the stream has user_input events (live/firstLiveUser sessions).
-  // In CLI restart SSE (no user_input), consecutive assistant items are from DIFFERENT
-  // turns with no separator — merging here would incorrectly combine cross-turn content.
-  // The CLI restart path uses buildTranscriptFromHistory for the transcript, which
-  // handles the same text→tool_use split via its own split-batch merge logic.
   const hasUserItems = raw.some((item) => item.kind === "user");
   return hasUserItems ? mergeAdjacentToolUseAssistants(raw) : raw;
 }
 
-// Merge consecutive assistant items where the second one starts with tool_use.
-// This handles the pattern where the model emitted text (end_turn) and later tool_use
-// events arrived as separate SSE flushes — the same split-batch artifact that
-// buildTranscriptFromHistory handles for DB rows. Without this, dedupeAssistantsPerSegment
-// sees 2 completed items in a segment and may drop the text item as a stale replay.
 function mergeAdjacentToolUseAssistants(
   items: ReadonlyArray<TranscriptItem>,
 ): ReadonlyArray<TranscriptItem> {
@@ -266,56 +589,6 @@ function mergeAdjacentToolUseAssistants(
   return result;
 }
 
-// Finds the sequence number of the first user_input event in the SSE stream.
-// Used to determine the cutoff point when merging historical + live transcripts.
-export function getMinSseUserInputSeq(events: ReadonlyArray<StreamedEvent>): number | null {
-  for (const event of events) {
-    if (event.type !== "session.event") continue;
-    const envelope = parseJson<{ sequence: number; payload: { type: string } }>(event.data);
-    if (envelope?.payload?.type === "user_input" && typeof envelope.sequence === "number") {
-      return envelope.sequence;
-    }
-  }
-  return null;
-}
-
-// Try to parse a message body as a JSON content-block array (post-1896 format).
-// Returns null if the body is plain text (pre-1896 rows) or invalid JSON.
-function tryParseContentBlocks(body: string): ReadonlyArray<AssistantItem> | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(parsed) || parsed.length === 0) return null;
-
-  const result: AssistantItem[] = [];
-  for (let idx = 0; idx < parsed.length; idx++) {
-    const block: unknown = parsed[idx];
-    if (typeof block !== "object" || block === null) continue;
-    const b = block as Record<string, unknown>;
-
-    if (b.type === "text" && typeof b.text === "string") {
-      result.push({ type: "text", text: b.text, seq: idx });
-    } else if (b.type === "thinking" && typeof b.thinking === "string") {
-      result.push({ type: "thinking", thinking: b.thinking, seq: idx });
-    } else if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
-      result.push({ type: "tool_use", id: b.id, name: b.name, input: b.input, seq: idx });
-    } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {
-      result.push({
-        type: "tool_result",
-        toolUseId: b.tool_use_id as string,
-        content: b.content,
-        isError: Boolean(b.is_error),
-        seq: idx,
-      });
-    }
-  }
-
-  return result.length > 0 ? result : null;
-}
-
 export function buildTranscriptFromHistory(
   messages: ReadonlyArray<ChatMessage>,
 ): ReadonlyArray<TranscriptItem> {
@@ -324,19 +597,10 @@ export function buildTranscriptFromHistory(
     if (msg.role === "user") {
       items.push({ kind: "user", id: msg.id, text: msg.body, seq: msg.seq });
     } else if (msg.role === "assistant") {
-      // Try JSON content-block array (post-1896); fall back to plain text for old rows.
       const contentBlocks = tryParseContentBlocks(msg.body);
       const newItems: ReadonlyArray<AssistantItem> =
         contentBlocks ?? [{ type: "text", text: msg.body, seq: msg.seq }];
 
-      // Split-batch merge: when the agent-runner flushes events in separate HTTP
-      // requests, the DB may split a single turn across multiple rows. Two patterns:
-      //   A) prev row ends with tool_use, next starts with tool_result (batch boundary)
-      //   B) prev row ends with text,     next starts with tool_use   (RUSAA-1966: text
-      //      emitted before tool call, persisted separately before tools ran)
-      // Merge both so all blocks for one turn land in a single AssistantTranscriptItem.
-      // Safe because consecutive assistant rows without a user row between them are
-      // always from the same agent turn.
       const prev = items[items.length - 1];
       if (
         prev?.kind === "assistant" &&
@@ -354,7 +618,6 @@ export function buildTranscriptFromHistory(
         items.push({ kind: "assistant", id: msg.id, items: newItems });
       }
     }
-    // system / tool rows are not rendered in the transcript UI
   }
   return items;
 }

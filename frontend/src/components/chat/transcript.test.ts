@@ -412,3 +412,4 @@ describe("buildTranscript — text-before-tool_use merge (RUSAA-1966)", () => {
     expect(a2.inProgress).toBe(true);
   });
 });
+

@@ -18,7 +18,14 @@ export const LIST_SESSIONS_ONE = { sessions: [CHAT_SESSION_FIXTURE] };
 
 export const CREATE_SESSION_RESPONSE = { session_id: CHAT_SESSION_ID };
 
-export const SEND_MESSAGE_RESPONSE = { message_id: "msg-001" };
+export const SEND_MESSAGE_RESPONSE = {
+  message_id: "msg-001",
+  turn_id: "turn-0001-0000-0000-0000-000000000001",
+};
+
+export const TURN_ID_A = "turn-0001-0000-0000-0000-000000000001";
+export const TURN_ID_B = "turn-0002-0000-0000-0000-000000000002";
+export const TURN_ID_C = "turn-0003-0000-0000-0000-000000000003";
 
 // Full exchange: user_input → tool_use → tool_result → text
 export const FULL_EXCHANGE_SSE = [
@@ -585,3 +592,4 @@ export const LIST_MESSAGES_SPLIT_TOOL_TURN = {
   ],
   has_more: false,
 };
+
