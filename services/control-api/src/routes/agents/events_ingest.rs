@@ -491,9 +491,12 @@ mod tests {
         }))
         .unwrap();
         let req: IngestEventsRequest = serde_json::from_str(&json_str).unwrap();
-        assert!(req.turn_ids.is_empty(), "legacy payload must default to empty turn_ids");
-        // get with out-of-bounds → None (AC-4 backward compat)
-        assert_eq!(req.turn_ids.get(0).copied().flatten(), None);
+        assert!(
+            req.turn_ids.is_empty(),
+            "legacy payload must default to empty turn_ids"
+        );
+        // out-of-bounds → None (AC-4 backward compat)
+        assert_eq!(req.turn_ids.first().copied().flatten(), None);
     }
 
     #[test]
