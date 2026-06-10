@@ -8,9 +8,10 @@ import type { ChatSessionEventEnvelope } from "@/lib/chat-api";
 const CHAT_STREAM_EVENT_TYPES = ["session.event", "session.error"] as const;
 
 export interface UseChatStreamResult extends UseEventStreamResult {
-  /** True while the SSE connection is open and the current turn has not yet
-   *  received turn_complete or error. Derived from the SSE state machine;
-   *  never based on mutation.isPending (AC-1 of RUSAA-1974). */
+  /** True while the current turn has not yet received turn_complete or error.
+   *  Derived purely from the SSE event state machine; never based on
+   *  mutation.isPending (AC-1 of RUSAA-1974). Remains true after a connection
+   *  drop if no turn_complete was received (correct: turn is still in-flight). */
   isStreaming: boolean;
 }
 
@@ -36,8 +37,9 @@ export function useChatStream(
   const base = useEventStream(url, CHAT_STREAM_EVENT_TYPES, enabled && sessionId !== null);
 
   const isStreaming = useMemo(() => {
-    if (base.readyState !== "open") return false;
     // Walk events: streaming = true after user_input until turn_complete(non-tool_use) or error.
+    // Content events arriving without a preceding user_input (e.g. CLI restart, mid-stream join)
+    // also set streaming = true so the composer shows "Queue" correctly.
     let pending = false;
     for (const event of base.events) {
       if (event.type === "session.error") {
@@ -53,10 +55,18 @@ export function useChatStream(
         pending = false;
       } else if (payload.type === "error") {
         pending = false;
+      } else if (!pending && (
+        payload.type === "text" ||
+        payload.type === "tool_use" ||
+        payload.type === "tool_result" ||
+        payload.type === "thinking"
+      )) {
+        // Content arrived before or without a user_input echo — treat as streaming.
+        pending = true;
       }
     }
     return pending;
-  }, [base.events, base.readyState]);
+  }, [base.events]);
 
   return { ...base, isStreaming };
 }

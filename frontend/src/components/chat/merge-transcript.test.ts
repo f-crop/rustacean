@@ -43,16 +43,19 @@ function histMsg(
 }
 
 describe("mergeTranscript — signal shape 1: no history, v2 SSE starts streaming", () => {
-  it("shows in-progress assistant from SSE before DB persists", () => {
+  it("shows user bubble and in-progress assistant from SSE before DB persists", () => {
     const events: StreamedEvent[] = [
       v2Event({ type: "user_input", text: "hello" }, 1, TURN_X),
       v2Event({ type: "text", text: "Hi there!" }, 2, TURN_X),
     ];
     const items = mergeTranscript([], events, [{ id: "p1", text: "hello" }]);
 
-    // pending bubble is covered by SSE user_input echo
-    expect(items).toHaveLength(1);
-    const [a1] = items;
+    // SSE user_input → live user bubble (pending send suppressed by coveredTexts)
+    expect(items).toHaveLength(2);
+    const [u1, a1] = items;
+    expect(u1?.kind).toBe("user");
+    if (u1?.kind !== "user") throw new Error("unreachable");
+    expect(u1.text).toBe("hello");
     expect(a1?.kind).toBe("assistant");
     if (a1?.kind !== "assistant") throw new Error("unreachable");
     expect(a1.inProgress).toBe(true);
@@ -96,14 +99,15 @@ describe("mergeTranscript — signal shape 3: reconnect mid-stream", () => {
     ];
     const items = mergeTranscript(hist, events);
 
-    expect(items).toHaveLength(4); // u1, a1, u2, a2-live
+    // u2 from DB suppresses the live user bubble for TURN_Y (processedUserTurnIds).
+    expect(items).toHaveLength(4); // u1, a1, u2(DB), a2-live
     expect(items[0]).toMatchObject({ kind: "user", text: "q1" });
     expect(items[1]).toMatchObject({ kind: "assistant" });
     // DB content wins for TURN_X (completed)
     if (items[1]?.kind !== "assistant") throw new Error("unreachable");
     expect(items[1].inProgress).toBeUndefined();
     expect(items[2]).toMatchObject({ kind: "user", text: "q2" });
-    // TURN_Y not yet in DB → appended from live
+    // TURN_Y not yet in DB → appended from live (no duplicate user bubble because u2 in DB)
     const a2 = items[3];
     expect(a2?.kind).toBe("assistant");
     if (a2?.kind !== "assistant") throw new Error("unreachable");
@@ -148,9 +152,12 @@ describe("mergeTranscript — signal shape 5: turn_complete unlocks; isStreaming
     ];
     const items = mergeTranscript([], events);
 
-    // Only the in-progress assistant is rendered (user_input not yet in DB)
-    expect(items).toHaveLength(1);
-    const [a] = items;
+    // user_input → live user bubble + completed assistant (DB not yet populated)
+    expect(items).toHaveLength(2);
+    const [u, a] = items;
+    expect(u?.kind).toBe("user");
+    if (u?.kind !== "user") throw new Error("unreachable");
+    expect(u.text).toBe("hello");
     expect(a?.kind).toBe("assistant");
     if (a?.kind !== "assistant") throw new Error("unreachable");
     expect(a.inProgress).toBeUndefined();
@@ -217,19 +224,21 @@ describe("mergeTranscript — signal shape 7: backward-compat for NULL turn_id h
 });
 
 describe("mergeTranscript — signal shape 8: pending queue + SSE echo coverage", () => {
-  it("removes optimistic bubble once SSE user_input echo arrives", () => {
+  it("deduplicates: pending send suppressed, live user bubble shown (exactly one user bubble)", () => {
     const events: StreamedEvent[] = [
       v2Event({ type: "user_input", text: "hello" }, 1, TURN_X),
       v2Event({ type: "text", text: "Response..." }, 2, TURN_X),
     ];
     const items = mergeTranscript([], events, [{ id: "p1", text: "hello" }]);
 
-    // Pending bubble should be filtered out (covered by SSE echo)
+    // SSE echo adds a live user bubble; pending send is suppressed (covered by live bubble).
+    // Net: exactly one "hello" user bubble.
     const userItems = items.filter((i) => i.kind === "user");
-    expect(userItems).toHaveLength(0);
+    expect(userItems).toHaveLength(1);
+    expect(userItems[0]).toMatchObject({ kind: "user", text: "hello" });
     // Assistant is in-progress
-    expect(items).toHaveLength(1);
-    expect(items[0]?.kind).toBe("assistant");
+    expect(items).toHaveLength(2);
+    expect(items[1]?.kind).toBe("assistant");
   });
 
   it("shows optimistic bubble when SSE has no echo yet", () => {

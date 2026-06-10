@@ -149,14 +149,26 @@ function tryParseContentBlocks(body: string): ReadonlyArray<AssistantItem> | nul
 // v2 identity-based merge: buildLiveTurnMap + mergeTranscript
 // ---------------------------------------------------------------------------
 
+/** Concatenate text items from a live turn for content-based dedup. */
+function extractLiveText(items: ReadonlyArray<AssistantItem>): string {
+  return items
+    .filter((i): i is Extract<AssistantItem, { type: "text" }> => i.type === "text")
+    .map((i) => i.text)
+    .join("");
+}
+
 interface LiveTurnEntry {
   readonly items: ReadonlyArray<AssistantItem>;
   readonly isInProgress: boolean;
   readonly firstSeq: number;
+  /** User input text for this turn (from SSE user_input event). Used to render
+   *  the user bubble when the DB row has not yet been persisted. */
+  readonly userText?: string;
 }
 
 /** Parse SSE events into a Map<turn_id, LiveTurnEntry>.
- *  Returns null entries when turn_id is absent (v1 legacy events are ignored). */
+ *  Handles both v2 events (with turn_id) and v1 legacy events (no turn_id).
+ *  For v1 events a synthetic turn ID is generated to allow accumulation. */
 function buildLiveTurnMap(events: ReadonlyArray<StreamedEvent>): {
   turnMap: Map<string, LiveTurnEntry>;
   errorItem: ErrorTranscriptItem | null;
@@ -164,20 +176,25 @@ function buildLiveTurnMap(events: ReadonlyArray<StreamedEvent>): {
   const turnMap = new Map<string, LiveTurnEntry>();
   let currentTurnId: string | null = null;
   let pendingItems: AssistantItem[] = [];
+  let pendingUserText: string | undefined;
   let firstPendingSeq = -1;
   let errorItem: ErrorTranscriptItem | null = null;
   let counter = 0;
+  let v1TurnIdx = 0;
 
   const flush = (inProgress: boolean) => {
     if (currentTurnId !== null && pendingItems.length > 0) {
-      turnMap.set(currentTurnId, {
+      const entry: LiveTurnEntry = {
         items: pendingItems,
         isInProgress: inProgress,
         firstSeq: firstPendingSeq,
-      });
+        ...(pendingUserText !== undefined ? { userText: pendingUserText } : {}),
+      };
+      turnMap.set(currentTurnId, entry);
     }
     currentTurnId = null;
     pendingItems = [];
+    pendingUserText = undefined;
     firstPendingSeq = -1;
   };
 
@@ -186,6 +203,7 @@ function buildLiveTurnMap(events: ReadonlyArray<StreamedEvent>): {
       turnMap.clear();
       currentTurnId = null;
       pendingItems = [];
+      pendingUserText = undefined;
       firstPendingSeq = -1;
       errorItem = null;
       continue;
@@ -210,7 +228,9 @@ function buildLiveTurnMap(events: ReadonlyArray<StreamedEvent>): {
 
     if (payload.type === "user_input") {
       flush(false);
-      currentTurnId = turnId;
+      // v2: use the event's turn_id; v1: generate a synthetic turn ID.
+      currentTurnId = turnId ?? `v1-live-${v1TurnIdx++}`;
+      pendingUserText = typeof payload.text === "string" ? payload.text : undefined;
       pendingItems = [];
       firstPendingSeq = -1;
       continue;
@@ -228,6 +248,9 @@ function buildLiveTurnMap(events: ReadonlyArray<StreamedEvent>): {
     if (turnId !== null && currentTurnId === null) {
       // First event for this turn (no preceding user_input in SSE, e.g. CLI restart).
       currentTurnId = turnId;
+    } else if (turnId === null && currentTurnId === null) {
+      // v1 orphan content: no preceding user_input and no turn_id — create a synthetic turn.
+      currentTurnId = `v1-orphan-${sequence}`;
     }
     if (currentTurnId !== null) {
       if (firstPendingSeq < 0) firstPendingSeq = sequence;
@@ -237,11 +260,13 @@ function buildLiveTurnMap(events: ReadonlyArray<StreamedEvent>): {
 
   // Flush final in-progress turn.
   if (currentTurnId !== null && pendingItems.length > 0) {
-    turnMap.set(currentTurnId, {
+    const entry: LiveTurnEntry = {
       items: pendingItems,
       isInProgress: true,
       firstSeq: firstPendingSeq,
-    });
+      ...(pendingUserText !== undefined ? { userText: pendingUserText } : {}),
+    };
+    turnMap.set(currentTurnId, entry);
   }
 
   return { turnMap, errorItem };
@@ -279,10 +304,18 @@ export function mergeTranscript(
   // Used to merge split-batch rows (multiple DB rows sharing the same turn_id).
   const assistantIndexByTurnId = new Map<string, number>();
   const processedLiveTurnIds = new Set<string>();
+  // Tracks turn IDs for which a user row has been rendered from DB.
+  // Used to suppress live user bubbles for turns already persisted.
+  const processedUserTurnIds = new Set<string>();
+  // For v1 DB rows (no turn_id): track seq + text so CLI-replay orphan turns
+  // that duplicate already-persisted content can be filtered in the append loop.
+  const coveredV1Seqs = new Set<number>();
+  const coveredV1Bodies = new Set<string>();
 
   for (const msg of historical) {
     if (msg.role === "user") {
       result.push({ kind: "user", id: msg.id, text: msg.body, seq: msg.seq });
+      if (msg.turn_id) processedUserTurnIds.add(msg.turn_id);
       continue;
     }
 
@@ -325,6 +358,14 @@ export function mergeTranscript(
       }
     } else {
       // v1 legacy row (no turn_id): positional split-batch merge.
+      coveredV1Seqs.add(msg.seq);
+      const bodyText = contentBlocks
+        ? contentBlocks
+            .filter((b): b is Extract<AssistantItem, { type: "text" }> => b.type === "text")
+            .map((b) => b.text)
+            .join("")
+        : msg.body;
+      if (bodyText) coveredV1Bodies.add(bodyText);
       const prev = result[result.length - 1];
       if (
         prev?.kind === "assistant" &&
@@ -345,11 +386,28 @@ export function mergeTranscript(
   }
 
   // Append live turns not yet present in the DB.
+  // Also emit a user bubble when the SSE user_input arrived before the DB row was persisted,
+  // but only if the DB has not already supplied a user row for this turn.
   for (const [turnId, live] of turnMap) {
     if (!processedLiveTurnIds.has(turnId) && live.items.length > 0) {
+      // v1 turns (v1-orphan-* and v1-live-*) are synthetic IDs for legacy SSE without turn_id.
+      // Filter completed v1 turns that duplicate already-persisted DB content (matched by
+      // seq or text), so CLI-replayed and reconnected streams don't double the transcript.
+      if (turnId.startsWith("v1-") && !live.isInProgress) {
+        if (live.firstSeq !== -1 && coveredV1Seqs.has(live.firstSeq)) continue;
+        if (coveredV1Bodies.size > 0 && coveredV1Bodies.has(extractLiveText(live.items))) continue;
+      }
+      if (live.userText !== undefined && !processedUserTurnIds.has(turnId)) {
+        result.push({
+          kind: "user",
+          id: `u-live-${turnId}`,
+          text: live.userText,
+          seq: live.firstSeq - 1,
+        });
+      }
       result.push({
         kind: "assistant",
-        id: `a-live-${turnId.slice(0, 8)}`,
+        id: `a-live-${turnId}`,
         items: live.items,
         ...(live.isInProgress ? { inProgress: true } : {}),
       });
