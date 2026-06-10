@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeTranscript } from "./transcript";
+import { mergeTranscript } from "./merge-transcript";
 import type { StreamedEvent } from "@/hooks/useEventStream";
 import type { ChatMessage } from "@/lib/chat-api";
 
