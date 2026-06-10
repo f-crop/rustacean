@@ -10,6 +10,7 @@ import {
   mockChatStream,
   mockListChatMessages,
   CHAT_SESSION_ID,
+  CHAT_SESSION_FIXTURE,
   LIST_SESSIONS_ONE,
 } from "./fixtures/chat-mock-api";
 import {
@@ -203,5 +204,55 @@ test.describe("Chat panel — turn_id identity-based merge [RUSAA-1974]", () => 
     // "Reply 1" should appear exactly once (not duplicated by replay)
     const reply1 = page.getByText("Reply 1");
     await expect(reply1).toHaveCount(1);
+  });
+
+  test("AC9: multi-session switch — turn_id isolated per session, no cross-contamination", async ({
+    page,
+  }) => {
+    const SESSION_B_ID = "chat-session-002";
+    const SESSION_B_FIXTURE = {
+      ...CHAT_SESSION_FIXTURE,
+      id: SESSION_B_ID,
+      trace_id: "trace-session-b",
+      created_at: "2026-06-10T01:00:00Z",
+      last_activity_at: "2026-06-10T01:00:01Z",
+    };
+
+    await mockAuthenticatedSession(page);
+    await mockReposList(page, REPOS_EMPTY_RESPONSE);
+
+    // Sessions list returns both A and B; POST creates session A.
+    await page.route("**/v1/chat/sessions", (route) => {
+      if (route.request().method() === "POST") {
+        return route.fulfill({ json: { session_id: CHAT_SESSION_ID } });
+      }
+      return route.fulfill({ json: { sessions: [CHAT_SESSION_FIXTURE, SESSION_B_FIXTURE] } });
+    });
+    await mockSendChatMessage(page);
+
+    // Session A: two completed v2 turns with explicit turn_ids.
+    await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_V2_TWO_TURNS);
+    await mockChatStream(page, CHAT_SESSION_ID, "");
+
+    // Session B: empty.
+    await mockListChatMessages(page, SESSION_B_ID, LIST_MESSAGES_EMPTY);
+    await mockChatStream(page, SESSION_B_ID, "");
+
+    // Load session A — verify its turn_id-keyed turns are visible.
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+    await expect(page.getByText("q1")).toBeVisible();
+    await expect(page.getByText("Reply 1")).toBeVisible();
+    await expect(page.getByText("q2")).toBeVisible();
+
+    // Switch to session B — session A content must NOT bleed over.
+    await page.goto(`/chat?sessionId=${SESSION_B_ID}`);
+    await expect(page.getByText("q1")).not.toBeVisible();
+    await expect(page.getByText("Reply 1")).not.toBeVisible();
+
+    // Return to session A — its turn_id-keyed transcript must be intact.
+    await page.goto(`/chat?sessionId=${CHAT_SESSION_ID}`);
+    await expect(page.getByText("q1")).toBeVisible();
+    await expect(page.getByText("Reply 1")).toBeVisible();
+    await expect(page.getByText("q2")).toBeVisible();
   });
 });
