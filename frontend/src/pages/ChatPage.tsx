@@ -14,7 +14,7 @@ import { MessageComposer } from "@/components/chat/MessageComposer";
 import {
   mergeTranscript,
   type PendingUserSend,
-} from "@/components/chat/transcript";
+} from "@/components/chat/merge-transcript";
 import { formatApiError } from "@/lib/errors/api";
 import { routes } from "@/lib/routes";
 import type { ChatRuntime } from "@/lib/chat-api";
