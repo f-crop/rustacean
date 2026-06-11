@@ -2933,12 +2933,28 @@
             "type": "string",
             "format": "uuid"
           },
+          "parent_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "ID of the user row that triggered this assistant turn. NULL for user rows\nand for legacy assistant rows (pre-022)."
+          },
           "role": {
             "type": "string"
           },
           "seq": {
             "type": "integer",
             "format": "int32"
+          },
+          "turn_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "UUID v4 of the turn this message belongs to. NULL for legacy rows (pre-022)."
           }
         }
       },
@@ -3906,16 +3922,23 @@
         "type": "object",
         "required": [
           "message_id",
-          "seq"
+          "seq",
+          "turn_id"
         ],
         "properties": {
           "message_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "UUID of the persisted user row (`user_message_id` alias per AC-3)."
           },
           "seq": {
             "type": "integer",
             "format": "int32"
+          },
+          "turn_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID v4 minted per-turn; used by FE to self-identify the optimistic bubble (AC-3)."
           }
         }
       },
