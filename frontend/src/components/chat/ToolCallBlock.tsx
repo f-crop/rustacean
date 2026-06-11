@@ -222,6 +222,7 @@ export function ToolCallBlock({
             aria-hidden="true"
           />
         )}
+        <span className="sr-only">{statusLabel}</span>
         <span className="ml-auto shrink-0 text-xs text-muted-foreground" aria-hidden="true">
           {open ? "▲" : "▼"}
         </span>
