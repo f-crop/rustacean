@@ -277,3 +277,100 @@ async fn ac8_chat_session_fallback_fans_out_sse_without_db_insert() {
         "AC8: chat session events must NOT be stored in agents.agent_events"
     );
 }
+
+// ---------------------------------------------------------------------------
+// AC-parent_user_id — v2 SSE frames carry parent_user_id (spec §4.2, RUSAA-1977)
+//
+// Verifies that ingest emits parent_user_id on assistant frames and null on
+// user_input frames when turn_ids are present in the request.
+// ---------------------------------------------------------------------------
+
+/// Insert a user `chat_message` row with a specific `turn_id`, simulating the row
+/// that POST /v1/chat/sessions/{id}/messages would have persisted.
+async fn insert_user_message(
+    pool: &PgPool,
+    session_id: Uuid,
+    tenant_id: Uuid,
+    turn_id: Uuid,
+) -> Uuid {
+    let user_msg_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO control.chat_messages \
+         (id, session_id, tenant_id, seq, role, body, turn_id, parent_user_id) \
+         VALUES ($1, $2, $3, 1, 'user', 'hello', $4, NULL)",
+    )
+    .bind(user_msg_id)
+    .bind(session_id)
+    .bind(tenant_id)
+    .bind(turn_id)
+    .execute(pool)
+    .await
+    .expect("insert user chat_message");
+    user_msg_id
+}
+
+#[tokio::test]
+async fn ac_parent_user_id_present_on_assistant_frames_null_on_user_input() {
+    let Some((state, pool)) = real_db_state().await else {
+        return;
+    };
+    let fx = insert_chat_fixture(&pool).await;
+    let turn_id = Uuid::new_v4();
+    // Pre-insert the user message row so the ingest handler can look up parent_user_id.
+    let user_msg_id = insert_user_message(&pool, fx.session_id, fx.tenant_id, turn_id).await;
+
+    let tenant_id = TenantId::from(fx.tenant_id);
+    let (mut rx, _replay) = raw_subscribe(&state.sse_bus, &tenant_id, None);
+
+    let body = json!({
+        "tenant_id": fx.tenant_id,
+        "events": [
+            {"type": "user_input", "text": "hello"},
+            {"type": "text", "text": "world"}
+        ],
+        "turn_ids": [turn_id.to_string(), turn_id.to_string()]
+    });
+
+    let resp = build_internal(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(ingest_uri(fx.session_id))
+                .header("content-type", "application/json")
+                .header("x-internal-secret", INTERNAL_SECRET)
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Event 1: user_input — parent_user_id must be null per spec.
+    let env1 = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("SSE event 1 must arrive")
+        .expect("SSE channel open");
+    let d1: Value = serde_json::from_str(&env1.data).unwrap();
+    assert_eq!(d1["event_type"], "session.user_input");
+    assert_eq!(d1["turn_id"], turn_id.to_string());
+    assert!(
+        d1["parent_user_id"].is_null(),
+        "parent_user_id must be null on user_input frame, got {:?}",
+        d1["parent_user_id"]
+    );
+
+    // Event 2: text — parent_user_id must equal the pre-inserted user message id.
+    let env2 = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("SSE event 2 must arrive")
+        .expect("SSE channel open");
+    let d2: Value = serde_json::from_str(&env2.data).unwrap();
+    assert_eq!(d2["event_type"], "session.message");
+    assert_eq!(d2["turn_id"], turn_id.to_string());
+    assert_eq!(
+        d2["parent_user_id"],
+        user_msg_id.to_string(),
+        "parent_user_id on assistant frame must equal the user message row id"
+    );
+}
