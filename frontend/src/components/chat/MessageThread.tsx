@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { ToolCallBlock } from "./ToolCallBlock";
+import { MarkdownContent } from "./MarkdownContent";
 import type { TranscriptItem, AssistantItem } from "./transcript";
 
 interface MessageThreadProps {
@@ -73,11 +74,7 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
       <div className="max-w-[90%] space-y-2">
         {items.map((item, i) => {
           if (item.type === "text") {
-            return (
-              <p key={i} className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                {item.text}
-              </p>
-            );
+            return <MarkdownContent key={i} text={item.text} />;
           }
           if (item.type === "thinking") {
             return <ThinkingBlock key={i} thinking={item.thinking} sequence={item.seq} />;
@@ -134,7 +131,7 @@ function ThinkingBlock({
       <summary className="cursor-pointer text-muted-foreground">
         #{sequence} Thinking: {preview}{thinking.length > 80 ? "…" : ""}
       </summary>
-      <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{thinking}</p>
+      <MarkdownContent text={thinking} className="mt-2 text-muted-foreground" />
     </details>
   );
 }
