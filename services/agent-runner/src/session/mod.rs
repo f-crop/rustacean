@@ -483,7 +483,6 @@ impl SessionManager {
             tracing::warn!(session_id = %session_id, "Failed to revoke API key: {e}");
         }
     }
-
 }
 
 pub use crate::workspace_gc::spawn_workspace_gc;
