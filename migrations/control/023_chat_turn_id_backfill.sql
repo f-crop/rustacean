@@ -11,7 +11,7 @@
 -- when that user row was inserted after 022 (and already has a turn_id).
 WITH walked AS (
     SELECT id, role,
-           max(CASE WHEN role = 'user' THEN id::text END)::uuid
+           max(CASE WHEN role = 'user' THEN id END)
                OVER (PARTITION BY session_id ORDER BY seq
                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS user_id
     FROM control.chat_messages
