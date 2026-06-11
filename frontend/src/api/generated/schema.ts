@@ -1287,9 +1287,20 @@ export interface components {
             readonly created_at: string;
             /** Format: uuid */
             readonly id: string;
+            /**
+             * Format: uuid
+             * @description ID of the user row that triggered this assistant turn. NULL for user rows
+             *     and for legacy assistant rows (pre-022).
+             */
+            readonly parent_user_id?: string | null;
             readonly role: string;
             /** Format: int32 */
             readonly seq: number;
+            /**
+             * Format: uuid
+             * @description UUID v4 of the turn this message belongs to. NULL for legacy rows (pre-022).
+             */
+            readonly turn_id?: string | null;
         };
         readonly ChatSessionDto: {
             /** Format: date-time */
@@ -1632,10 +1643,18 @@ export interface components {
             readonly content: string;
         };
         readonly PostMessageResponse: {
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description UUID of the persisted user row (`user_message_id` alias per AC-3).
+             */
             readonly message_id: string;
             /** Format: int32 */
             readonly seq: number;
+            /**
+             * Format: uuid
+             * @description UUID v4 minted per-turn; used by FE to self-identify the optimistic bubble (AC-3).
+             */
+            readonly turn_id: string;
         };
         /** @description Simple status envelope used by `/ready`. */
         readonly ProbeResponse: {
