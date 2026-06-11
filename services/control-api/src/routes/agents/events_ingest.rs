@@ -7,6 +7,8 @@
 //! Auth: internal-only route; the `require_internal_secret` middleware is applied at
 //! the router level in `routes/mod.rs`.  No user JWT is required.
 
+use std::collections::HashMap;
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -120,6 +122,38 @@ pub async fn ingest_session_events(
     ingest_chat_session_events(&state, session_id, &req).await
 }
 
+/// Fetch a `turn_id → user_message_id` map for the given `turn_ids` list.
+///
+/// Called once per ingest batch so every v2 SSE frame can carry `parent_user_id` (spec §4.2).
+async fn fetch_parent_user_ids(
+    pool: &PgPool,
+    session_id: Uuid,
+    turn_ids: &[Option<Uuid>],
+) -> HashMap<Uuid, Uuid> {
+    let unique: Vec<Uuid> = {
+        let mut seen = std::collections::HashSet::new();
+        turn_ids
+            .iter()
+            .filter_map(|t| *t)
+            .filter(|id| seen.insert(*id))
+            .collect()
+    };
+    if unique.is_empty() {
+        return HashMap::new();
+    }
+    sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT turn_id, id FROM control.chat_messages \
+         WHERE session_id = $1 AND role = 'user' AND turn_id = ANY($2)",
+    )
+    .bind(session_id)
+    .bind(&unique as &Vec<Uuid>)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .collect()
+}
+
 /// Chat-session path for [`ingest_session_events`]: fans events out to the SSE bus and
 /// persists each assistant turn as a single `role=assistant` row in `control.chat_messages`.
 ///
@@ -127,6 +161,7 @@ pub async fn ingest_session_events(
 /// `[{"type":"text","text":"…"},{"type":"tool_use","id":"…","name":"…","input":{…}},…]`
 /// Plain-`Text`-only turns also use the array format. Pre-1896 rows (plain text) continue
 /// to render as plain text via the frontend fallback path in `buildTranscriptFromHistory`.
+#[allow(clippy::too_many_lines)]
 async fn ingest_chat_session_events(
     state: &AppState,
     session_id: Uuid,
@@ -134,6 +169,11 @@ async fn ingest_chat_session_events(
 ) -> Result<(StatusCode, Json<IngestEventsResponse>), AppError> {
     let tenant_id = TenantId::from(req.tenant_id);
     let mut fanned_out: usize = 0;
+
+    // Pre-fetch turn_id → user_row_id map so every v2 SSE frame carries
+    // parent_user_id (spec §4.2).  One batched query per ingest call.
+    // UserInput frames always get parent_user_id = null (they ARE the user row).
+    let parent_user_map = fetch_parent_user_ids(&state.pool, session_id, &req.turn_ids).await;
 
     // Content-block accumulator for the current assistant turn.
     // Consecutive `Text` payloads are merged into one block via `pending_text`.
@@ -153,9 +193,13 @@ async fn ingest_chat_session_events(
             .unwrap_or(serde_json::Value::Null);
 
         let seq_i64 = i64::try_from(seq + 1).unwrap_or(i64::MAX);
-        // v2 SSE envelope: adds turn_id + protocol_version for identity-aware FE.
-        // Legacy events (turn_id = None) omit both additive fields so old clients
-        // continue to work unchanged (AC-4 backward compat).
+        // v2 SSE envelope: adds turn_id + parent_user_id + protocol_version.
+        // UserInput frames carry parent_user_id = null (they are the user row).
+        // Legacy events (turn_id = None) omit v2 fields for AC-4 backward compat.
+        let parent_user_id: Option<Uuid> = match ev {
+            RuntimeEvent::UserInput { .. } => None,
+            _ => turn_id.and_then(|tid| parent_user_map.get(&tid).copied()),
+        };
         let sse_data = match turn_id {
             Some(tid) => serde_json::json!({
                 "session_id": session_id,
@@ -163,6 +207,7 @@ async fn ingest_chat_session_events(
                 "sequence": seq_i64,
                 "payload": payload_value,
                 "turn_id": tid,
+                "parent_user_id": parent_user_id,
                 "protocol_version": CHAT_PROTOCOL_VERSION,
             }),
             None => serde_json::json!({

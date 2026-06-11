@@ -59,6 +59,8 @@ export interface ChatSessionEventEnvelope {
   payload: ChatRuntimePayload;
   /** v2: UUID of the turn this event belongs to. Absent for legacy v1 events. */
   turn_id?: string;
+  /** v2: user message id that opened this turn; null on user_input frames. */
+  parent_user_id?: string | null;
   /** v2: protocol version (2 when turn_id is present). */
   protocol_version?: number;
 }
