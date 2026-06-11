@@ -72,12 +72,12 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
   return (
     <div className="flex justify-start">
       <div className="max-w-[90%] space-y-2">
-        {items.map((item, i) => {
+        {items.map((item) => {
           if (item.type === "text") {
-            return <MarkdownContent key={i} text={item.text} />;
+            return <MarkdownContent key={item.seq} text={item.text} />;
           }
           if (item.type === "thinking") {
-            return <ThinkingBlock key={i} thinking={item.thinking} sequence={item.seq} />;
+            return <ThinkingBlock key={item.seq} thinking={item.thinking} sequence={item.seq} />;
           }
           if (item.type === "tool_use") {
             const result = findToolResult(items, item.id);
@@ -94,7 +94,7 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
           }
           if (item.type === "error") {
             return (
-              <p key={i} className="text-sm text-destructive">
+              <p key={item.seq} className="text-sm text-destructive">
                 {item.message}
               </p>
             );

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -29,12 +29,24 @@ PrismLight.registerLanguage("json", json);
 
 function CopyButton({ text }: { readonly text: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    if (!navigator.clipboard) return;
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(true);
+        if (timerRef.current !== null) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => setCopied(false), 2000);
+      },
+      () => { /* clipboard write rejected — silently fail */ },
+    );
   }, [text]);
 
   return (
@@ -156,7 +168,7 @@ interface MarkdownContentProps {
   readonly className?: string;
 }
 
-export function MarkdownContent({
+export const MarkdownContent = React.memo(function MarkdownContent({
   text,
   className,
 }: MarkdownContentProps): JSX.Element {
@@ -171,4 +183,4 @@ export function MarkdownContent({
       </Markdown>
     </div>
   );
-}
+});
