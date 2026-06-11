@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { ToolCallBlock } from "./ToolCallBlock";
+import { MarkdownContent } from "./MarkdownContent";
 import type { TranscriptItem, AssistantItem } from "./transcript";
 
 interface MessageThreadProps {
@@ -71,16 +72,12 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
   return (
     <div className="flex justify-start">
       <div className="max-w-[90%] space-y-2">
-        {items.map((item, i) => {
+        {items.map((item) => {
           if (item.type === "text") {
-            return (
-              <p key={i} className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                {item.text}
-              </p>
-            );
+            return <MarkdownContent key={item.seq} text={item.text} />;
           }
           if (item.type === "thinking") {
-            return <ThinkingBlock key={i} thinking={item.thinking} sequence={item.seq} />;
+            return <ThinkingBlock key={item.seq} thinking={item.thinking} sequence={item.seq} />;
           }
           if (item.type === "tool_use") {
             const result = findToolResult(items, item.id);
@@ -97,7 +94,7 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
           }
           if (item.type === "error") {
             return (
-              <p key={i} className="text-sm text-destructive">
+              <p key={item.seq} className="text-sm text-destructive">
                 {item.message}
               </p>
             );
@@ -134,7 +131,7 @@ function ThinkingBlock({
       <summary className="cursor-pointer text-muted-foreground">
         #{sequence} Thinking: {preview}{thinking.length > 80 ? "…" : ""}
       </summary>
-      <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{thinking}</p>
+      <MarkdownContent text={thinking} className="mt-2 text-muted-foreground" />
     </details>
   );
 }
