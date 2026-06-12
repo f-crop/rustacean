@@ -24,7 +24,7 @@ export function ChatPage(): JSX.Element {
 
   if (me.isLoading) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem-4rem)] items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground">Loading…</p>
       </div>
     );
@@ -32,7 +32,7 @@ export function ChatPage(): JSX.Element {
 
   if (me.isError || !me.data) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem-4rem)] items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground">Sign in to use Chat.</p>
       </div>
     );
@@ -135,7 +135,7 @@ function ChatInner({ tenantId }: ChatInnerProps): JSX.Element {
   const sessionList = sessions.data?.sessions ?? [];
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem-4rem)]">
+    <div className="flex h-full overflow-hidden">
       <SessionSidebar
         sessions={sessionList}
         activeSessionId={activeSessionId}

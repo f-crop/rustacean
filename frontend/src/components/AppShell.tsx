@@ -12,7 +12,7 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
   const chatEnabled = useChatFeatureEnabled();
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <header className="border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-14 items-center justify-between gap-4">
           <Link
@@ -75,7 +75,7 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
           </div>
         </div>
       </header>
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 min-h-0 overflow-auto">{children}</main>
       <footer className="border-t border-border py-4">
         <div className="container text-xs text-muted-foreground">
           Rustacean control plane
