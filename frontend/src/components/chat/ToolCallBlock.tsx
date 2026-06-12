@@ -13,7 +13,11 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import json from "react-syntax-highlighter/dist/esm/languages/prism/json";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "./MarkdownContent";
-import { looksLikeMarkdown, needsTruncation } from "./tool-call-utils";
+import {
+  deepDecodeJsonStrings,
+  looksLikeMarkdown,
+  needsTruncation,
+} from "./tool-call-utils";
 
 PrismLight.registerLanguage("json", json);
 
@@ -70,7 +74,13 @@ function CopyButton({ text }: { readonly text: string }): JSX.Element {
   );
 }
 
-function JsonBlock({ value }: { readonly value: string }): JSX.Element {
+function JsonBlock({
+  value,
+  copyText,
+}: {
+  readonly value: string;
+  readonly copyText?: string;
+}): JSX.Element {
   const truncate = needsTruncation(value);
   const [showMore, setShowMore] = useState(false);
   const lines = value.split("\n");
@@ -80,7 +90,7 @@ function JsonBlock({ value }: { readonly value: string }): JSX.Element {
   return (
     <div className="overflow-hidden rounded bg-zinc-900">
       <div className="flex items-center justify-end bg-zinc-800 px-2 py-1">
-        <CopyButton text={value} />
+        <CopyButton text={copyText ?? value} />
       </div>
       <PrismLight
         language="json"
@@ -160,7 +170,8 @@ function ResultBlock({ result }: { readonly result: unknown }): JSX.Element {
     );
   }
 
-  return <JsonBlock value={rawText} />;
+  const decodedText = JSON.stringify(deepDecodeJsonStrings(result), null, 2) ?? rawText;
+  return <JsonBlock value={decodedText} copyText={rawText} />;
 }
 
 interface ToolCallBlockProps {
@@ -240,7 +251,10 @@ export function ToolCallBlock({
                 <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   Input
                 </p>
-                <JsonBlock value={JSON.stringify(input, null, 2)} />
+                <JsonBlock
+                  value={JSON.stringify(deepDecodeJsonStrings(input), null, 2)}
+                  copyText={JSON.stringify(input, null, 2)}
+                />
               </div>
             )}
             {hasResult && (

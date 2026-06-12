@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { looksLikeMarkdown, needsTruncation } from "./tool-call-utils";
+import {
+  deepDecodeJsonStrings,
+  looksLikeMarkdown,
+  needsTruncation,
+} from "./tool-call-utils";
 
 describe("looksLikeMarkdown", () => {
   it("returns false for a JSON object string", () => {
@@ -36,6 +40,47 @@ describe("looksLikeMarkdown", () => {
 
   it("returns true for an empty string (not valid JSON)", () => {
     expect(looksLikeMarkdown("")).toBe(true);
+  });
+});
+
+describe("deepDecodeJsonStrings", () => {
+  it("(a) decodes board reproducer payload — text field expands to inner array", () => {
+    const innerArray = [{ crate_name: "src_legacy_monad", version: "0.1.0" }];
+    const input = [{ text: JSON.stringify(innerArray), type: "text" }];
+    const result = deepDecodeJsonStrings(input);
+    expect(result).toEqual([{ text: innerArray, type: "text" }]);
+  });
+
+  it("(b) leaves numeric-looking string fields intact", () => {
+    const input = { count: "42", flag: "true", label: "hello" };
+    expect(deepDecodeJsonStrings(input)).toEqual(input);
+  });
+
+  it("(c) decodes doubly-encoded JSON through both layers", () => {
+    // layer1: inner object
+    const inner = { deepest: 1 };
+    // layer2: inner JSON string nested inside an array of objects
+    const layer1Str = JSON.stringify(inner);              // '{"deepest":1}'  — starts with {
+    const midArray = [{ nested: layer1Str }];             // [{ nested: '{"deepest":1}' }]
+    const layer2Str = JSON.stringify(midArray);           // '[{"nested":"..."}]' — starts with [
+    const input = { payload: layer2Str };
+    // Expected: both layers decoded
+    expect(deepDecodeJsonStrings(input)).toEqual({
+      payload: [{ nested: inner }],
+    });
+  });
+
+  it("(d) leaves malformed JSON strings intact", () => {
+    const input = { bad: "{not json" };
+    expect(deepDecodeJsonStrings(input)).toEqual(input);
+  });
+
+  it("decodes a top-level stringified empty array", () => {
+    expect(deepDecodeJsonStrings("[]")).toEqual([]);
+  });
+
+  it("decodes a top-level stringified empty object", () => {
+    expect(deepDecodeJsonStrings("{}")).toEqual({});
   });
 });
 
