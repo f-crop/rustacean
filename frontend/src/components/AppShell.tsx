@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { routes } from "@/lib/routes";
 import { useChatFeatureEnabled } from "@/hooks/useChatFeatureEnabled";
@@ -10,6 +10,8 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps): JSX.Element {
   const chatEnabled = useChatFeatureEnabled();
+  const location = useLocation();
+  const isChat = location.pathname === routes.chat;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -76,11 +78,13 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
         </div>
       </header>
       <main className="flex-1 min-h-0 overflow-auto">{children}</main>
-      <footer className="border-t border-border py-4">
-        <div className="container text-xs text-muted-foreground">
-          Rustacean control plane
-        </div>
-      </footer>
+      {!isChat && (
+        <footer className="border-t border-border py-4">
+          <div className="container text-xs text-muted-foreground">
+            Rustacean control plane
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
