@@ -374,3 +374,82 @@ async fn ac_parent_user_id_present_on_assistant_frames_null_on_user_input() {
         "parent_user_id on assistant frame must equal the user message row id"
     );
 }
+
+// ---------------------------------------------------------------------------
+// RUSAA-2037 — Thinking accumulator: N consecutive Thinking events → ONE block
+//
+// Before this fix each Thinking event flushed immediately into its own assistant
+// row. Now consecutive Thinking payloads within a single batch are merged into
+// one `{type:"thinking",thinking:<concatenated>}` block.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn rusaa_2037_consecutive_thinking_events_collapse_to_one_block() {
+    let Some((state, pool)) = real_db_state().await else {
+        return;
+    };
+    let fx = insert_chat_fixture(&pool).await;
+
+    let body = serde_json::json!({
+        "tenant_id": fx.tenant_id,
+        "events": [
+            {"type": "thinking", "thinking": "Step 1: "},
+            {"type": "thinking", "thinking": "Step 2: "},
+            {"type": "thinking", "thinking": "Step 3."}
+        ]
+    });
+
+    let resp = build_internal(state)
+        .oneshot(
+            axum::http::Request::builder()
+                .method("POST")
+                .uri(ingest_uri(fx.session_id))
+                .header("content-type", "application/json")
+                .header("x-internal-secret", INTERNAL_SECRET)
+                .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Exactly one assistant row must have been persisted.
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT body FROM control.chat_messages \
+         WHERE session_id = $1 AND role = 'assistant' \
+         ORDER BY seq",
+    )
+    .bind(fx.session_id)
+    .fetch_all(&pool)
+    .await
+    .expect("query chat_messages");
+
+    assert_eq!(
+        rows.len(),
+        1,
+        "RUSAA-2037: 3 consecutive Thinking events must produce exactly 1 assistant row, got {}",
+        rows.len()
+    );
+
+    let blocks: Vec<serde_json::Value> =
+        serde_json::from_str(&rows[0].0).expect("body must be valid JSON array");
+
+    assert_eq!(
+        blocks.len(),
+        1,
+        "RUSAA-2037: the assistant row must contain exactly 1 content block, got {}",
+        blocks.len()
+    );
+
+    let block = &blocks[0];
+    assert_eq!(
+        block["type"], "thinking",
+        "RUSAA-2037: block type must be 'thinking', got {:?}",
+        block["type"]
+    );
+    assert_eq!(
+        block["thinking"], "Step 1: Step 2: Step 3.",
+        "RUSAA-2037: thinking content must be the concatenation of all three chunks"
+    );
+}

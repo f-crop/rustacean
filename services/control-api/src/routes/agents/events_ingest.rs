@@ -177,8 +177,10 @@ async fn ingest_chat_session_events(
 
     // Content-block accumulator for the current assistant turn.
     // Consecutive `Text` payloads are merged into one block via `pending_text`.
+    // Consecutive `Thinking` payloads are merged into one block via `pending_thinking`.
     let mut pending_blocks: Vec<serde_json::Value> = Vec::new();
     let mut pending_text = String::new();
+    let mut pending_thinking = String::new();
     // turn_id for the blocks currently being accumulated.
     let mut pending_turn_id: Option<Uuid> = None;
 
@@ -230,6 +232,7 @@ async fn ingest_chat_session_events(
                     session_id,
                     req.tenant_id,
                     &mut pending_text,
+                    &mut pending_thinking,
                     &mut pending_blocks,
                     pending_turn_id.take(),
                 )
@@ -241,6 +244,7 @@ async fn ingest_chat_session_events(
                 if pending_turn_id.is_none() {
                     pending_turn_id = turn_id;
                 }
+                commit_thinking_block(&mut pending_thinking, &mut pending_blocks);
                 pending_text.push_str(text);
             }
             RuntimeEvent::Thinking { thinking } => {
@@ -248,13 +252,13 @@ async fn ingest_chat_session_events(
                     pending_turn_id = turn_id;
                 }
                 commit_text_block(&mut pending_text, &mut pending_blocks);
-                pending_blocks
-                    .push(serde_json::json!({ "type": "thinking", "thinking": thinking }));
+                pending_thinking.push_str(thinking);
             }
             RuntimeEvent::ToolUse { id, name, input } => {
                 if pending_turn_id.is_none() {
                     pending_turn_id = turn_id;
                 }
+                commit_thinking_block(&mut pending_thinking, &mut pending_blocks);
                 commit_text_block(&mut pending_text, &mut pending_blocks);
                 pending_blocks.push(serde_json::json!({ "type": "tool_use", "id": id, "name": name, "input": input }));
             }
@@ -266,6 +270,7 @@ async fn ingest_chat_session_events(
                 if pending_turn_id.is_none() {
                     pending_turn_id = turn_id;
                 }
+                commit_thinking_block(&mut pending_thinking, &mut pending_blocks);
                 commit_text_block(&mut pending_text, &mut pending_blocks);
                 pending_blocks.push(serde_json::json!({ "type": "tool_result", "tool_use_id": tool_use_id, "content": content, "is_error": is_error }));
             }
@@ -280,6 +285,7 @@ async fn ingest_chat_session_events(
         session_id,
         req.tenant_id,
         &mut pending_text,
+        &mut pending_thinking,
         &mut pending_blocks,
         pending_turn_id.take(),
     )
@@ -301,15 +307,29 @@ fn commit_text_block(pending_text: &mut String, pending_blocks: &mut Vec<serde_j
     }
 }
 
+/// Move any buffered thinking into `pending_blocks` as a `{"type":"thinking",…}` entry.
+fn commit_thinking_block(
+    pending_thinking: &mut String,
+    pending_blocks: &mut Vec<serde_json::Value>,
+) {
+    if !pending_thinking.is_empty() {
+        pending_blocks
+            .push(serde_json::json!({ "type": "thinking", "thinking": pending_thinking.as_str() }));
+        pending_thinking.clear();
+    }
+}
+
 /// Flush accumulated content blocks as a single `role=assistant` chat message (JSON array body).
 async fn flush_pending_turn(
     pool: &PgPool,
     session_id: Uuid,
     tenant_id: Uuid,
     pending_text: &mut String,
+    pending_thinking: &mut String,
     pending_blocks: &mut Vec<serde_json::Value>,
     turn_id: Option<Uuid>,
 ) {
+    commit_thinking_block(pending_thinking, pending_blocks);
     commit_text_block(pending_text, pending_blocks);
     if pending_blocks.is_empty() {
         return;
