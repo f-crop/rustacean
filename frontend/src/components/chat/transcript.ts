@@ -80,6 +80,8 @@ export function appendAssistantItem(
     return [...pending, { type: "text", text: payload.text, seq: sequence }];
   }
   if (payload.type === "thinking") {
+    // Guard: server may omit `thinking` or use a different field; skip the item rather than storing undefined.
+    if (typeof payload.thinking !== "string") return pending;
     return [...pending, { type: "thinking", thinking: payload.thinking, seq: sequence }];
   }
   if (payload.type === "tool_use") {

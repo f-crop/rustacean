@@ -111,7 +111,7 @@ function SessionRow({ session, isActive, onClick }: SessionRowProps): JSX.Elemen
           <span className="text-xs font-medium">{runtimeLabel}</span>
         </div>
         <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/70">
-          {session.id.slice(0, 8)}…
+          {(session.id ?? "").slice(0, 8)}…
         </p>
         <p className="mt-0.5 text-[10px] text-muted-foreground/60">{created}</p>
       </button>
