@@ -20,6 +20,23 @@ import {
 // v2 identity-based merge: buildLiveTurnMap + mergeTranscript
 // ---------------------------------------------------------------------------
 
+/** Concatenate two item arrays, merging a trailing thinking block with a leading thinking block. */
+function concatMergingThinking(
+  a: ReadonlyArray<AssistantItem>,
+  b: ReadonlyArray<AssistantItem>,
+): ReadonlyArray<AssistantItem> {
+  const lastA = a[a.length - 1];
+  const firstB = b[0];
+  if (lastA?.type === "thinking" && firstB?.type === "thinking") {
+    return [
+      ...a.slice(0, -1),
+      { type: "thinking", thinking: lastA.thinking + firstB.thinking, seq: lastA.seq },
+      ...b.slice(1),
+    ];
+  }
+  return [...a, ...b];
+}
+
 /** Concatenate text items from a live turn for content-based dedup. */
 function extractLiveText(items: ReadonlyArray<AssistantItem>): string {
   return items
@@ -207,7 +224,7 @@ export function mergeTranscript(
         const existing = result[existingIdx] as AssistantTranscriptItem;
         const mergedItems = live?.isInProgress
           ? live.items
-          : [...existing.items, ...newItems];
+          : concatMergingThinking(existing.items, newItems);
         const updatedItem: AssistantTranscriptItem = {
           kind: "assistant",
           id: existing.id,

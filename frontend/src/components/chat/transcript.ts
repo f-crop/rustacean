@@ -82,6 +82,13 @@ export function appendAssistantItem(
   if (payload.type === "thinking") {
     // Guard: server may omit `thinking` or use a different field; skip the item rather than storing undefined.
     if (typeof payload.thinking !== "string") return pending;
+    const lastThinking = pending[pending.length - 1];
+    if (lastThinking?.type === "thinking") {
+      return [
+        ...pending.slice(0, -1),
+        { type: "thinking", thinking: lastThinking.thinking + payload.thinking, seq: lastThinking.seq },
+      ];
+    }
     return [...pending, { type: "thinking", thinking: payload.thinking, seq: sequence }];
   }
   if (payload.type === "tool_use") {
@@ -131,7 +138,12 @@ export function tryParseContentBlocks(body: string): ReadonlyArray<AssistantItem
     if (b.type === "text" && typeof b.text === "string") {
       result.push({ type: "text", text: b.text, seq: idx });
     } else if (b.type === "thinking" && typeof b.thinking === "string") {
-      result.push({ type: "thinking", thinking: b.thinking, seq: idx });
+      const lastThinking = result[result.length - 1];
+      if (lastThinking?.type === "thinking") {
+        result[result.length - 1] = { type: "thinking", thinking: lastThinking.thinking + b.thinking, seq: lastThinking.seq };
+      } else {
+        result.push({ type: "thinking", thinking: b.thinking, seq: idx });
+      }
     } else if (b.type === "tool_use" && typeof b.id === "string" && typeof b.name === "string") {
       result.push({ type: "tool_use", id: b.id, name: b.name, input: b.input, seq: idx });
     } else if (b.type === "tool_result" && typeof b.tool_use_id === "string") {

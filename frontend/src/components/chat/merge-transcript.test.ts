@@ -302,3 +302,60 @@ describe("mergeTranscript — signal shape 10: three-turn v2 all from DB, no liv
     expect(texts).toEqual(["a1", "a2", "a3"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// RUSAA-2035: thinking-delta merge — split-batch concat path
+// ---------------------------------------------------------------------------
+
+describe("mergeTranscript — RUSAA-2035: thinking blocks collapsed on split-batch concat", () => {
+  it("collapses trailing thinking + leading thinking when merging two split-batch rows", () => {
+    // Control-api emitted two rows for the same turn_id:
+    // row 1: [thinking:"chunk1"]
+    // row 2: [thinking:"chunk2", text:"Answer."]
+    const hist: ChatMessage[] = [
+      histMsg("u1", 1, "user", "q", TURN_X),
+      histMsg("a1", 2, "assistant", JSON.stringify([
+        { type: "thinking", thinking: "chunk1" },
+      ]), TURN_X),
+      histMsg("a2", 3, "assistant", JSON.stringify([
+        { type: "thinking", thinking: "chunk2" },
+        { type: "text", text: "Answer." },
+      ]), TURN_X),
+    ];
+    const items = mergeTranscript(hist, []);
+
+    expect(items).toHaveLength(2);
+    const a = items[1];
+    expect(a?.kind).toBe("assistant");
+    if (a?.kind !== "assistant") throw new Error("unreachable");
+    // Must be ONE thinking + ONE text — not two thinking items
+    expect(a.items).toHaveLength(2);
+    expect(a.items[0]).toMatchObject({ type: "thinking", thinking: "chunk1chunk2" });
+    expect(a.items[1]).toMatchObject({ type: "text", text: "Answer." });
+  });
+
+  it("does NOT collapse thinking blocks separated by another item type", () => {
+    // row 1: [thinking:"before", text:"middle"]
+    // row 2: [thinking:"after"]
+    // The thinking blocks are not adjacent after concat so should stay separate.
+    const hist: ChatMessage[] = [
+      histMsg("u1", 1, "user", "q", TURN_X),
+      histMsg("a1", 2, "assistant", JSON.stringify([
+        { type: "thinking", thinking: "before" },
+        { type: "text", text: "middle" },
+      ]), TURN_X),
+      histMsg("a2", 3, "assistant", JSON.stringify([
+        { type: "thinking", thinking: "after" },
+      ]), TURN_X),
+    ];
+    const items = mergeTranscript(hist, []);
+
+    expect(items).toHaveLength(2);
+    const a = items[1];
+    if (a?.kind !== "assistant") throw new Error("unreachable");
+    expect(a.items).toHaveLength(3);
+    expect(a.items[0]?.type).toBe("thinking");
+    expect(a.items[1]?.type).toBe("text");
+    expect(a.items[2]?.type).toBe("thinking");
+  });
+});
