@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTranscript, buildTranscriptFromHistory } from "./transcript";
+import { buildTranscript, buildTranscriptFromHistory, appendAssistantItem, tryParseContentBlocks } from "./transcript";
 import type { StreamedEvent } from "@/hooks/useEventStream";
 import type { ChatMessage } from "@/lib/chat-api";
 
@@ -410,6 +410,133 @@ describe("buildTranscript — text-before-tool_use merge (RUSAA-1966)", () => {
     if (a2?.kind !== "assistant") throw new Error("unreachable");
     expect(a2.items[0]?.type).toBe("tool_use");
     expect(a2.inProgress).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RUSAA-2035: thinking-delta merge
+// ---------------------------------------------------------------------------
+
+describe("appendAssistantItem — consecutive thinking deltas merged (live-stream path)", () => {
+  it("merges two consecutive thinking payloads into one item", () => {
+    let items = appendAssistantItem([], { type: "thinking", thinking: "Step 1." }, 1);
+    items = appendAssistantItem(items, { type: "thinking", thinking: " Step 2." }, 2);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ type: "thinking", thinking: "Step 1. Step 2.", seq: 1 });
+  });
+
+  it("merges N consecutive thinking payloads into one item", () => {
+    let items = appendAssistantItem([], { type: "thinking", thinking: "A" }, 1);
+    items = appendAssistantItem(items, { type: "thinking", thinking: "B" }, 2);
+    items = appendAssistantItem(items, { type: "thinking", thinking: "C" }, 3);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ type: "thinking", thinking: "ABC", seq: 1 });
+  });
+
+  it("does NOT merge thinking with a following text item", () => {
+    let items = appendAssistantItem([], { type: "thinking", thinking: "Thinking..." }, 1);
+    items = appendAssistantItem(items, { type: "text", text: "Answer." }, 2);
+
+    expect(items).toHaveLength(2);
+    expect(items[0]?.type).toBe("thinking");
+    expect(items[1]?.type).toBe("text");
+  });
+
+  it("does NOT merge text with a following thinking item", () => {
+    let items = appendAssistantItem([], { type: "text", text: "prefix" }, 1);
+    items = appendAssistantItem(items, { type: "thinking", thinking: "Thinking..." }, 2);
+
+    expect(items).toHaveLength(2);
+    expect(items[0]?.type).toBe("text");
+    expect(items[1]?.type).toBe("thinking");
+  });
+
+  it("buildTranscript: live stream with many thinking chunks yields one thinking item", () => {
+    const events: StreamedEvent[] = [
+      sseEvent({ type: "user_input", text: "hello" }, 1),
+      sseEvent({ type: "thinking", thinking: "chunk1" }, 2),
+      sseEvent({ type: "thinking", thinking: "chunk2" }, 3),
+      sseEvent({ type: "thinking", thinking: "chunk3" }, 4),
+      sseEvent({ type: "text", text: "Answer." }, 5),
+      sseEvent({ type: "turn_complete", stop_reason: "end_turn" }, 6),
+    ];
+    const items = buildTranscript(events);
+
+    expect(items).toHaveLength(2);
+    const assistant = items[1];
+    if (assistant?.kind !== "assistant") throw new Error("unreachable");
+    expect(assistant.items).toHaveLength(2);
+    expect(assistant.items[0]).toMatchObject({ type: "thinking", thinking: "chunk1chunk2chunk3", seq: 2 });
+    expect(assistant.items[1]).toMatchObject({ type: "text", text: "Answer." });
+  });
+});
+
+describe("tryParseContentBlocks — adjacent thinking blocks collapsed (single-row parse path)", () => {
+  it("collapses two adjacent thinking blocks in a single DB row", () => {
+    const body = JSON.stringify([
+      { type: "thinking", thinking: "Part A." },
+      { type: "thinking", thinking: " Part B." },
+    ]);
+    const blocks = tryParseContentBlocks(body);
+
+    expect(blocks).not.toBeNull();
+    expect(blocks).toHaveLength(1);
+    expect(blocks![0]).toMatchObject({ type: "thinking", thinking: "Part A. Part B.", seq: 0 });
+  });
+
+  it("collapses N adjacent thinking blocks in a single DB row", () => {
+    const body = JSON.stringify([
+      { type: "thinking", thinking: "X" },
+      { type: "thinking", thinking: "Y" },
+      { type: "thinking", thinking: "Z" },
+    ]);
+    const blocks = tryParseContentBlocks(body);
+
+    expect(blocks).not.toBeNull();
+    expect(blocks).toHaveLength(1);
+    expect(blocks![0]).toMatchObject({ type: "thinking", thinking: "XYZ", seq: 0 });
+  });
+
+  it("does NOT collapse thinking blocks separated by a text block", () => {
+    const body = JSON.stringify([
+      { type: "thinking", thinking: "Before." },
+      { type: "text", text: "Response." },
+      { type: "thinking", thinking: "After." },
+    ]);
+    const blocks = tryParseContentBlocks(body);
+
+    expect(blocks).not.toBeNull();
+    expect(blocks).toHaveLength(3);
+    expect(blocks![0]?.type).toBe("thinking");
+    expect(blocks![1]?.type).toBe("text");
+    expect(blocks![2]?.type).toBe("thinking");
+  });
+
+  it("buildTranscriptFromHistory: historical row with many thinking blocks renders as one accordion", () => {
+    const messages: ChatMessage[] = [
+      { id: "u1", seq: 1, role: "user", body: "q", created_at: "2026-01-01T00:00:00Z" },
+      {
+        id: "a1",
+        seq: 2,
+        role: "assistant",
+        body: JSON.stringify([
+          { type: "thinking", thinking: "chunk1" },
+          { type: "thinking", thinking: "chunk2" },
+          { type: "text", text: "Done." },
+        ]),
+        created_at: "2026-01-01T00:00:01Z",
+      },
+    ];
+    const items = buildTranscriptFromHistory(messages);
+
+    expect(items).toHaveLength(2);
+    const a = items[1];
+    if (a?.kind !== "assistant") throw new Error("unreachable");
+    expect(a.items).toHaveLength(2);
+    expect(a.items[0]).toMatchObject({ type: "thinking", thinking: "chunk1chunk2" });
+    expect(a.items[1]).toMatchObject({ type: "text", text: "Done." });
   });
 });
 
