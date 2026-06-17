@@ -125,13 +125,14 @@ function ThinkingBlock({
   readonly thinking: string;
   readonly sequence: number;
 }): JSX.Element {
-  const preview = thinking.slice(0, 80);
+  const safeThinking = thinking ?? "";
+  const preview = safeThinking.slice(0, 80);
   return (
     <details className="rounded border border-border/40 bg-muted/10 px-3 py-2 text-xs">
       <summary className="cursor-pointer text-muted-foreground">
-        #{sequence} Thinking: {preview}{thinking.length > 80 ? "…" : ""}
+        #{sequence} Thinking: {preview}{safeThinking.length > 80 ? "…" : ""}
       </summary>
-      <MarkdownContent text={thinking} className="mt-2 text-muted-foreground" />
+      <MarkdownContent text={safeThinking} className="mt-2 text-muted-foreground" />
     </details>
   );
 }
