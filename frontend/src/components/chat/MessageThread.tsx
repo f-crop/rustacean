@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { MarkdownContent } from "./MarkdownContent";
 import type { TranscriptItem, AssistantItem } from "./transcript";
+import { extractThinkingPhases, buildConsolidatedContent } from "./message-thread-utils";
 
 interface MessageThreadProps {
   readonly items: ReadonlyArray<TranscriptItem>;
@@ -69,15 +70,16 @@ function UserBubble({ text }: { readonly text: string }): JSX.Element {
 function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantItem> }): JSX.Element {
   if (items.length === 0) return <></>;
 
+  const consolidated = buildConsolidatedContent(extractThinkingPhases(items));
+
   return (
     <div className="flex justify-start">
       <div className="max-w-[90%] space-y-2">
+        {consolidated !== null && <ConsolidatedReasoning content={consolidated} />}
         {items.map((item) => {
+          if (item.type === "thinking") return null;
           if (item.type === "text") {
             return <MarkdownContent key={item.seq} text={item.text} />;
-          }
-          if (item.type === "thinking") {
-            return <ThinkingBlock key={item.seq} thinking={item.thinking} sequence={item.seq} />;
           }
           if (item.type === "tool_use") {
             const result = findToolResult(items, item.id);
@@ -118,21 +120,11 @@ function findToolResult(
   return null;
 }
 
-function ThinkingBlock({
-  thinking,
-  sequence,
-}: {
-  readonly thinking: string;
-  readonly sequence: number;
-}): JSX.Element {
-  const safeThinking = thinking ?? "";
-  const preview = safeThinking.slice(0, 80);
+function ConsolidatedReasoning({ content }: { readonly content: string }): JSX.Element {
   return (
     <details className="rounded border border-border/40 bg-muted/10 px-3 py-2 text-xs">
-      <summary className="cursor-pointer text-muted-foreground">
-        #{sequence} Thinking: {preview}{safeThinking.length > 80 ? "…" : ""}
-      </summary>
-      <MarkdownContent text={safeThinking} className="mt-2 text-muted-foreground" />
+      <summary className="cursor-pointer text-muted-foreground">Reasoning</summary>
+      <MarkdownContent text={content} className="mt-2 text-muted-foreground" />
     </details>
   );
 }
