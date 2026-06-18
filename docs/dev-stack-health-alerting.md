@@ -13,8 +13,13 @@ The `rustbrain-dev-health` systemd timer runs `scripts/dev-health-check.sh` ever
 | control-api `/health` | `GET http://localhost:18080/health` → expects 200 |
 | frontend | `GET http://localhost:15173/` → expects 200 |
 | Loki `/ready` | `docker exec rustbrain-dev-loki-1 wget --spider http://localhost:3100/ready` (in-network probe) |
+| Crash-loop (all containers) | `RestartCount` delta > 3 within a 10-minute sliding window — catches rapid exit/restart loops |
+| Stuck in `created` (all containers) | Container was created > 5 min ago but never started — caused by port bind failure or missing env-file (the real incident: `control-api-1` stuck Created for 2h after `compose up` without `--env-file`) |
+| Stuck in `restarting` (all containers) | Container has been in Docker `restarting` state for > 5 min — Docker can't get it to `running` |
 
 Host ports resolve from `compose/tailscale.env` (`CONTROL_API_HOST_PORT`, `FRONTEND_HOST_PORT`). Loki does not publish a host port — the probe runs inside the container, so a Loki check fails iff the container itself is unhealthy.
+
+The last three checks run against **all** `rustbrain-dev` containers (not just the critical four), so silent failures in worker containers (qdrant, loki, projectors, etc.) are also caught.
 
 ## Alert behaviour
 
@@ -116,7 +121,29 @@ Override via `EnvironmentFile` or `Environment=` in the service unit:
 |----------|---------|-------------|
 | `COMPOSE_ENV_FILE` | (none) | Path to tailscale.env for port overrides |
 | `ALERT_COOLDOWN_SECS` | `1800` | Minimum seconds between Paperclip alerts |
-| `RB_STATE_DIR` | `~/.local/state/rustbrain` | State directory for cooldown tracking |
+| `RB_STATE_DIR` | `~/.local/state/rustbrain` | State directory for cooldown and crash-loop tracking |
+| `CRASH_LOOP_WINDOW_SECS` | `600` | Sliding window (seconds) for crash-loop detection |
+| `CRASH_LOOP_THRESHOLD` | `3` | Max restart delta within the window before alerting |
+| `STUCK_STATE_SECS` | `300` | Seconds a container must be stuck in `created`/`restarting` before alerting |
+
+### State files written by the health check
+
+The script maintains state under `$RB_STATE_DIR` (default `~/.local/state/rustbrain`):
+
+```
+~/.local/state/rustbrain/
+├── dev-health-alert.last         # epoch of last Paperclip alert (cooldown)
+├── restart-counts/
+│   └── rustbrain-dev-<svc>-1    # per-container sliding restart-count history
+└── stuck-since/
+    └── rustbrain-dev-<svc>-1.restarting  # first time we saw this container in restarting state
+```
+
+To reset all state (e.g. after resolving an incident):
+
+```bash
+rm -rf ~/.local/state/rustbrain
+```
 
 ## Disabling temporarily
 
