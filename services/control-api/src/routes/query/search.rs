@@ -17,6 +17,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
+    embed::normalize_query,
     error::AppError,
     middleware::auth::{AuthContext, Scope},
     state::AppState,
@@ -90,7 +91,8 @@ async fn embed_query(
     query: &str,
 ) -> Result<Vec<f32>, AppError> {
     let url = format!("{}/api/embeddings", ollama_url.trim_end_matches('/'));
-    let body = serde_json::json!({ "model": model, "prompt": query });
+    let prompt = normalize_query(query);
+    let body = serde_json::json!({ "model": model, "prompt": prompt });
 
     let resp = http.post(&url).json(&body).send().await.map_err(|e| {
         tracing::warn!("Ollama request failed: {e}");
@@ -233,7 +235,10 @@ pub async fn search(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::middleware::auth::{ApiKeyInfo, SessionInfo};
+    use crate::{
+        embed::normalize_query,
+        middleware::auth::{ApiKeyInfo, SessionInfo},
+    };
 
     fn verified_session(tenant_id: Uuid) -> SessionInfo {
         SessionInfo {
@@ -242,6 +247,12 @@ mod tests {
             tenant_id,
             email_verified: true,
         }
+    }
+
+    #[test]
+    fn normalize_query_hello_world() {
+        // AC-3: identical assertion required in both the MCP and REST route modules.
+        assert_eq!(normalize_query("HelloWorld"), "search_query: hello world");
     }
 
     #[test]

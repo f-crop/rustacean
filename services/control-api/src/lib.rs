@@ -1,6 +1,7 @@
 mod agents;
 mod config;
 mod crypto;
+mod embed;
 mod error;
 mod ingest_consumer;
 mod jobs;
