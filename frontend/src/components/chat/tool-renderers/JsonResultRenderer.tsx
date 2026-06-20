@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Copy, Check } from "lucide-react";
 import PrismLight from "react-syntax-highlighter/dist/esm/prism-light";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import json from "react-syntax-highlighter/dist/esm/languages/prism/json";
 import { useCallback, useEffect, useRef } from "react";
 import { MarkdownContent } from "../MarkdownContent";
-import { deepDecodeJsonStrings, looksLikeMarkdown, needsTruncation } from "../tool-call-utils";
+import { deepDecodeJsonStrings, looksLikeMarkdown, needsTruncation, selectPrismStyle } from "../tool-call-utils";
+import { useTheme } from "@/components/theme/theme-context";
 
 PrismLight.registerLanguage("json", json);
 
@@ -50,6 +50,8 @@ function JsonBlock({ value, copyText }: { readonly value: string; readonly copyT
   const [showMore, setShowMore] = useState(false);
   const lines = value.split("\n");
   const displayValue = truncate && !showMore ? lines.slice(0, TRUNCATE_LINES).join("\n") : value;
+  const { resolvedTheme } = useTheme();
+  const prismStyle = selectPrismStyle(resolvedTheme);
 
   return (
     <div className="overflow-hidden rounded bg-muted">
@@ -58,7 +60,7 @@ function JsonBlock({ value, copyText }: { readonly value: string; readonly copyT
       </div>
       <PrismLight
         language="json"
-        style={oneDark}
+        style={prismStyle}
         PreTag="div"
         customStyle={{ margin: 0, borderRadius: 0, fontSize: "0.75rem", lineHeight: "1.5" }}
       >

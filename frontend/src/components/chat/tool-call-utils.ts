@@ -1,5 +1,11 @@
+import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+
 const TRUNCATE_LINES = 200;
 const TRUNCATE_BYTES = 8192;
+
+export function selectPrismStyle(resolvedTheme: "light" | "dark"): typeof oneDark {
+  return resolvedTheme === "dark" ? oneDark : oneLight;
+}
 
 export type ToolRendererType = "read" | "bash" | "json";
 
