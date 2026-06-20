@@ -77,6 +77,14 @@ function CodeWorkspaceInner({ repoId, tenantId }: CodeWorkspaceInnerProps): JSX.
     });
   };
 
+  const handleSearchSelect = (_fqn: string, encodedB64: string, resultRepoId: string) => {
+    void navigate({
+      to: routes.codeWorkspace,
+      params: { repoId: resultRepoId },
+      search: { fqn: encodedB64 },
+    });
+  };
+
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden">
       <header className="flex shrink-0 items-center gap-3 border-b border-border bg-background px-4 py-2">
@@ -176,7 +184,7 @@ function CodeWorkspaceInner({ repoId, tenantId }: CodeWorkspaceInnerProps): JSX.
             aria-label="Search"
             className={cn("flex-1 overflow-hidden", sideTab !== "search" && "hidden")}
           >
-            <SearchPanel onSelect={handleSelect} />
+            <SearchPanel onSelect={handleSearchSelect} repos={repos.data?.repos ?? []} />
           </div>
           <div
             id="side-panel-relations"
