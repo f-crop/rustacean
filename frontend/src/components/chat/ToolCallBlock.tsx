@@ -9,8 +9,8 @@ import { ReadResultRenderer } from "./tool-renderers/ReadResultRenderer";
 function InputBlock({ input }: { readonly input: unknown }): JSX.Element {
   const text = JSON.stringify(deepDecodeJsonStrings(input), null, 2);
   return (
-    <div className="overflow-hidden rounded bg-zinc-900">
-      <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed text-zinc-300 whitespace-pre">
+    <div className="overflow-hidden rounded bg-muted">
+      <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed text-foreground/90 whitespace-pre">
         {text}
       </pre>
     </div>
@@ -19,7 +19,7 @@ function InputBlock({ input }: { readonly input: unknown }): JSX.Element {
 
 function SectionLabel({ children }: { readonly children: string }): JSX.Element {
   return (
-    <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+    <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
       {children}
     </p>
   );
@@ -63,14 +63,14 @@ export function ToolCallBlock({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border bg-zinc-900/60",
-        error ? "border-destructive/40" : "border-zinc-800",
+        "overflow-hidden rounded-lg border bg-card",
+        error ? "border-destructive/40" : "border-border",
       )}
       data-testid="tool-call-block"
     >
       {timestamp !== undefined && (
         <time
-          className="block px-3 pt-2 text-[10px] text-zinc-600"
+          className="block px-3 pt-2 text-[10px] text-muted-foreground/70"
           dateTime={new Date(timestamp).toISOString()}
         >
           {new Date(timestamp).toLocaleString("en-US", {
@@ -86,7 +86,7 @@ export function ToolCallBlock({
       )}
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/50 transition-colors"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent transition-colors"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-label={`${name} tool call — ${statusLabel}`}
@@ -97,11 +97,11 @@ export function ToolCallBlock({
         >
           *
         </span>
-        <span className="shrink-0 font-semibold text-sm text-zinc-200">
+        <span className="shrink-0 font-semibold text-sm text-foreground">
           {name}
         </span>
         {argsPreview && (
-          <span className="min-w-0 flex-1 truncate text-xs text-zinc-500">
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
             {argsPreview}
           </span>
         )}
@@ -115,9 +115,9 @@ export function ToolCallBlock({
           )}
           <span className="sr-only">{statusLabel}</span>
           {open ? (
-            <ChevronUp className="h-3.5 w-3.5 text-zinc-500" aria-hidden="true" />
+            <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
           ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-zinc-500" aria-hidden="true" />
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
           )}
         </span>
       </button>
@@ -129,7 +129,7 @@ export function ToolCallBlock({
         )}
       >
         <div className="overflow-hidden">
-          <div className="border-t border-zinc-800 px-3 py-3 space-y-3">
+          <div className="border-t border-border px-3 py-3 space-y-3">
             {!isEmptyInput(input) && (
               <div>
                 <SectionLabel>Input</SectionLabel>

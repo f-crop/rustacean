@@ -16,15 +16,15 @@ export function BashResultRenderer({ result }: BashResultRendererProps): JSX.Ele
   const displayText = truncate && !showMore ? lines.slice(0, TRUNCATE_LINES).join("\n") : text;
 
   return (
-    <div className="overflow-hidden rounded bg-zinc-950">
-      <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed text-zinc-200 whitespace-pre">
+    <div className="overflow-hidden rounded bg-muted">
+      <pre className="overflow-x-auto px-3 py-2 font-mono text-xs leading-relaxed text-foreground whitespace-pre">
         {displayText}
       </pre>
       {truncate && (
         <button
           type="button"
           onClick={() => setShowMore((s) => !s)}
-          className="flex w-full items-center justify-center gap-1 bg-zinc-900 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
+          className="flex w-full items-center justify-center gap-1 bg-accent py-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           {showMore ? (
             <><ChevronUp className="h-3.5 w-3.5" />Show less</>

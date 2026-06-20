@@ -68,7 +68,7 @@ export function ReadResultRenderer({ result, input }: ReadResultRendererProps): 
   const language = detectLanguage(filePath);
 
   return (
-    <div className="overflow-hidden rounded bg-zinc-900">
+    <div className="overflow-hidden rounded bg-muted">
       <PrismLight
         language={language}
         style={oneDark}
@@ -83,7 +83,7 @@ export function ReadResultRenderer({ result, input }: ReadResultRendererProps): 
         <button
           type="button"
           onClick={() => setShowMore((s) => !s)}
-          className="flex w-full items-center justify-center gap-1 bg-zinc-800 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
+          className="flex w-full items-center justify-center gap-1 bg-accent py-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           {showMore ? (
             <><ChevronUp className="h-3.5 w-3.5" />Show less</>
