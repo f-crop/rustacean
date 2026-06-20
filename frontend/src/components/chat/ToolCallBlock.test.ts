@@ -3,6 +3,8 @@ import {
   deepDecodeJsonStrings,
   looksLikeMarkdown,
   needsTruncation,
+  getToolRenderer,
+  getArgPreview,
 } from "./tool-call-utils";
 
 describe("looksLikeMarkdown", () => {
@@ -111,5 +113,52 @@ describe("needsTruncation", () => {
   it("returns false for content exactly at 8KB limit with few lines", () => {
     const content = "a".repeat(8192);
     expect(needsTruncation(content)).toBe(false);
+  });
+});
+
+describe("getToolRenderer — per-tool result renderer dispatch", () => {
+  it("Read tool → 'read' renderer (syntax-highlighted code with line numbers)", () => {
+    expect(getToolRenderer("Read")).toBe("read");
+  });
+
+  it("Bash tool → 'bash' renderer (monospace pre-formatted text)", () => {
+    expect(getToolRenderer("Bash")).toBe("bash");
+  });
+
+  it("unknown tool name → 'json' renderer (default pretty-printer)", () => {
+    expect(getToolRenderer("ToolSearch")).toBe("json");
+    expect(getToolRenderer("mcp__hindsight__recall")).toBe("json");
+    expect(getToolRenderer("Write")).toBe("json");
+    expect(getToolRenderer("")).toBe("json");
+  });
+});
+
+describe("getArgPreview — brief inline args from tool input", () => {
+  it("Read: extracts file_path", () => {
+    expect(getArgPreview("Read", { file_path: "src/main.rs" })).toBe("src/main.rs");
+  });
+
+  it("Bash: extracts command", () => {
+    expect(getArgPreview("Bash", { command: "cargo test" })).toBe("cargo test");
+  });
+
+  it("ToolSearch: extracts query", () => {
+    expect(getArgPreview("ToolSearch", { query: "mcp__hindsight__recall" })).toBe("mcp__hindsight__recall");
+  });
+
+  it("unknown tool with small input: returns JSON representation", () => {
+    const preview = getArgPreview("TaskCreate", { title: "Fix bug", priority: "high" });
+    expect(preview).toContain("title");
+  });
+
+  it("null input → empty string", () => {
+    expect(getArgPreview("Read", null)).toBe("");
+  });
+
+  it("truncates long generic JSON to 80 chars", () => {
+    const longInput = { key: "a".repeat(200) };
+    const preview = getArgPreview("Unknown", longInput);
+    expect(preview.length).toBeLessThanOrEqual(80);
+    expect(preview.endsWith("…")).toBe(true);
   });
 });

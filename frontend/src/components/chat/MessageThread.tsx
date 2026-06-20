@@ -1,8 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { MarkdownContent } from "./MarkdownContent";
 import type { TranscriptItem, AssistantItem } from "./transcript";
-import { extractThinkingPhases, buildConsolidatedContent } from "./message-thread-utils";
 
 interface MessageThreadProps {
   readonly items: ReadonlyArray<TranscriptItem>;
@@ -67,20 +66,66 @@ function UserBubble({ text }: { readonly text: string }): JSX.Element {
   );
 }
 
+function TimestampLabel({ ts }: { readonly ts: number }): JSX.Element {
+  return (
+    <time
+      className="block px-1 text-[10px] text-zinc-600"
+      dateTime={new Date(ts).toISOString()}
+    >
+      {new Date(ts).toLocaleString("en-US", {
+        month: "numeric",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      })}
+    </time>
+  );
+}
+
+function ThinkingBlock({ thinking, ts }: { readonly thinking: string; readonly ts?: number | undefined }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-1">
+      {ts !== undefined && <TimestampLabel ts={ts} />}
+      <details
+        className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-xs"
+        open={open}
+        onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      >
+        <summary className="cursor-pointer select-none text-zinc-500 hover:text-zinc-300 transition-colors">
+          + Thinking
+        </summary>
+        <MarkdownContent text={thinking} className="mt-2 text-zinc-400" />
+      </details>
+    </div>
+  );
+}
+
 function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantItem> }): JSX.Element {
   if (items.length === 0) return <></>;
-
-  const consolidated = buildConsolidatedContent(extractThinkingPhases(items));
 
   return (
     <div className="flex justify-start">
       <div className="max-w-[90%] space-y-2">
-        {consolidated !== null && <ConsolidatedReasoning content={consolidated} />}
         {items.map((item) => {
-          if (item.type === "thinking") return null;
-          if (item.type === "text") {
-            return <MarkdownContent key={item.seq} text={item.text} />;
+          if (item.type === "tool_result") return null;
+
+          if (item.type === "thinking") {
+            return <ThinkingBlock key={item.seq} thinking={item.thinking} ts={item.ts} />;
           }
+
+          if (item.type === "text") {
+            return (
+              <div key={item.seq} className="space-y-1">
+                {item.ts !== undefined && <TimestampLabel ts={item.ts} />}
+                <MarkdownContent text={item.text} />
+              </div>
+            );
+          }
+
           if (item.type === "tool_use") {
             const result = findToolResult(items, item.id);
             return (
@@ -90,10 +135,11 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
                 input={item.input}
                 result={result?.content ?? null}
                 isError={result?.isError ?? false}
-                sequence={item.seq}
+                timestamp={item.ts}
               />
             );
           }
+
           if (item.type === "error") {
             return (
               <p key={item.seq} className="text-sm text-destructive">
@@ -101,6 +147,7 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
               </p>
             );
           }
+
           return null;
         })}
       </div>
@@ -118,15 +165,6 @@ function findToolResult(
     }
   }
   return null;
-}
-
-function ConsolidatedReasoning({ content }: { readonly content: string }): JSX.Element {
-  return (
-    <details className="rounded border border-border/40 bg-muted/10 px-3 py-2 text-xs">
-      <summary className="cursor-pointer text-muted-foreground">Reasoning</summary>
-      <MarkdownContent text={content} className="mt-2 text-muted-foreground" />
-    </details>
-  );
 }
 
 function ErrorBanner({

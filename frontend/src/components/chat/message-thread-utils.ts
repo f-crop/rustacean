@@ -1,12 +1,6 @@
 import type { AssistantItem } from "./transcript";
 
-export function extractThinkingPhases(items: ReadonlyArray<AssistantItem>): string[] {
-  return items
-    .filter((item): item is Extract<AssistantItem, { type: "thinking" }> => item.type === "thinking")
-    .map((item) => item.thinking);
-}
-
-export function buildConsolidatedContent(phases: string[]): string | null {
-  const nonEmpty = phases.filter((p) => p.trim().length > 0);
-  return nonEmpty.length > 0 ? nonEmpty.join("\n\n---\n\n") : null;
+/** Returns items that render as inline blocks — excludes tool_result entries (consumed by their paired tool_use). */
+export function getInlineItems(items: ReadonlyArray<AssistantItem>): ReadonlyArray<AssistantItem> {
+  return items.filter((item) => item.type !== "tool_result");
 }

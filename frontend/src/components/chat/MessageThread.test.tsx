@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractThinkingPhases, buildConsolidatedContent } from "./message-thread-utils";
+import { getInlineItems } from "./message-thread-utils";
 import type { AssistantItem } from "./transcript";
 
 const text = (t: string, seq: number): AssistantItem => ({ type: "text", text: t, seq });
@@ -19,55 +19,51 @@ const toolResult = (seq: number): AssistantItem => ({
   seq,
 });
 
-describe("extractThinkingPhases", () => {
-  it("returns empty array when there are no thinking items", () => {
-    const items: AssistantItem[] = [text("hello", 1), toolUse(2), toolResult(3)];
-    expect(extractThinkingPhases(items)).toEqual([]);
+describe("getInlineItems — inline chronological rendering (replaces consolidated reasoning)", () => {
+  it("excludes tool_result items which are consumed by their paired tool_use", () => {
+    const items: AssistantItem[] = [toolUse(1), toolResult(2), text("answer", 3)];
+    const inline = getInlineItems(items);
+    expect(inline.map((i) => i.type)).toEqual(["tool_use", "text"]);
   });
 
-  it("returns single thinking content for one thinking block", () => {
-    const items: AssistantItem[] = [thinking("first thought", 1), text("answer", 2)];
-    expect(extractThinkingPhases(items)).toEqual(["first thought"]);
-  });
-
-  it("extracts all thinking phases from interleaved items", () => {
+  it("includes thinking items at their original sequence position", () => {
     const items: AssistantItem[] = [
-      thinking("phase one", 1),
+      thinking("thought", 1),
       toolUse(2),
       toolResult(3),
-      thinking("phase two", 4),
-      text("final answer", 5),
+      text("answer", 4),
     ];
-    expect(extractThinkingPhases(items)).toEqual(["phase one", "phase two"]);
+    const inline = getInlineItems(items);
+    expect(inline.map((i) => i.type)).toEqual(["thinking", "tool_use", "text"]);
   });
 
-  it("includes empty thinking content in returned phases", () => {
-    const items: AssistantItem[] = [thinking("", 1), thinking("   ", 2)];
-    expect(extractThinkingPhases(items)).toEqual(["", "   "]);
-  });
-});
-
-describe("buildConsolidatedContent", () => {
-  it("returns null for empty array (no accordion)", () => {
-    expect(buildConsolidatedContent([])).toBeNull();
-  });
-
-  it("returns null when all phases are empty or whitespace (no accordion)", () => {
-    expect(buildConsolidatedContent(["", "  ", "\n"])).toBeNull();
-  });
-
-  it("returns content string for a single non-empty phase (one accordion)", () => {
-    const result = buildConsolidatedContent(["some reasoning"]);
-    expect(result).toBe("some reasoning");
+  it("preserves mid-stream thinking interleaved between tool calls", () => {
+    const items: AssistantItem[] = [
+      toolUse(1),
+      toolResult(2),
+      thinking("mid thought", 3),
+      toolUse(4),
+      toolResult(5),
+      text("done", 6),
+    ];
+    const inline = getInlineItems(items);
+    expect(inline.map((i) => i.type)).toEqual(["tool_use", "thinking", "tool_use", "text"]);
+    const seqs = inline.map((i) => i.seq);
+    expect(seqs[0]).toBeLessThan(seqs[1] ?? Infinity);
+    expect(seqs[1]).toBeLessThan(seqs[2] ?? Infinity);
   });
 
-  it("joins multiple phases with separator for interleaved thinking (one accordion)", () => {
-    const result = buildConsolidatedContent(["phase one", "phase two"]);
-    expect(result).toBe("phase one\n\n---\n\nphase two");
+  it("returns empty array for empty input", () => {
+    expect(getInlineItems([])).toEqual([]);
   });
 
-  it("strips empty phases so separators only appear between substantive content", () => {
-    const result = buildConsolidatedContent(["phase one", "", "phase two"]);
-    expect(result).toBe("phase one\n\n---\n\nphase two");
+  it("returns only text when no thinking or tool calls present", () => {
+    const items: AssistantItem[] = [text("hello", 1), text("world", 2)];
+    expect(getInlineItems(items).map((i) => i.type)).toEqual(["text", "text"]);
+  });
+
+  it("thinking-only items are preserved inline", () => {
+    const items: AssistantItem[] = [thinking("a", 1), thinking("b", 2)];
+    expect(getInlineItems(items).map((i) => i.type)).toEqual(["thinking", "thinking"]);
   });
 });

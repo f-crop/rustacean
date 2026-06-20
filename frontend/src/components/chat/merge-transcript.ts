@@ -142,7 +142,7 @@ function buildLiveTurnMap(events: ReadonlyArray<StreamedEvent>): {
     }
     if (currentTurnId !== null) {
       if (firstPendingSeq < 0) firstPendingSeq = sequence;
-      pendingItems = appendAssistantItem(pendingItems, payload, sequence) as AssistantItem[];
+      pendingItems = appendAssistantItem(pendingItems, payload, sequence, Date.now()) as AssistantItem[];
     }
   }
 
@@ -210,9 +210,10 @@ export function mergeTranscript(
     if (msg.role !== "assistant") continue;
 
     const turnId = msg.turn_id;
-    const contentBlocks = tryParseContentBlocks(msg.body);
+    const ts = new Date(msg.created_at).getTime();
+    const contentBlocks = tryParseContentBlocks(msg.body, ts);
     const newItems: ReadonlyArray<AssistantItem> =
-      contentBlocks ?? [{ type: "text", text: msg.body, seq: msg.seq }];
+      contentBlocks ?? [{ type: "text", text: msg.body, seq: msg.seq, ts }];
 
     if (turnId) {
       processedLiveTurnIds.add(turnId);
