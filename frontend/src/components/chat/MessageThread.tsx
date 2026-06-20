@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { MarkdownContent } from "./MarkdownContent";
 import type { TranscriptItem, AssistantItem } from "./transcript";
@@ -69,7 +69,7 @@ function UserBubble({ text }: { readonly text: string }): JSX.Element {
 function TimestampLabel({ ts }: { readonly ts: number }): JSX.Element {
   return (
     <time
-      className="block px-1 text-[10px] text-zinc-600"
+      className="block px-1 text-[10px] text-muted-foreground/70"
       dateTime={new Date(ts).toISOString()}
     >
       {new Date(ts).toLocaleString("en-US", {
@@ -85,25 +85,6 @@ function TimestampLabel({ ts }: { readonly ts: number }): JSX.Element {
   );
 }
 
-function ThinkingBlock({ thinking, ts }: { readonly thinking: string; readonly ts?: number | undefined }): JSX.Element {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="space-y-1">
-      {ts !== undefined && <TimestampLabel ts={ts} />}
-      <details
-        className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-xs"
-        open={open}
-        onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
-      >
-        <summary className="cursor-pointer select-none text-zinc-500 hover:text-zinc-300 transition-colors">
-          + Thinking
-        </summary>
-        <MarkdownContent text={thinking} className="mt-2 text-zinc-400" />
-      </details>
-    </div>
-  );
-}
-
 function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantItem> }): JSX.Element {
   if (items.length === 0) return <></>;
 
@@ -111,11 +92,7 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
     <div className="flex justify-start">
       <div className="max-w-[90%] space-y-2">
         {items.map((item) => {
-          if (item.type === "tool_result") return null;
-
-          if (item.type === "thinking") {
-            return <ThinkingBlock key={item.seq} thinking={item.thinking} ts={item.ts} />;
-          }
+          if (item.type === "tool_result" || item.type === "thinking") return null;
 
           if (item.type === "text") {
             return (

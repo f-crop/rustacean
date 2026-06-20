@@ -37,7 +37,7 @@ function CopyButton({ text }: { readonly text: string }): JSX.Element {
     <button
       type="button"
       onClick={handleCopy}
-      className="rounded p-1 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-zinc-100"
+      className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       aria-label={copied ? "Copied" : "Copy to clipboard"}
     >
       {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -52,8 +52,8 @@ function JsonBlock({ value, copyText }: { readonly value: string; readonly copyT
   const displayValue = truncate && !showMore ? lines.slice(0, TRUNCATE_LINES).join("\n") : value;
 
   return (
-    <div className="overflow-hidden rounded bg-zinc-900">
-      <div className="flex items-center justify-end bg-zinc-800 px-2 py-1">
+    <div className="overflow-hidden rounded bg-muted">
+      <div className="flex items-center justify-end bg-accent px-2 py-1">
         <CopyButton text={copyText ?? value} />
       </div>
       <PrismLight
@@ -68,7 +68,7 @@ function JsonBlock({ value, copyText }: { readonly value: string; readonly copyT
         <button
           type="button"
           onClick={() => setShowMore((s) => !s)}
-          className="flex w-full items-center justify-center gap-1 bg-zinc-800 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
+          className="flex w-full items-center justify-center gap-1 bg-accent py-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           {showMore ? (
             <><ChevronUp className="h-3.5 w-3.5" />Show less</>

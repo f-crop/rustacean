@@ -26,7 +26,7 @@ describe("getInlineItems — inline chronological rendering (replaces consolidat
     expect(inline.map((i) => i.type)).toEqual(["tool_use", "text"]);
   });
 
-  it("includes thinking items at their original sequence position", () => {
+  it("excludes thinking items (not rendered by UI)", () => {
     const items: AssistantItem[] = [
       thinking("thought", 1),
       toolUse(2),
@@ -34,10 +34,10 @@ describe("getInlineItems — inline chronological rendering (replaces consolidat
       text("answer", 4),
     ];
     const inline = getInlineItems(items);
-    expect(inline.map((i) => i.type)).toEqual(["thinking", "tool_use", "text"]);
+    expect(inline.map((i) => i.type)).toEqual(["tool_use", "text"]);
   });
 
-  it("preserves mid-stream thinking interleaved between tool calls", () => {
+  it("excludes mid-stream thinking interleaved between tool calls", () => {
     const items: AssistantItem[] = [
       toolUse(1),
       toolResult(2),
@@ -47,10 +47,7 @@ describe("getInlineItems — inline chronological rendering (replaces consolidat
       text("done", 6),
     ];
     const inline = getInlineItems(items);
-    expect(inline.map((i) => i.type)).toEqual(["tool_use", "thinking", "tool_use", "text"]);
-    const seqs = inline.map((i) => i.seq);
-    expect(seqs[0]).toBeLessThan(seqs[1] ?? Infinity);
-    expect(seqs[1]).toBeLessThan(seqs[2] ?? Infinity);
+    expect(inline.map((i) => i.type)).toEqual(["tool_use", "tool_use", "text"]);
   });
 
   it("returns empty array for empty input", () => {
@@ -62,8 +59,8 @@ describe("getInlineItems — inline chronological rendering (replaces consolidat
     expect(getInlineItems(items).map((i) => i.type)).toEqual(["text", "text"]);
   });
 
-  it("thinking-only items are preserved inline", () => {
+  it("thinking-only items are excluded (not rendered)", () => {
     const items: AssistantItem[] = [thinking("a", 1), thinking("b", 2)];
-    expect(getInlineItems(items).map((i) => i.type)).toEqual(["thinking", "thinking"]);
+    expect(getInlineItems(items)).toEqual([]);
   });
 });
