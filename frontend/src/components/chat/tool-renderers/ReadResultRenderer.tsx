@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import PrismLight from "react-syntax-highlighter/dist/esm/prism-light";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
 import javascript from "react-syntax-highlighter/dist/esm/languages/prism/javascript";
 import python from "react-syntax-highlighter/dist/esm/languages/prism/python";
@@ -9,7 +8,8 @@ import rust from "react-syntax-highlighter/dist/esm/languages/prism/rust";
 import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
 import json from "react-syntax-highlighter/dist/esm/languages/prism/json";
 import tsx from "react-syntax-highlighter/dist/esm/languages/prism/tsx";
-import { needsTruncation } from "../tool-call-utils";
+import { needsTruncation, selectPrismStyle } from "../tool-call-utils";
+import { useTheme } from "@/components/theme/theme-context";
 
 PrismLight.registerLanguage("typescript", typescript);
 PrismLight.registerLanguage("ts", typescript);
@@ -61,6 +61,8 @@ export function ReadResultRenderer({ result, input }: ReadResultRendererProps): 
   const [showMore, setShowMore] = useState(false);
   const lines = text.split("\n");
   const displayText = truncate && !showMore ? lines.slice(0, TRUNCATE_LINES).join("\n") : text;
+  const { resolvedTheme } = useTheme();
+  const prismStyle = selectPrismStyle(resolvedTheme);
 
   const filePath = input !== null && typeof input === "object" && !Array.isArray(input)
     ? (input as Record<string, unknown>)["file_path"]
@@ -71,7 +73,7 @@ export function ReadResultRenderer({ result, input }: ReadResultRendererProps): 
     <div className="overflow-hidden rounded bg-muted">
       <PrismLight
         language={language}
-        style={oneDark}
+        style={prismStyle}
         PreTag="div"
         showLineNumbers
         customStyle={{ margin: 0, borderRadius: 0, fontSize: "0.75rem", lineHeight: "1.5" }}
