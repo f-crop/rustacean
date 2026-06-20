@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { useSearch, fqnToB64, type SearchResult } from "@/api/hooks/useCodeIntel";
+import type { RepoItem } from "@/api/hooks/useRepos";
 import { formatApiError } from "@/lib/errors/api";
 import { cn } from "@/lib/utils";
 
 interface SearchPanelProps {
-  readonly onSelect: (fqn: string, fqnB64: string) => void;
+  readonly onSelect: (fqn: string, fqnB64: string, repoId: string) => void;
+  readonly repos?: readonly RepoItem[];
 }
 
-export function SearchPanel({ onSelect }: SearchPanelProps): JSX.Element {
+export function SearchPanel({ onSelect, repos }: SearchPanelProps): JSX.Element {
   const [query, setQuery] = useState("");
   const search = useSearch();
+
+  const repoMap = new Map((repos ?? []).map((r) => [r.repo_id, r.full_name]));
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -75,6 +79,7 @@ export function SearchPanel({ onSelect }: SearchPanelProps): JSX.Element {
                 key={result.fqn}
                 result={result}
                 onSelect={onSelect}
+                repoMap={repoMap}
               />
             ))}
           </ul>
@@ -86,13 +91,16 @@ export function SearchPanel({ onSelect }: SearchPanelProps): JSX.Element {
 
 interface SearchResultItemProps {
   readonly result: SearchResult;
-  readonly onSelect: (fqn: string, fqnB64: string) => void;
+  readonly onSelect: (fqn: string, fqnB64: string, repoId: string) => void;
+  readonly repoMap: ReadonlyMap<string, string>;
 }
 
-function SearchResultItem({ result, onSelect }: SearchResultItemProps): JSX.Element {
+function SearchResultItem({ result, onSelect, repoMap }: SearchResultItemProps): JSX.Element {
   const handleClick = () => {
-    onSelect(result.fqn, fqnToB64(result.fqn));
+    onSelect(result.fqn, fqnToB64(result.fqn), result.repo_id);
   };
+
+  const repoName = repoMap.get(result.repo_id);
 
   return (
     <li>
@@ -109,9 +117,17 @@ function SearchResultItem({ result, onSelect }: SearchResultItemProps): JSX.Elem
         <p className="truncate font-mono text-xs font-medium text-foreground">
           {result.fqn}
         </p>
-        <p className="mt-0.5 text-[10px] text-muted-foreground">
-          {result.crate_name}
-          <span className="ml-2 opacity-60">{(result.score * 100).toFixed(0)}%</span>
+        <p className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+          <span>{result.crate_name}</span>
+          {repoName != null && (
+            <span
+              data-testid="repo-pill"
+              className="rounded bg-muted px-1 py-0.5 font-medium"
+            >
+              {repoName}
+            </span>
+          )}
+          <span className="ml-auto opacity-60">{(result.score * 100).toFixed(0)}%</span>
         </p>
       </button>
     </li>

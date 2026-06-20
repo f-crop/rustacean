@@ -34,7 +34,18 @@ export const REPO_ITEM = {
   connected_by: "user-1",
 };
 
+export const REPO_ITEM_2 = {
+  repo_id: "repo-2",
+  full_name: "acme/api-server",
+  installation_id: "install-uuid-1",
+  default_branch: "main",
+  status: "connected",
+  connected_at: "2024-01-01T00:00:00Z",
+  connected_by: "user-1",
+};
+
 export const REPOS_RESPONSE = { repos: [REPO_ITEM] };
+export const REPOS_MULTI_RESPONSE = { repos: [REPO_ITEM, REPO_ITEM_2] };
 export const REPOS_EMPTY_RESPONSE = { repos: [] };
 
 export const INGEST_RESPONSE = { run_id: "run-id-1" };
@@ -140,6 +151,29 @@ export const SEARCH_RESPONSE = {
       crate_name: "my_crate",
       repo_id: "repo-1",
       score: 0.81,
+    },
+  ],
+};
+
+export const CROSS_REPO_FQN = "api_server::Builder";
+export const CROSS_REPO_FQN_B64 = btoa(CROSS_REPO_FQN)
+  .replace(/\+/g, "-")
+  .replace(/\//g, "_")
+  .replace(/=/g, "");
+
+export const SEARCH_RESPONSE_CROSS_REPO = {
+  results: [
+    {
+      fqn: "my_crate::my_fn",
+      crate_name: "my_crate",
+      repo_id: "repo-1",
+      score: 0.88,
+    },
+    {
+      fqn: CROSS_REPO_FQN,
+      crate_name: "api_server",
+      repo_id: "repo-2",
+      score: 0.85,
     },
   ],
 };
