@@ -1,9 +1,19 @@
-import { useState } from "react";
-import { ChevronDown, ChevronRight, Box, FunctionSquare, Layers, Package, type LucideProps } from "lucide-react";
+import { useState, useMemo, useRef } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Box,
+  FunctionSquare,
+  Layers,
+  Package,
+  Search,
+  type LucideProps,
+} from "lucide-react";
 import type { ForwardRefExoticComponent, RefAttributes } from "react";
 import type { components } from "@/api/generated/schema";
 import { fqnToB64 } from "@/api/hooks/useCodeIntel";
 import { cn } from "@/lib/utils";
+import { filterTree } from "./module-tree-utils";
 
 type ModuleNodeItem = components["schemas"]["ModuleNodeItem"];
 type LucideIcon = ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>;
@@ -15,9 +25,69 @@ interface ModuleTreeProps {
 }
 
 export function ModuleTree({ tree, selectedFqn, onSelect }: ModuleTreeProps): JSX.Element {
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const { filteredNode, matchCount } = useMemo(() => {
+    const q = searchQuery.trim();
+    if (!q) return { filteredNode: tree, matchCount: 0 };
+    return filterTree(tree, q);
+  }, [tree, searchQuery]);
+
+  const isSearchActive = searchQuery.trim().length > 0;
+
+  const handleNavKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      searchInputRef.current?.focus();
+    }
+  };
+
   return (
-    <nav aria-label="Module tree" className="h-full overflow-y-auto py-2 text-sm">
-      <TreeNode node={tree} depth={0} selectedFqn={selectedFqn} onSelect={onSelect} />
+    <nav className="flex h-full flex-col text-sm" onKeyDown={handleNavKeyDown}>
+      <div className="shrink-0 border-b border-border px-2 py-1.5">
+        <div className="relative flex items-center">
+          <Search className="pointer-events-none absolute left-2 h-3 w-3 shrink-0 text-muted-foreground" />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setSearchQuery("");
+                (e.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+            placeholder="Filter by path…"
+            aria-label="Search module paths"
+            className="w-full min-w-0 rounded-sm border border-input bg-background py-1 pl-6 pr-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        {isSearchActive && (
+          <p
+            className="mt-0.5 text-right text-[10px] text-muted-foreground"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {matchCount} {matchCount === 1 ? "match" : "matches"}
+          </p>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto py-2">
+        {filteredNode === null ? (
+          <p className="px-3 py-4 text-xs text-muted-foreground">No matches</p>
+        ) : (
+          <TreeNode
+            node={filteredNode}
+            depth={0}
+            selectedFqn={selectedFqn}
+            onSelect={onSelect}
+            isSearchActive={isSearchActive}
+          />
+        )}
+      </div>
     </nav>
   );
 }
@@ -55,9 +125,16 @@ interface TreeNodeProps {
   readonly depth: number;
   readonly selectedFqn: string | null;
   readonly onSelect: (fqn: string, fqnB64: string) => void;
+  readonly isSearchActive?: boolean;
 }
 
-function TreeNode({ node, depth, selectedFqn, onSelect }: TreeNodeProps): JSX.Element {
+function TreeNode({
+  node,
+  depth,
+  selectedFqn,
+  onSelect,
+  isSearchActive = false,
+}: TreeNodeProps): JSX.Element {
   const hasChildren = node.children.length > 0;
   const [expanded, setExpanded] = useState(depth < 2);
 
@@ -65,6 +142,10 @@ function TreeNode({ node, depth, selectedFqn, onSelect }: TreeNodeProps): JSX.El
   const isSelectable = !isModule || node.source != null;
   const isSelected = selectedFqn === node.fqn;
   const Icon = kindIcon(node.kind);
+
+  // During search, auto-expand all nodes with children — they are ancestors of matches.
+  // The local `expanded` state is not modified, so it restores naturally when search clears.
+  const effectiveExpanded = (isSearchActive && hasChildren) || expanded;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -76,10 +157,10 @@ function TreeNode({ node, depth, selectedFqn, onSelect }: TreeNodeProps): JSX.El
         setExpanded((v) => !v);
       }
     }
-    if (e.key === "ArrowRight" && hasChildren && !expanded) {
+    if (e.key === "ArrowRight" && hasChildren && !effectiveExpanded) {
       setExpanded(true);
     }
-    if (e.key === "ArrowLeft" && hasChildren && expanded) {
+    if (e.key === "ArrowLeft" && hasChildren && effectiveExpanded) {
       setExpanded(false);
     }
   };
@@ -88,7 +169,7 @@ function TreeNode({ node, depth, selectedFqn, onSelect }: TreeNodeProps): JSX.El
     <div>
       <div
         role={isSelectable ? "treeitem" : "group"}
-        aria-expanded={hasChildren ? expanded : undefined}
+        aria-expanded={hasChildren ? effectiveExpanded : undefined}
         aria-selected={isSelected}
         aria-label={`${node.name} — ${kindLabel(node.kind)}`}
         tabIndex={0}
@@ -111,7 +192,7 @@ function TreeNode({ node, depth, selectedFqn, onSelect }: TreeNodeProps): JSX.El
       >
         {hasChildren ? (
           <span className="shrink-0 text-muted-foreground">
-            {expanded ? (
+            {effectiveExpanded ? (
               <ChevronDown className="h-3 w-3" />
             ) : (
               <ChevronRight className="h-3 w-3" />
@@ -124,7 +205,7 @@ function TreeNode({ node, depth, selectedFqn, onSelect }: TreeNodeProps): JSX.El
         <span className="truncate font-mono text-xs">{node.name}</span>
       </div>
 
-      {hasChildren && expanded && (
+      {hasChildren && effectiveExpanded && (
         <div role="group">
           {node.children.map((child) => (
             <TreeNode
@@ -133,6 +214,7 @@ function TreeNode({ node, depth, selectedFqn, onSelect }: TreeNodeProps): JSX.El
               depth={depth + 1}
               selectedFqn={selectedFqn}
               onSelect={onSelect}
+              isSearchActive={isSearchActive}
             />
           ))}
         </div>
