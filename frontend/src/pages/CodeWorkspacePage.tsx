@@ -8,6 +8,7 @@ import {
   SearchPanel,
   RelationsPanel,
 } from "@/components/code-intel";
+import { usePanelResize } from "@/hooks/usePanelResize";
 import { routes } from "@/lib/routes";
 import { formatApiError } from "@/lib/errors/api";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,37 @@ export function CodeWorkspacePage(): JSX.Element {
   }
 
   return <CodeWorkspaceInner repoId={repoId} tenantId={me.data.current_tenant.id} />;
+}
+
+interface DragHandleProps {
+  "aria-label": string;
+  side: "left" | "right";
+  onMouseDown: (e: React.MouseEvent) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+}
+
+function DragHandle({ "aria-label": ariaLabel, side, onMouseDown, onKeyDown }: DragHandleProps): JSX.Element {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={ariaLabel}
+      tabIndex={0}
+      className={cn(
+        "group hidden w-1 shrink-0 cursor-col-resize items-center justify-center bg-background",
+        "focus:outline-none focus-visible:bg-primary/10",
+        "hover:bg-primary/5",
+        side === "left"
+          ? "border-r border-border hover:border-primary/50 focus-visible:border-primary/70"
+          : "border-l border-border hover:border-primary/50 focus-visible:border-primary/70",
+        "md:flex",
+      )}
+      onMouseDown={onMouseDown}
+      onKeyDown={onKeyDown}
+    >
+      <span className="h-8 w-[2px] rounded-full bg-transparent transition-colors group-hover:bg-primary/30 group-focus-visible:bg-primary/50" />
+    </div>
+  );
 }
 
 interface WorkspaceShellProps {
@@ -65,6 +97,8 @@ function CodeWorkspaceInner({ repoId, tenantId }: CodeWorkspaceInnerProps): JSX.
   const item = useItem(repoId, fqnB64 ?? "", { enabled: fqnB64 != null && fqnB64.length > 0 });
 
   const [sideTab, setSideTab] = useState<SideTab>("search");
+  const { leftWidth, rightWidth, startLeftDrag, startRightDrag, handleLeftKey, handleRightKey } =
+    usePanelResize();
 
   const repo = repos.data?.repos.find((r) => r.repo_id === repoId) ?? null;
   const selectedFqn = fqnB64 != null ? b64ToFqn(fqnB64) : null;
@@ -103,7 +137,8 @@ function CodeWorkspaceInner({ repoId, tenantId }: CodeWorkspaceInnerProps): JSX.
         {/* Left: Module tree */}
         <aside
           aria-label="Module tree"
-          className="flex w-56 shrink-0 flex-col overflow-hidden border-r border-border bg-muted/20"
+          style={{ width: leftWidth }}
+          className="flex shrink-0 flex-col overflow-hidden border-r border-border bg-muted/20 md:border-r-0"
         >
           <div className="shrink-0 border-b border-border px-3 py-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -124,6 +159,13 @@ function CodeWorkspaceInner({ repoId, tenantId }: CodeWorkspaceInnerProps): JSX.
             />
           ) : null}
         </aside>
+
+        <DragHandle
+          aria-label="Resize left panel"
+          side="left"
+          onMouseDown={startLeftDrag}
+          onKeyDown={handleLeftKey}
+        />
 
         {/* Center: Source viewer */}
         <main className="flex flex-1 flex-col overflow-hidden" aria-label="Source viewer">
@@ -148,10 +190,18 @@ function CodeWorkspaceInner({ repoId, tenantId }: CodeWorkspaceInnerProps): JSX.
           )}
         </main>
 
+        <DragHandle
+          aria-label="Resize right panel"
+          side="right"
+          onMouseDown={startRightDrag}
+          onKeyDown={handleRightKey}
+        />
+
         {/* Right: Tabbed side panel */}
         <aside
           aria-label="Side panel"
-          className="flex w-64 shrink-0 flex-col overflow-hidden border-l border-border"
+          style={{ width: rightWidth }}
+          className="flex shrink-0 flex-col overflow-hidden border-l border-border md:border-l-0"
         >
           <div
             role="tablist"
