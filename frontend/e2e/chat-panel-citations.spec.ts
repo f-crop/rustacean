@@ -15,7 +15,6 @@ import {
   LIST_MESSAGES_EMPTY,
 } from "./fixtures/chat-mock-api";
 
-// CitationV1 payload matching the rb-schemas shape shipped by RUSAA-2089.
 const CITATION_V1 = {
   version: "v1",
   repo_id: REPO_ITEM.repo_id,
@@ -26,83 +25,82 @@ const CITATION_V1 = {
   source_kind: "hybrid",
 };
 
-// The backend serialises citations as serde_json::to_string_pretty — a JSON string.
-const CITATION_RESULT_JSON = JSON.stringify([CITATION_V1], null, 2);
+function buildCitationSse(citations: unknown[]): string {
+  const contentValue = JSON.stringify(citations, null, 2);
+  return [
+    "event: session.event",
+    `data: ${JSON.stringify({
+      session_id: CHAT_SESSION_ID,
+      event_type: "user_input",
+      sequence: 1,
+      payload: { type: "user_input", text: "find hybrid search code" },
+    })}`,
+    "",
+    "event: session.event",
+    `data: ${JSON.stringify({
+      session_id: CHAT_SESSION_ID,
+      event_type: "tool_use",
+      sequence: 2,
+      payload: {
+        type: "tool_use",
+        id: "tu-search-001",
+        name: "mcp__rust_brain__search_items",
+        input: { query: "hybrid search", limit: 5 },
+      },
+    })}`,
+    "",
+    "event: session.event",
+    `data: ${JSON.stringify({
+      session_id: CHAT_SESSION_ID,
+      event_type: "turn_complete",
+      sequence: 3,
+      payload: { type: "turn_complete", stop_reason: "tool_use" },
+    })}`,
+    "",
+    "event: session.event",
+    `data: ${JSON.stringify({
+      session_id: CHAT_SESSION_ID,
+      event_type: "tool_result",
+      sequence: 4,
+      payload: {
+        type: "tool_result",
+        tool_use_id: "tu-search-001",
+        content: contentValue,
+        is_error: false,
+      },
+    })}`,
+    "",
+    "event: session.event",
+    `data: ${JSON.stringify({
+      session_id: CHAT_SESSION_ID,
+      event_type: "text",
+      sequence: 5,
+      payload: {
+        type: "text",
+        text: "I found the hybrid search implementation.",
+      },
+    })}`,
+    "",
+    "event: session.event",
+    `data: ${JSON.stringify({
+      session_id: CHAT_SESSION_ID,
+      event_type: "turn_complete",
+      sequence: 6,
+      payload: { type: "turn_complete", stop_reason: "end_turn" },
+    })}`,
+    "",
+    "",
+  ].join("\n");
+}
 
-const CITATION_SSE = [
-  "event: session.event",
-  `data: ${JSON.stringify({
-    session_id: CHAT_SESSION_ID,
-    event_type: "user_input",
-    sequence: 1,
-    payload: { type: "user_input", text: "find hybrid search code" },
-  })}`,
-  "",
-  "event: session.event",
-  `data: ${JSON.stringify({
-    session_id: CHAT_SESSION_ID,
-    event_type: "tool_use",
-    sequence: 2,
-    payload: {
-      type: "tool_use",
-      id: "tu-search-001",
-      name: "mcp__rust_brain__search_items",
-      input: { query: "hybrid search", limit: 5 },
-    },
-  })}`,
-  "",
-  "event: session.event",
-  `data: ${JSON.stringify({
-    session_id: CHAT_SESSION_ID,
-    event_type: "turn_complete",
-    sequence: 3,
-    payload: { type: "turn_complete", stop_reason: "tool_use" },
-  })}`,
-  "",
-  "event: session.event",
-  `data: ${JSON.stringify({
-    session_id: CHAT_SESSION_ID,
-    event_type: "tool_result",
-    sequence: 4,
-    payload: {
-      type: "tool_result",
-      tool_use_id: "tu-search-001",
-      content: CITATION_RESULT_JSON,
-      is_error: false,
-    },
-  })}`,
-  "",
-  "event: session.event",
-  `data: ${JSON.stringify({
-    session_id: CHAT_SESSION_ID,
-    event_type: "text",
-    sequence: 5,
-    payload: {
-      type: "text",
-      text: "I found the hybrid search implementation.",
-    },
-  })}`,
-  "",
-  "event: session.event",
-  `data: ${JSON.stringify({
-    session_id: CHAT_SESSION_ID,
-    event_type: "turn_complete",
-    sequence: 6,
-    payload: { type: "turn_complete", stop_reason: "end_turn" },
-  })}`,
-  "",
-  "",
-].join("\n");
-
-// Regression guard for RUSAA-2091 (S4): CitationV1 chips rendered in chat tool results.
-test.describe("Chat panel — CitationV1 citation chips [RUSAA-2091]", () => {
+test.describe("Chat panel — CitationV1 citation chips", () => {
   test("AC2+AC3+AC4: search_items result renders clickable citation chips with badge and GitHub link", async ({
     page,
   }) => {
     await mockAuthenticatedSession(page);
     await mockReposList(page, REPOS_RESPONSE);
     await mockChatSessionsListAndCreate(page, LIST_SESSIONS_ONE);
-    await mockChatStream(page, CHAT_SESSION_ID, CITATION_SSE);
+    await mockChatStream(page, CHAT_SESSION_ID, buildCitationSse([CITATION_V1]));
     await mockSendChatMessage(page);
     await mockListChatMessages(page, CHAT_SESSION_ID, LIST_MESSAGES_EMPTY);
 
@@ -142,14 +140,9 @@ test.describe("Chat panel — CitationV1 citation chips [RUSAA-2091]", () => {
   });
 
   test("AC5: version mismatch renders soft warning, not a JS error", async ({ page }) => {
-    const unknownVersionResult = JSON.stringify([
+    const unknownVersionSse = buildCitationSse([
       { ...CITATION_V1, version: "v99" },
-    ], null, 2);
-
-    const unknownVersionSse = CITATION_SSE.replace(
-      CITATION_RESULT_JSON,
-      unknownVersionResult,
-    );
+    ]);
 
     await mockAuthenticatedSession(page);
     await mockReposList(page, REPOS_RESPONSE);
@@ -169,15 +162,10 @@ test.describe("Chat panel — CitationV1 citation chips [RUSAA-2091]", () => {
 
     // Soft warning is shown instead
     await expect(page.getByTestId("citation-version-warning")).toBeVisible();
-
-    // No uncaught JS errors — if there were any, Playwright would have thrown above
   });
 
   test("AC2 empty: empty citation array renders graceful empty state", async ({ page }) => {
-    const emptyCitationsSse = CITATION_SSE.replace(
-      CITATION_RESULT_JSON,
-      "[]",
-    );
+    const emptyCitationsSse = buildCitationSse([]);
 
     await mockAuthenticatedSession(page);
     await mockReposList(page, REPOS_RESPONSE);
