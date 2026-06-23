@@ -7,11 +7,12 @@ export function selectPrismStyle(resolvedTheme: "light" | "dark"): typeof oneDar
   return resolvedTheme === "dark" ? oneDark : oneLight;
 }
 
-export type ToolRendererType = "read" | "bash" | "json";
+export type ToolRendererType = "read" | "bash" | "citation" | "json";
 
 export function getToolRenderer(toolName: string): ToolRendererType {
   if (toolName === "Read") return "read";
   if (toolName === "Bash") return "bash";
+  if (toolName === "mcp__rust_brain__search_items") return "citation";
   return "json";
 }
 
@@ -30,6 +31,9 @@ export function getArgPreview(name: string, input: unknown): string {
     }
     if (name === "Agent" && typeof (obj["prompt"] ?? obj["description"]) === "string") {
       return (obj["prompt"] ?? obj["description"]) as string;
+    }
+    if (name === "mcp__rust_brain__search_items" && typeof obj["query"] === "string") {
+      return obj["query"] as string;
     }
   }
   const raw = JSON.stringify(input);
