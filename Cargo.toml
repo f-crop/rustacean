@@ -37,6 +37,7 @@ members = [
     "crates/rb-build-info",
     "crates/rb-metrics",
     "services/synthetic-load",
+    "crates/rb-rerank",
 ]
 
 [workspace.package]
@@ -120,6 +121,8 @@ neo4rs = "0.8"
 metrics = "0.24"
 metrics-util = { version = "0.18", features = ["debugging"] }
 metrics-exporter-prometheus = { version = "0.16", default-features = false }
+# Cross-encoder reranking (Wave 10 S3, ADR-014 §12 — Apache-2.0 license approved)
+fastembed = "4"
 # Testing
 tempfile = "3"
 

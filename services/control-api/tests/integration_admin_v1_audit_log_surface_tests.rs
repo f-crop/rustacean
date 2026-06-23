@@ -68,6 +68,10 @@ fn lazy_config_with_token(db_url: &str) -> Config {
         llm_api_key: None,
         hybrid_search_enabled: false,
         multi_query_n: 1,
+        rerank_enabled: false,
+        rerank_model_dir: std::path::PathBuf::from("/models/rerank"),
+        rerank_candidate_cap: 50,
+        llm_token_ceiling_per_tenant: 0,
     }
 }
 

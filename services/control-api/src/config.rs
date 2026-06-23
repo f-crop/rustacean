@@ -119,6 +119,23 @@ pub struct Config {
     /// `multi_query_force_off` always wins over both. Default **1** (disabled in v1).
     pub multi_query_n: u32,
 
+    // --- Retrieval cost ceilings (ADR-014 §9, Wave 10 S7) ---
+    /// `RB_RERANK_ENABLED` — enables the local cross-encoder reranker after hybrid
+    /// retrieval. Default **off**. Requires `RB_RERANK_MODEL_DIR` to point at a
+    /// downloaded `bge-reranker-base` model directory.
+    pub rerank_enabled: bool,
+    /// `RB_RERANK_MODEL_DIR` — filesystem path to the ONNX cross-encoder model.
+    /// Default `/models/rerank`.
+    pub rerank_model_dir: std::path::PathBuf,
+    /// `RB_RERANK_CANDIDATE_CAP` — maximum candidates passed to the cross-encoder
+    /// reranker. Requests exceeding the cap are clamped (warning + counter). Default **50**.
+    pub rerank_candidate_cap: u32,
+    /// `RB_LLM_TOKEN_CEILING_PER_TENANT` — per-tenant token ceiling for LLM-rewrite
+    /// and LLM-rerank operations. **0 means disabled (zero outbound LLM cost)**.
+    /// Over-ceiling calls short-circuit and emit `llm_budget_exceeded_total{tenant}`.
+    /// Default **0**.
+    pub llm_token_ceiling_per_tenant: u32,
+
     // --- Admin bootstrap (REQ-AD-01, ADR-012 §S1) ---
     /// `RB_ADMIN_TOKEN` — shared bearer secret that gates all `/api/admin/v1/*`
     /// endpoints. Optional at boot so the service starts without it; admin
@@ -233,6 +250,20 @@ impl Config {
                 .and_then(|s| s.parse::<u32>().ok())
                 .unwrap_or(1)
                 .min(rb_query::MAX_MULTI_QUERY_N),
+            rerank_enabled: env::var("RB_RERANK_ENABLED")
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            rerank_model_dir: env::var("RB_RERANK_MODEL_DIR").map_or_else(
+                |_| std::path::PathBuf::from("/models/rerank"),
+                std::path::PathBuf::from,
+            ),
+            rerank_candidate_cap: env::var("RB_RERANK_CANDIDATE_CAP")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(50),
+            llm_token_ceiling_per_tenant: env::var("RB_LLM_TOKEN_CEILING_PER_TENANT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
         })
     }
 
@@ -394,6 +425,10 @@ impl Config {
             llm_api_key: None,
             hybrid_search_enabled: false,
             multi_query_n: 1,
+            rerank_enabled: false,
+            rerank_model_dir: std::path::PathBuf::from("/models/rerank"),
+            rerank_candidate_cap: 50,
+            llm_token_ceiling_per_tenant: 0,
         }
     }
 }

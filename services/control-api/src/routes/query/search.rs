@@ -23,6 +23,7 @@ use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use serde::{Deserialize, Serialize};
 use sqlx::Row as _;
 use std::collections::HashMap;
+use std::time::Instant;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -78,6 +79,54 @@ pub struct SearchResponse {
     pub results: Vec<SearchResult>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<CitationV1>,
+}
+
+// ---------------------------------------------------------------------------
+// Cost-ceiling helpers (ADR-014 §9, S7)
+// ---------------------------------------------------------------------------
+
+/// Enforce the rerank candidate cap. Returns `candidates` unchanged when
+/// `cap == 0` (sentinel: unconfigured). Emits warning + counter when clamped.
+pub(crate) fn clamp_rerank_candidates<T>(
+    candidates: Vec<T>,
+    cap: u32,
+    tenant_id: uuid::Uuid,
+) -> Vec<T> {
+    let cap = cap as usize;
+    if cap == 0 || candidates.len() <= cap {
+        return candidates;
+    }
+    tracing::warn!(
+        tenant_id = %tenant_id,
+        original = candidates.len(),
+        cap,
+        "rerank candidate set clamped to cap"
+    );
+    metrics::counter!(
+        "retrieval_rerank_clamped_total",
+        "tenant_id" => tenant_id.to_string(),
+    )
+    .increment(1);
+    candidates.into_iter().take(cap).collect()
+}
+
+/// Check whether this tenant has remaining LLM token budget.
+///
+/// When `ceiling == 0` (default), all LLM calls are short-circuited → zero cost.
+/// Returns `true` when the call is allowed, `false` when budget is exhausted.
+pub(crate) fn llm_budget_allows(ceiling: u32, tokens_used: u32, tenant_id: uuid::Uuid) -> bool {
+    if ceiling == 0 {
+        return false;
+    }
+    if tokens_used >= ceiling {
+        metrics::counter!(
+            "llm_budget_exceeded_total",
+            "tenant_id" => tenant_id.to_string(),
+        )
+        .increment(1);
+        return false;
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +345,11 @@ pub async fn search(
 
     let tenant_id = TenantId::from(tenant_id_uuid);
 
+    // AC5: guard LLM calls before they reach any rewriter/reranker.
+    // ceiling=0 (default) → zero outbound LLM cost for all tenants.
+    let _llm_allowed =
+        llm_budget_allows(state.config.llm_token_ceiling_per_tenant, 0, tenant_id_uuid);
+
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
         // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
@@ -324,6 +378,7 @@ pub async fn search(
             query_variants.push((v, qt.clone()));
         }
 
+        let t0 = Instant::now();
         let hits = hybrid_search_multi(
             &state.pool,
             qdrant,
@@ -339,6 +394,24 @@ pub async fn search(
             tracing::warn!("hybrid_search_multi failed: {e}");
             AppError::ServiceUnavailable
         })?;
+        #[allow(clippy::cast_precision_loss)]
+        let elapsed_ms = t0.elapsed().as_micros() as f64 / 1000.0;
+
+        // AC1: emit duration histogram and candidate counter for the hybrid leg.
+        metrics::histogram!("retrieval_request_duration_ms", "mode" => "hybrid").record(elapsed_ms);
+        metrics::counter!("retrieval_candidates_total", "mode" => "hybrid")
+            .increment(hits.len() as u64);
+
+        // AC3: clamp rerank candidate set before any future cross-encoder call.
+        let hits = clamp_rerank_candidates(hits, state.config.rerank_candidate_cap, tenant_id_uuid);
+
+        tracing::debug!(
+            tenant_id = %tenant_id_uuid,
+            query = %req.q,
+            result_count = hits.len(),
+            elapsed_ms,
+            "hybrid search completed"
+        );
 
         // Collect distinct repo_ids for commit_sha lookup.
         let repo_ids: Vec<Uuid> = {
@@ -386,21 +459,30 @@ pub async fn search(
             })
             .collect();
 
-        tracing::debug!(
-            tenant_id = %tenant_id_uuid,
-            query = %req.q,
-            result_count = results.len(),
-            "hybrid search completed"
-        );
-
         Ok(Json(SearchResponse { results, citations }))
     } else {
         // --- Dense-only path (flag off) — byte-identical to pre-S2 ---
+        let t0 = Instant::now();
         let opts = SearchOptions {
             limit,
             repo_id: repo_id_filter,
         };
         let hits = semantic_search(qdrant, &tenant_id, &vector, opts).await?;
+        #[allow(clippy::cast_precision_loss)]
+        let elapsed_ms = t0.elapsed().as_micros() as f64 / 1000.0;
+
+        // AC1: emit duration histogram and candidate counter for the dense leg.
+        metrics::histogram!("retrieval_request_duration_ms", "mode" => "dense").record(elapsed_ms);
+        metrics::counter!("retrieval_candidates_total", "mode" => "dense")
+            .increment(hits.len() as u64);
+
+        tracing::debug!(
+            tenant_id = %tenant_id_uuid,
+            query = %req.q,
+            result_count = hits.len(),
+            elapsed_ms,
+            "semantic search completed"
+        );
 
         let results: Vec<SearchResult> = hits
             .into_iter()
@@ -414,13 +496,6 @@ pub async fn search(
                 }
             })
             .collect();
-
-        tracing::debug!(
-            tenant_id = %tenant_id_uuid,
-            query = %req.q,
-            result_count = results.len(),
-            "semantic search completed"
-        );
 
         Ok(Json(SearchResponse {
             results,
@@ -573,5 +648,39 @@ mod tests {
         let json = serde_json::to_value(&resp).unwrap();
         assert!(json.as_object().unwrap().contains_key("citations"));
         assert_eq!(json["citations"][0]["version"], "v1");
+    }
+
+    // AC7: default ceiling = 0 → zero outbound LLM cost for brand-new tenants.
+    #[test]
+    fn default_llm_ceiling_disallows_all_calls() {
+        let tid = Uuid::new_v4();
+        // ceiling=0 denies regardless of tokens_used
+        assert!(!llm_budget_allows(0, 0, tid));
+        assert!(!llm_budget_allows(0, 999, tid));
+        assert!(!llm_budget_allows(0, u32::MAX, tid));
+    }
+
+    #[test]
+    fn non_zero_ceiling_allows_under_budget_denies_at_or_over() {
+        let tid = Uuid::new_v4();
+        assert!(llm_budget_allows(1000, 0, tid));
+        assert!(llm_budget_allows(1000, 999, tid));
+        assert!(!llm_budget_allows(1000, 1000, tid));
+        assert!(!llm_budget_allows(1000, 1001, tid));
+    }
+
+    // AC3: clamp_rerank_candidates truncates over-cap sets.
+    #[test]
+    fn rerank_cap_truncates_oversized_set() {
+        let tid = Uuid::new_v4();
+        let items: Vec<u32> = (0..100).collect();
+        let clamped = clamp_rerank_candidates(items.clone(), 50, tid);
+        assert_eq!(clamped.len(), 50);
+        // cap=0 sentinel: no clamp
+        let not_clamped = clamp_rerank_candidates(items.clone(), 0, tid);
+        assert_eq!(not_clamped.len(), 100);
+        // set smaller than cap: no truncation
+        let under = clamp_rerank_candidates(items, 200, tid);
+        assert_eq!(under.len(), 100);
     }
 }
