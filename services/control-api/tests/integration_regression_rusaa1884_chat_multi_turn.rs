@@ -111,6 +111,7 @@ async fn real_db_state_chat_enabled() -> Option<(AppState, PgPool)> {
         mcp_jwt_secret: "test-1884-mcp-jwt-secret".to_owned(),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
+        reranker: None,
     };
     Some((state, pool))
 }

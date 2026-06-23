@@ -123,6 +123,7 @@ async fn build_state(chat_panel_enabled: bool) -> Option<(AppState, PgPool)> {
         mcp_jwt_secret: "test-mcp-jwt-secret-chat".to_owned(),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
+        reranker: None,
     };
     Some((state, pool))
 }

@@ -158,6 +158,7 @@ fn build_state_with_gh(pool: PgPool, gh_loader: Arc<GhAppLoader>) -> AppState {
         mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
+        reranker: None,
     }
 }
 

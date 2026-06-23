@@ -131,6 +131,24 @@ pub async fn run(config: Config) -> Result<()> {
         "agent_commands_producer",
     );
 
+    let reranker: Option<Arc<dyn rb_rerank::Reranker>> = if config.rerank_enabled {
+        match rb_rerank::LocalCrossEncoder::try_new(&config.rerank_model_dir) {
+            Ok(enc) => {
+                tracing::info!(
+                    model_dir = %config.rerank_model_dir.display(),
+                    "cross-encoder reranker loaded"
+                );
+                Some(Arc::new(enc))
+            }
+            Err(e) => {
+                tracing::warn!("reranker disabled — model load failed: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let state = AppState {
         pool,
         email_sender: Arc::from(email_sender),
@@ -159,6 +177,7 @@ pub async fn run(config: Config) -> Result<()> {
         mcp_jwt_secret: config.mcp_jwt_secret.clone().unwrap_or_default(),
         mcp_jwt_ttl_secs: config.mcp_jwt_ttl_secs,
         llm_api_key: config.llm_api_key.clone().unwrap_or_default(),
+        reranker,
     };
 
     // Spawn the periodic reconciler that heals ingestion runs left in `queued`

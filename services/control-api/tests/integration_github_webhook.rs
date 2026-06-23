@@ -123,6 +123,7 @@ fn state_with_gh(secret: &[u8]) -> AppState {
         mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
+        reranker: None,
     }
 }
 
@@ -153,6 +154,7 @@ fn state_without_gh() -> AppState {
         mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
+        reranker: None,
     }
 }
 

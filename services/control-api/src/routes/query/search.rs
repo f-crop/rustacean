@@ -359,6 +359,33 @@ pub async fn search(
         // AC3: clamp rerank candidate set before any future cross-encoder call.
         let hits = clamp_rerank_candidates(hits, state.config.rerank_candidate_cap, tenant_id_uuid);
 
+        // AC3 / AC4: optional cross-encoder rerank stage (flag-gated, S3).
+        let (hits, citation_source_kind) = if let Some(reranker) = state.reranker.as_deref() {
+            let candidates: Vec<rb_rerank::RerankCandidate> = hits
+                .iter()
+                .enumerate()
+                .map(|(i, h)| rb_rerank::RerankCandidate {
+                    original_idx: i,
+                    text: h.fqn.clone(),
+                    original_score: h.score,
+                })
+                .collect();
+            match reranker.rerank(&req.q, candidates).await {
+                Ok(ranked) => {
+                    let reranked: Vec<rb_query::HybridHit> =
+                        ranked.iter().map(|r| hits[r.original_idx].clone()).collect();
+                    metrics::counter!("retrieval_rerank_applied_total").increment(1);
+                    (reranked, SourceKind::Rerank)
+                }
+                Err(e) => {
+                    tracing::warn!(tenant_id = %tenant_id_uuid, "reranker error, using RRF order: {e}");
+                    (hits, SourceKind::Hybrid)
+                }
+            }
+        } else {
+            (hits, SourceKind::Hybrid)
+        };
+
         tracing::debug!(
             tenant_id = %tenant_id_uuid,
             query = %req.q,
@@ -408,7 +435,7 @@ pub async fn search(
                     },
                     commit_sha,
                     score: h.score,
-                    source_kind: SourceKind::Hybrid,
+                    source_kind: citation_source_kind.clone(),
                 }
             })
             .collect();

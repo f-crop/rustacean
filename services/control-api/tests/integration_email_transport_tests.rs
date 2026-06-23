@@ -121,6 +121,7 @@ async fn state_with_transport(transport_name: &str) -> Option<(AppState, PgPool)
         mcp_jwt_secret: "test-mcp-jwt-secret".to_owned(),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
+        reranker: None,
     };
     Some((state, pool))
 }

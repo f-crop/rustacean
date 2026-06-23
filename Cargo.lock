@@ -1372,6 +1372,7 @@ dependencies = [
  "rb-mcp",
  "rb-metrics",
  "rb-query",
+ "rb-rerank",
  "rb-schemas",
  "rb-secrets",
  "rb-sse",
@@ -5122,6 +5123,7 @@ name = "rb-query"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "metrics",
  "moka",
  "neo4rs",
  "rb-schemas",

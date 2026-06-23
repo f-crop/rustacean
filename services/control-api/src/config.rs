@@ -155,6 +155,7 @@ impl Config {
     ///
     /// Returns an error if `RB_DATABASE_URL` is absent or if any numeric
     /// environment variable cannot be parsed.
+    #[allow(clippy::too_many_lines)]
     pub fn from_env() -> Result<Self> {
         Ok(Self {
             listen_addr: env::var("RB_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_owned()),
