@@ -6,8 +6,8 @@
 
 use rb_mcp::ToolCallResult;
 use rb_query::{
-    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search,
-    items, semantic_search,
+    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, MultiQueryConfig, SearchOptions,
+    expand_query, hybrid_search_multi, items, resolve_n, semantic_search,
 };
 use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use rb_tenant::TenantCtx;
@@ -78,12 +78,57 @@ pub(super) async fn dispatch_search_items(
 
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
-        let hits = hybrid_search(
+        // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
+        let mq_config: MultiQueryConfig = {
+            let row: Option<(i16, bool, i32)> = sqlx::query_as(
+                "SELECT multi_query_n, multi_query_force_off, llm_token_budget \
+                 FROM control.tenant_query_settings \
+                 WHERE tenant_id = $1",
+            )
+            .bind(tenant_id)
+            .fetch_optional(&state.pool)
+            .await?;
+            let (tn, fo, budget) = row
+                .map_or((state.config.multi_query_n, false, 0u32), |(n, fo, b)| {
+                    (n.unsigned_abs().into(), fo, b.unsigned_abs())
+                });
+            MultiQueryConfig {
+                n: resolve_n(tn, fo),
+                force_off: fo,
+                token_budget: budget,
+            }
+        };
+
+        let query_texts = expand_query(
+            &mq_config,
+            &state.http_client,
+            ollama_url,
+            &state.config.embedding_model,
+            query,
+        )
+        .await;
+
+        let mut query_variants: Vec<(Vec<f32>, String)> = Vec::with_capacity(query_texts.len());
+        for qt in &query_texts {
+            let v = if qt == query {
+                vector.clone()
+            } else {
+                embed_query(
+                    &state.http_client,
+                    ollama_url,
+                    &state.config.embedding_model,
+                    qt,
+                )
+                .await?
+            };
+            query_variants.push((v, qt.clone()));
+        }
+
+        let hits = hybrid_search_multi(
             &state.pool,
             qdrant,
             &tenant,
-            &vector,
-            query,
+            &query_variants,
             HybridSearchOptions {
                 limit,
                 repo_id: repo_id_filter,
@@ -91,7 +136,7 @@ pub(super) async fn dispatch_search_items(
         )
         .await
         .map_err(|e| {
-            tracing::warn!("hybrid_search (mcp) failed: {e}");
+            tracing::warn!("hybrid_search_multi (mcp) failed: {e}");
             AppError::ServiceUnavailable
         })?;
 

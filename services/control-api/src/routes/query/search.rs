@@ -16,8 +16,8 @@
 
 use axum::{Json, extract::State, response::IntoResponse};
 use rb_query::{
-    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search,
-    semantic_search,
+    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, MultiQueryConfig, SearchOptions,
+    expand_query, hybrid_search_multi, resolve_n, semantic_search,
 };
 use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use serde::{Deserialize, Serialize};
@@ -192,6 +192,36 @@ async fn fetch_commit_shas(
 }
 
 // ---------------------------------------------------------------------------
+// Per-tenant query settings (Wave 10 S5)
+// ---------------------------------------------------------------------------
+
+/// Fetch per-tenant multi-query settings, falling back to the global config default.
+async fn fetch_tenant_query_settings(
+    pool: &sqlx::PgPool,
+    tenant_id: Uuid,
+    global_n: u32,
+) -> Result<MultiQueryConfig, AppError> {
+    let row: Option<(i16, bool, i32)> = sqlx::query_as(
+        "SELECT multi_query_n, multi_query_force_off, llm_token_budget \
+         FROM control.tenant_query_settings \
+         WHERE tenant_id = $1",
+    )
+    .bind(tenant_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let (tenant_n, force_off, budget) = row.map_or((global_n, false, 0u32), |(n, fo, b)| {
+        (n.unsigned_abs().into(), fo, b.unsigned_abs())
+    });
+
+    Ok(MultiQueryConfig {
+        n: resolve_n(tenant_n, force_off),
+        force_off,
+        token_budget: budget,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
@@ -268,12 +298,37 @@ pub async fn search(
 
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
-        let hits = hybrid_search(
+        // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
+        let mq_config =
+            fetch_tenant_query_settings(&state.pool, tenant_id_uuid, state.config.multi_query_n)
+                .await?;
+
+        // Expand the query into variants (returns [original] when n=1 or disabled).
+        let query_texts = expand_query(
+            &mq_config,
+            &http,
+            ollama_url,
+            &state.config.embedding_model,
+            &req.q,
+        )
+        .await;
+
+        // Embed each query variant (reuse already-computed vector for the original).
+        let mut query_variants: Vec<(Vec<f32>, String)> = Vec::with_capacity(query_texts.len());
+        for qt in &query_texts {
+            let v = if qt == &req.q {
+                vector.clone()
+            } else {
+                embed_query(&http, ollama_url, &state.config.embedding_model, qt).await?
+            };
+            query_variants.push((v, qt.clone()));
+        }
+
+        let hits = hybrid_search_multi(
             &state.pool,
             qdrant,
             &tenant_id,
-            &vector,
-            &req.q,
+            &query_variants,
             HybridSearchOptions {
                 limit,
                 repo_id: repo_id_filter,
@@ -281,7 +336,7 @@ pub async fn search(
         )
         .await
         .map_err(|e| {
-            tracing::warn!("hybrid_search failed: {e}");
+            tracing::warn!("hybrid_search_multi failed: {e}");
             AppError::ServiceUnavailable
         })?;
 

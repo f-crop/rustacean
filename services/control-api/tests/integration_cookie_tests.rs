@@ -67,6 +67,7 @@ async fn real_db_app() -> Option<axum::Router> {
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
         hybrid_search_enabled: false,
+        multi_query_n: 1,
     };
     let state = AppState {
         pool,
