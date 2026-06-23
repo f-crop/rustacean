@@ -31,7 +31,10 @@ docker compose -f compose/dev.yml restart claude-login
 
 ```bash
 ssh -p 12222 loginuser@<host>
-# On mars: loginuser@mars.internal
+# On mars (MagicDNS — works when your machine is on the tailnet):
+ssh -p 12222 loginuser@mars
+# On mars (Tailscale IP — always works from the tailnet):
+ssh -p 12222 loginuser@100.87.157.74
 ```
 
 Expected: you get a shell prompt. If you see `Permission denied (publickey)`, double-check that `RB_SSH_AUTHORIZED_KEYS` matches your private key.
