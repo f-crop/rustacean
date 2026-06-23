@@ -5,6 +5,7 @@ import { getToolRenderer, getArgPreview, deepDecodeJsonStrings } from "./tool-ca
 import { JsonResultRenderer } from "./tool-renderers/JsonResultRenderer";
 import { BashResultRenderer } from "./tool-renderers/BashResultRenderer";
 import { ReadResultRenderer } from "./tool-renderers/ReadResultRenderer";
+import { CitationChipsRenderer } from "./tool-renderers/CitationChipsRenderer";
 
 function InputBlock({ input }: { readonly input: unknown }): JSX.Element {
   const text = JSON.stringify(deepDecodeJsonStrings(input), null, 2);
@@ -143,6 +144,8 @@ export function ToolCallBlock({
                   <ReadResultRenderer result={result} input={input} />
                 ) : rendererType === "bash" ? (
                   <BashResultRenderer result={result} />
+                ) : rendererType === "citation" ? (
+                  <CitationChipsRenderer result={result} />
                 ) : (
                   <JsonResultRenderer result={result} />
                 )}
