@@ -1330,6 +1330,27 @@ export interface components {
             /** Format: uuid */
             readonly user_id?: string | null;
         };
+        /** @description Versioned citation envelope returned by `/v1/search` and `search_items` MCP tool when `RB_HYBRID_SEARCH_ENABLED=true` (ADR-014 §5). */
+        readonly CitationV1: {
+            /** @description Schema version tag. Always `"v1"` for this type. */
+            readonly version: string;
+            /**
+             * Format: uuid
+             * @description Repository that contains this symbol.
+             */
+            readonly repo_id: string;
+            /** @description Relative path within the repository (from `code_symbols.source_path`). */
+            readonly file_path: string;
+            readonly line_range: components["schemas"]["LineRange"];
+            /** @description Commit SHA at which this symbol was ingested. Non-empty. */
+            readonly commit_sha: string;
+            /**
+             * Format: float
+             * @description Fused score normalized to `[0, 1]`.
+             */
+            readonly score: number;
+            readonly source_kind: components["schemas"]["SourceKind"];
+        };
         readonly ConnectRepoRequest: {
             /** @description Default branch override. If omitted, the value is fetched from GitHub. */
             readonly default_branch?: string | null;
@@ -1556,6 +1577,19 @@ export interface components {
              */
             readonly source_preview?: string | null;
         };
+        /** @description Line range (inclusive on both ends) within a source file. */
+        readonly LineRange: {
+            /**
+             * Format: int32
+             * @description First line (1-based, inclusive).
+             */
+            readonly start: number;
+            /**
+             * Format: int32
+             * @description Last line (1-based, inclusive).
+             */
+            readonly end: number;
+        };
         readonly ListApiKeysResponse: {
             readonly keys: readonly components["schemas"]["ApiKeyItem"][];
         };
@@ -1738,6 +1772,8 @@ export interface components {
         /** @description Response body for `POST /v1/search`. */
         readonly SearchResponse: {
             readonly results: readonly components["schemas"]["SearchResult"][];
+            /** @description Citation envelopes (CitationV1). Populated only when `RB_HYBRID_SEARCH_ENABLED=true`; absent (empty) otherwise to preserve flag-off byte-compatibility. */
+            readonly citations?: readonly components["schemas"]["CitationV1"][];
         };
         /** @description A single ranked result returned by `/v1/search`. */
         readonly SearchResult: {
@@ -1810,6 +1846,11 @@ export interface components {
             /** Format: uuid */
             readonly user_id: string;
         };
+        /**
+         * @description Which retrieval leg(s) produced this hit.
+         * @enum {string}
+         */
+        readonly SourceKind: "dense" | "sparse" | "hybrid" | "rerank";
         readonly StageRunItem: {
             readonly error_message?: string | null;
             /** Format: date-time */

@@ -1,21 +1,7 @@
 //! AC5 tenant isolation regression tests for hybrid retrieval (ADR-014 §10).
-//!
-//! Requirement: two tenants seeded, query one, assert zero rows from the other
-//! on **both dense and sparse legs** of the hybrid path, at **both** call sites
-//! (`search.rs` — `POST /v1/search` and `dispatch.rs` — MCP `search_items`).
-//!
-//! **Sparse leg** — Postgres FTS isolation is structural: `TenantCtx::qualify`
-//! routes every query to `tenant_<hex>.code_symbols`, a schema that physically
-//! contains only the owner tenant's rows.  This file seeds a unique FQN into
-//! tenant B's schema only, then queries as tenant A and asserts zero results.
-//!
-//! **Dense leg** — Qdrant isolation is enforced by `TenantVectorStore::search`,
-//! which always injects `{ "key": "tenant_id", "match": { "value": … } }` into
-//! the Qdrant must-filter (ADR-007 §13.2).  This file stubs Qdrant with wiremock,
-//! then inspects the captured request body to assert the correct tenant UUID
-//! appears in the filter and the cross-tenant UUID does not.
-//!
-//! Both tests require `RB_DATABASE_URL` and skip gracefully when absent.
+//! Seeds two tenants, queries one, asserts zero rows from the other on both
+//! dense (Qdrant must-filter) and sparse (PG FTS schema routing) legs at both
+//! call sites (`POST /v1/search` and MCP `search_items`). Skips without `RB_DATABASE_URL`.
 
 use std::sync::Arc;
 
@@ -38,10 +24,6 @@ use uuid::Uuid;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const MCP_JWT_SECRET: &[u8] = b"test-hybrid-isolation-mcp-secret-long-enough"; // gitleaks:allow
 
 async fn connect_pool() -> Option<sqlx::PgPool> {
@@ -53,17 +35,13 @@ async fn connect_pool() -> Option<sqlx::PgPool> {
         .ok()
 }
 
-/// Derive a `tenant_<24hex>` schema name from a UUID.
 fn schema_name_for(tenant_id: Uuid) -> String {
     TenantCtx::new(TenantId::from(tenant_id))
         .schema_name()
         .to_owned()
 }
 
-/// Create a tenant schema with `code_symbols` (including `fts` GENERATED column).
-///
-/// Idempotent: `IF NOT EXISTS` guards on all DDL.  Only creates the table(s)
-/// that the sparse leg of `hybrid_search` queries.
+/// Create a per-tenant schema with `code_symbols` + `fts` GENERATED column (idempotent).
 async fn provision_tenant_schema(pool: &sqlx::PgPool, tenant_id: Uuid) {
     let schema = schema_name_for(tenant_id);
 
@@ -272,14 +250,9 @@ fn build_hybrid_state(pool: sqlx::PgPool, qdrant_url: &str, ollama_url: &str) ->
     }
 }
 
-/// A fake 3-dimensional embedding vector returned by the Ollama stub.
 const FAKE_VECTOR: [f32; 3] = [0.1, 0.2, 0.3];
 
-/// Mount Ollama and Qdrant stubs.
-///
-/// - Ollama `POST /api/embeddings` → `{"embedding": [0.1, 0.2, 0.3]}`
-/// - Qdrant `POST /collections/rb_embeddings/points/search` → `{"result": []}`
-///   (dense leg returns zero hits so only the sparse leg can produce results)
+/// Mount Ollama embedding stub and Qdrant stub (dense leg returns empty; sparse leg drives results).
 async fn mount_stubs(ollama: &MockServer, qdrant: &MockServer) {
     Mock::given(method("POST"))
         .and(path("/api/embeddings"))
@@ -300,8 +273,7 @@ async fn mount_stubs(ollama: &MockServer, qdrant: &MockServer) {
         .await;
 }
 
-/// Assert that every Qdrant request received by `qdrant` contains `expected_tenant_id`
-/// in the must-filter and does NOT contain `cross_tenant_id`.
+/// Assert every Qdrant request carries `expected_tenant_id` in must-filter and not `cross_tenant_id`.
 async fn assert_qdrant_must_filter(
     qdrant: &MockServer,
     expected_tenant_id: Uuid,
@@ -345,20 +317,8 @@ async fn assert_qdrant_must_filter(
     }
 }
 
-// ---------------------------------------------------------------------------
-// AC5a — search.rs site: POST /v1/search
-// ---------------------------------------------------------------------------
-
-/// Proof: querying as tenant_A for a symbol that only exists in tenant_B's
-/// schema returns zero results at both legs of the hybrid path.
-///
-/// - **Sparse leg** (Postgres FTS): `TenantCtx::qualify` routes the FTS query
-///   to `tenant_A.code_symbols`, which has no rows; the tainted symbol only
-///   lives in `tenant_B.code_symbols`.
-/// - **Dense leg** (Qdrant): the wiremocked stub captures the request; this
-///   test asserts the `must` filter carries `tenant_A`'s UUID only.
-///
-/// Skips automatically when `RB_DATABASE_URL` is not set.
+/// AC5a — `POST /v1/search`: tainted symbol seeded in tenant_B returns zero results queried as tenant_A.
+/// Both sparse (PG FTS schema routing) and dense (Qdrant must-filter) legs verified.
 #[tokio::test]
 async fn ac5_search_site_two_tenants_zero_cross_tenant_rows() {
     let Some(pool) = connect_pool().await else {
@@ -369,7 +329,6 @@ async fn ac5_search_site_two_tenants_zero_cross_tenant_rows() {
     let tenant_b = Uuid::new_v4();
     let repo_b = Uuid::new_v4();
 
-    // Provision two isolated schemas; seed the tainted symbol ONLY in tenant_B.
     provision_tenant_schema(&pool, tenant_a).await;
     provision_tenant_schema(&pool, tenant_b).await;
     insert_symbol(&pool, tenant_b, repo_b, "tainted_b_only::ToxicFn").await;
@@ -419,11 +378,8 @@ async fn ac5_search_site_two_tenants_zero_cross_tenant_rows() {
          tainted symbol lives in tenant_B's schema only"
     );
 
-    // Dense leg: Qdrant must-filter must name tenant_A, not tenant_B.
     assert_qdrant_must_filter(&qdrant_stub, tenant_a, tenant_b).await;
 
-    // Cleanup: drop tenant schemas; delete control rows (users/members/sessions are
-    // cascade-deleted via FK on tenant deletion where applicable, so drop tenant last).
     drop_tenant_schema(&pool, tenant_a).await;
     drop_tenant_schema(&pool, tenant_b).await;
     sqlx::query("DELETE FROM control.tenants WHERE id = $1")
@@ -433,18 +389,7 @@ async fn ac5_search_site_two_tenants_zero_cross_tenant_rows() {
         .ok();
 }
 
-// ---------------------------------------------------------------------------
-// AC5b — dispatch.rs site: MCP search_items
-// ---------------------------------------------------------------------------
-
-/// Same two-tenant isolation proof exercised via the MCP `search_items` tool
-/// (dispatch.rs call site).  A short-lived MCP JWT is minted for tenant_A,
-/// an MCP session is initialized, and then `tools/call` is invoked.
-///
-/// - **Sparse leg**: tenant_A's schema is empty → zero citations in the result.
-/// - **Dense leg**: Qdrant must-filter carries tenant_A's UUID only.
-///
-/// Skips automatically when `RB_DATABASE_URL` is not set.
+/// AC5b — MCP `search_items` (dispatch.rs): same two-tenant isolation proof via MCP JWT + tools/call.
 #[tokio::test]
 async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
     let Some(pool) = connect_pool().await else {
@@ -468,7 +413,6 @@ async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
     let state = build_hybrid_state(pool.clone(), &qdrant_stub.uri(), &ollama_stub.uri());
     let app = build_public(state);
 
-    // Mint a short-lived MCP JWT for tenant_A.
     let jwt = mint_mcp_token(
         MCP_JWT_SECRET,
         900,
@@ -480,7 +424,6 @@ async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
     )
     .expect("mint MCP JWT");
 
-    // Step 1: initialize MCP session → receive Mcp-Session-Id.
     let init_resp = app
         .clone()
         .oneshot(
@@ -521,7 +464,6 @@ async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
         .unwrap()
         .to_owned();
 
-    // Step 2: tools/call search_items for a query that exists only in tenant_B.
     let call_resp = app
         .oneshot(
             Request::builder()
@@ -574,7 +516,6 @@ async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
          tainted symbol lives in tenant_B's schema only"
     );
 
-    // Dense leg: Qdrant must-filter must name tenant_A, not tenant_B.
     assert_qdrant_must_filter(&qdrant_stub, tenant_a, tenant_b).await;
 
     drop_tenant_schema(&pool, tenant_a).await;
@@ -586,19 +527,7 @@ async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
         .ok();
 }
 
-// ---------------------------------------------------------------------------
-// AC5c — direct crate-level proof: hybrid_search sparse isolation
-// ---------------------------------------------------------------------------
-
-/// Directly calls `rb_query::hybrid_search` (the function both search.rs and
-/// dispatch.rs delegate to) with a wiremocked Qdrant and a real Postgres pool
-/// containing two tenant schemas.
-///
-/// This test proves isolation at the crate API boundary, independently of the
-/// HTTP routing layer.  It is additive: the two HTTP-layer tests above cover the
-/// routing; this one covers the function contract.
-///
-/// Skips automatically when `RB_DATABASE_URL` is not set.
+/// AC5c — direct crate API proof: `hybrid_search` itself is isolated (complements HTTP-layer tests above).
 #[tokio::test]
 async fn ac5_direct_hybrid_search_sparse_leg_isolation() {
     let Some(pool) = connect_pool().await else {
@@ -647,7 +576,6 @@ async fn ac5_direct_hybrid_search_sparse_leg_isolation() {
          cross_tenant_b::ExclusiveFn only exists in tenant_B's schema"
     );
 
-    // Dense leg: Qdrant must-filter must carry tenant_A's UUID only.
     assert_qdrant_must_filter(&qdrant_stub, tenant_a, tenant_b).await;
 
     drop_tenant_schema(&pool, tenant_a).await;

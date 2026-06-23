@@ -15,9 +15,9 @@
 //!      must belong to the caller's tenant (validated against Postgres).
 
 use axum::{Json, extract::State, response::IntoResponse};
-use rb_query::hybrid::HybridSearchOptions;
 use rb_query::{
-    DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search, semantic_search,
+    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search,
+    semantic_search,
 };
 use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use serde::{Deserialize, Serialize};

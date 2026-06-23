@@ -11,7 +11,7 @@
 
 mod error;
 mod graph;
-pub mod hybrid;
+mod hybrid;
 mod pg;
 mod semantic;
 mod vector;

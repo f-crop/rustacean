@@ -5,9 +5,9 @@
 //! only; it has no dependency on `rb-query`.
 
 use rb_mcp::ToolCallResult;
-use rb_query::hybrid::HybridSearchOptions;
 use rb_query::{
-    DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search, items, semantic_search,
+    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search,
+    items, semantic_search,
 };
 use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use rb_tenant::TenantCtx;
