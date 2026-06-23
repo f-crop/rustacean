@@ -156,8 +156,10 @@ pub(super) async fn dispatch_search_items(
                 .collect();
             match reranker.rerank(query, candidates).await {
                 Ok(ranked) => {
-                    let reranked: Vec<rb_query::HybridHit> =
-                        ranked.iter().map(|r| hits[r.original_idx].clone()).collect();
+                    let reranked: Vec<rb_query::HybridHit> = ranked
+                        .iter()
+                        .map(|r| hits[r.original_idx].clone())
+                        .collect();
                     metrics::counter!("retrieval_rerank_applied_total").increment(1);
                     (reranked, SourceKind::Rerank)
                 }

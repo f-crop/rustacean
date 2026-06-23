@@ -69,10 +69,7 @@ impl LlmReranker {
             .and_then(|v| v.as_str())
             .unwrap_or("0.5");
 
-        raw.trim()
-            .parse::<f32>()
-            .map(|s| s.clamp(0.0, 1.0))
-            .unwrap_or(0.5)
+        raw.trim().parse::<f32>().map_or(0.5, |s| s.clamp(0.0, 1.0))
     }
 }
 

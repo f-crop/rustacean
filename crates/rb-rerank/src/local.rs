@@ -87,9 +87,7 @@ impl Reranker for LocalCrossEncoder {
             .into_iter()
             .map(|r| RankedResult {
                 original_idx: original_indices[r.index],
-                // fastembed scores are in logit space; cast to f32 is safe here.
-                #[allow(clippy::cast_possible_truncation)]
-                rerank_score: r.score as f32,
+                rerank_score: r.score,
             })
             .collect())
     }
