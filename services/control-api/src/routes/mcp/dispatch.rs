@@ -6,8 +6,8 @@
 
 use rb_mcp::ToolCallResult;
 use rb_query::{
-    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, MultiQueryConfig, SearchOptions,
-    expand_query, hybrid_search_multi, items, resolve_n, semantic_search,
+    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, SearchOptions, expand_query,
+    hybrid_search_multi, items, semantic_search,
 };
 use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use rb_tenant::TenantCtx;
@@ -15,7 +15,12 @@ use sqlx::Row as _;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::{embed::normalize_query, error::AppError, state::AppState};
+use crate::{
+    embed::normalize_query,
+    error::AppError,
+    routes::query::search::fetch_tenant_query_settings,
+    state::AppState,
+};
 
 #[allow(clippy::too_many_lines)]
 pub(super) async fn dispatch_search_items(
@@ -79,25 +84,12 @@ pub(super) async fn dispatch_search_items(
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
         // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
-        let mq_config: MultiQueryConfig = {
-            let row: Option<(i16, bool, i32)> = sqlx::query_as(
-                "SELECT multi_query_n, multi_query_force_off, llm_token_budget \
-                 FROM control.tenant_query_settings \
-                 WHERE tenant_id = $1",
-            )
-            .bind(tenant_id)
-            .fetch_optional(&state.pool)
-            .await?;
-            let (tn, fo, budget) = row
-                .map_or((state.config.multi_query_n, false, 0u32), |(n, fo, b)| {
-                    (n.unsigned_abs().into(), fo, b.unsigned_abs())
-                });
-            MultiQueryConfig {
-                n: resolve_n(tn, fo),
-                force_off: fo,
-                token_budget: budget,
-            }
-        };
+        let mq_config = fetch_tenant_query_settings(
+            &state.pool,
+            tenant_id,
+            state.config.multi_query_n,
+        )
+        .await?;
 
         let query_texts = expand_query(
             &mq_config,

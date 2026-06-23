@@ -13,7 +13,7 @@ mod error;
 mod graph;
 mod hybrid;
 mod pg;
-pub mod rewrite;
+mod rewrite;
 mod semantic;
 mod vector;
 

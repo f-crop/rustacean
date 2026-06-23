@@ -196,7 +196,7 @@ async fn fetch_commit_shas(
 // ---------------------------------------------------------------------------
 
 /// Fetch per-tenant multi-query settings, falling back to the global config default.
-async fn fetch_tenant_query_settings(
+pub(crate) async fn fetch_tenant_query_settings(
     pool: &sqlx::PgPool,
     tenant_id: Uuid,
     global_n: u32,
