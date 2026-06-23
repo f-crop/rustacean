@@ -7,3 +7,4 @@ pub mod modules;
 pub mod search;
 pub mod traversal;
 pub mod usages;
+pub(crate) mod cost_ceilings;

@@ -219,6 +219,9 @@ fn build_hybrid_state(pool: sqlx::PgPool, qdrant_url: &str, ollama_url: &str) ->
         mcp_jwt_secret: Some(std::str::from_utf8(MCP_JWT_SECRET).unwrap().to_owned()),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
+        rerank_candidate_cap: 50,
+        multi_query_max: 3,
+        llm_token_ceiling_per_tenant: 0,
         hybrid_search_enabled: true,
         multi_query_n: 1,
     };
