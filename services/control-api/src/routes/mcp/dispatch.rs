@@ -16,9 +16,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::{
-    embed::normalize_query,
-    error::AppError,
-    routes::query::search::fetch_tenant_query_settings,
+    embed::normalize_query, error::AppError, routes::query::search::fetch_tenant_query_settings,
     state::AppState,
 };
 
@@ -84,12 +82,8 @@ pub(super) async fn dispatch_search_items(
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
         // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
-        let mq_config = fetch_tenant_query_settings(
-            &state.pool,
-            tenant_id,
-            state.config.multi_query_n,
-        )
-        .await?;
+        let mq_config =
+            fetch_tenant_query_settings(&state.pool, tenant_id, state.config.multi_query_n).await?;
 
         let query_texts = expand_query(
             &mq_config,
