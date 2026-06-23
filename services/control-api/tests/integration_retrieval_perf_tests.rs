@@ -184,13 +184,13 @@ async fn fts_leg_meets_hybrid_budget() {
     );
 }
 
-/// AC6 — Multi-query cap config default is 3.
+/// AC6 — Multi-query N config default is 1 (disabled; S5 controls the ceiling via rb_query::MAX_MULTI_QUERY_N).
 ///
-/// Exercises the Config::for_test() default and verifies the ceiling.
+/// Exercises the Config::for_test() default.
 #[test]
-fn multi_query_max_default_is_three() {
+fn multi_query_n_default_is_one() {
     let cfg = control_api::Config::for_test();
-    assert_eq!(cfg.multi_query_max, 3);
+    assert_eq!(cfg.multi_query_n, 1);
 }
 
 /// AC6 — Rerank candidate cap config default is 50.
