@@ -24,6 +24,7 @@ jobs:
       # docker-build matrix expands this with fromJson(); an empty array
       # skips the matrix job entirely.
       images: ${{ steps.compute.outputs.images }}
+      retrieval-eval: ${{ steps.filter.outputs.retrieval-eval }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -96,6 +97,15 @@ jobs:
               - *workspace
               - 'services/synthetic-load/**'
               - 'docker/synthetic-load/**'
+            retrieval-eval:
+              - 'crates/rb-query/**'
+              - 'crates/rb-rerank/**'
+              - 'crates/rb-schemas/**'
+              - 'services/control-api/src/routes/query/**'
+              - 'services/control-api/src/routes/mcp/**'
+              - 'migrations/tenant/**'
+              - 'docs/retrieval-eval/**'
+              - 'scripts/eval-retrieval.py'
       - id: compute
         env:
           EVENT: ${{ github.event_name }}
@@ -479,3 +489,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Cross-tenant row count must be zero
         run: cargo test -p rb-storage-pg --test integration --test routing
+
+  retrieval-eval:
+    name: retrieval eval (nDCG@10 regression gate)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: >-
+      github.event_name == 'push' ||
+      needs.changes.outputs.retrieval-eval == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run retrieval eval
+        run: python3 scripts/eval-retrieval.py --mode ci

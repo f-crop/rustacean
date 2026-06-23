@@ -1,0 +1,117 @@
+[
+  {
+    "id": "q-001",
+    "query": "How does RRF fusion work in hybrid retrieval",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:rb_query::hybrid::rrf_fuse",
+      "sym:rb_query::hybrid::RRF_K"
+    ],
+    "notes": "Core RRF algorithm and smoothing constant"
+  },
+  {
+    "id": "q-002",
+    "query": "What is the hybrid_search entry point and what does it return",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:rb_query::hybrid::hybrid_search",
+      "sym:rb_query::hybrid::HybridHit"
+    ],
+    "notes": "Main hybrid search function and result type"
+  },
+  {
+    "id": "q-003",
+    "query": "How does the sparse FTS leg query Postgres code_symbols",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:rb_query::hybrid::sparse_search",
+      "sym:rb_query::hybrid::SparseHit"
+    ],
+    "notes": "Full-text search leg using Postgres ts_rank_cd"
+  },
+  {
+    "id": "q-004",
+    "query": "What is the CitationV1 envelope schema and its fields",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:rb_schemas::citation::CitationV1",
+      "sym:rb_schemas::citation::LineRange",
+      "sym:rb_schemas::citation::SourceKind"
+    ],
+    "notes": "Versioned citation struct with file_path, line_range, commit_sha"
+  },
+  {
+    "id": "q-005",
+    "query": "How does tenant isolation work in the dense vector search leg",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:rb_storage_qdrant::store::TenantVectorStore",
+      "sym:rb_query::hybrid::hybrid_search"
+    ],
+    "notes": "TenantVectorStore enforces tenant_id must-filter in Qdrant"
+  },
+  {
+    "id": "q-006",
+    "query": "How does the search API authenticate and authorize requests",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:control_api::routes::query::search::require_read_access"
+    ],
+    "notes": "Auth check gate before search runs"
+  },
+  {
+    "id": "q-007",
+    "query": "How is a query embedded before vector search using Ollama",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:control_api::routes::query::search::embed_query"
+    ],
+    "notes": "Calls Ollama /api/embeddings, returns Vec<f32>"
+  },
+  {
+    "id": "q-008",
+    "query": "What struct holds the parameters for a hybrid search request",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:rb_query::hybrid::HybridSearchOptions"
+    ],
+    "notes": "Options struct passed to hybrid_search: limit, repo_id"
+  },
+  {
+    "id": "q-009",
+    "query": "How are commit SHAs sourced for citations from ingestion runs",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:control_api::routes::query::search::fetch_commit_shas"
+    ],
+    "notes": "Queries control.ingestion_runs for latest non-null commit_sha per repo"
+  },
+  {
+    "id": "q-010",
+    "query": "What is the RRF_K constant value and the k=60 justification",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:rb_query::hybrid::RRF_K",
+      "sym:rb_query::hybrid::rrf_fuse"
+    ],
+    "notes": "k=60 is the standard RRF baseline per literature"
+  },
+  {
+    "id": "q-011",
+    "query": "How does the hybrid search feature flag get enabled via environment variable",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:control_api::config::Config"
+    ],
+    "notes": "RB_HYBRID_SEARCH_ENABLED env var controls hybrid_search_enabled field"
+  },
+  {
+    "id": "q-012",
+    "query": "How are RRF scores normalized to a zero-to-one range",
+    "repo_id": "00000000-0000-0000-0000-000000000001",
+    "relevant_chunks": [
+      "sym:rb_query::hybrid::hybrid_search"
+    ],
+    "notes": "hybrid_search divides raw RRF score by max_score to normalize"
+  }
+]
