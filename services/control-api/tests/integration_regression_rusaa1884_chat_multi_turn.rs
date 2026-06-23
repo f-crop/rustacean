@@ -80,6 +80,7 @@ async fn real_db_state_chat_enabled() -> Option<(AppState, PgPool)> {
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
         hybrid_search_enabled: false,
+        multi_query_n: 1,
     };
     let state = AppState {
         pool: pool.clone(),

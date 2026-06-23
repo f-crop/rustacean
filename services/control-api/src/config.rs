@@ -113,6 +113,12 @@ pub struct Config {
     /// Set to `true` only after migration 007 has been applied and S6 eval clears.
     pub hybrid_search_enabled: bool,
 
+    // --- Multi-query rewrite (ADR-014 §6, Wave 10 S5) ---
+    /// `RB_MULTI_QUERY_N` — global default number of query variants (1 = off, max 3).
+    /// Per-tenant `multi_query_n` in `tenant_query_settings` overrides this value;
+    /// `multi_query_force_off` always wins over both. Default **1** (disabled in v1).
+    pub multi_query_n: u32,
+
     // --- Admin bootstrap (REQ-AD-01, ADR-012 §S1) ---
     /// `RB_ADMIN_TOKEN` — shared bearer secret that gates all `/api/admin/v1/*`
     /// endpoints. Optional at boot so the service starts without it; admin
@@ -222,6 +228,11 @@ impl Config {
             llm_api_key: env::var("RB_LLM_API_KEY").ok().filter(|s| !s.is_empty()),
             hybrid_search_enabled: env::var("RB_HYBRID_SEARCH_ENABLED")
                 .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
+            multi_query_n: env::var("RB_MULTI_QUERY_N")
+                .ok()
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(1)
+                .min(rb_query::MAX_MULTI_QUERY_N),
         })
     }
 
@@ -382,6 +393,7 @@ impl Config {
             mcp_jwt_ttl_secs: 900,
             llm_api_key: None,
             hybrid_search_enabled: false,
+            multi_query_n: 1,
         }
     }
 }

@@ -220,6 +220,7 @@ fn build_hybrid_state(pool: sqlx::PgPool, qdrant_url: &str, ollama_url: &str) ->
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
         hybrid_search_enabled: true,
+        multi_query_n: 1,
     };
 
     AppState {
@@ -317,7 +318,7 @@ async fn assert_qdrant_must_filter(
     }
 }
 
-/// AC5a — `POST /v1/search`: tainted symbol seeded in tenant_B returns zero results queried as tenant_A.
+/// `AC5a` — `POST /v1/search`: tainted symbol seeded in `tenant_B` returns zero results queried as `tenant_A`.
 /// Both sparse (PG FTS schema routing) and dense (Qdrant must-filter) legs verified.
 #[tokio::test]
 async fn ac5_search_site_two_tenants_zero_cross_tenant_rows() {
@@ -372,7 +373,7 @@ async fn ac5_search_site_two_tenants_zero_cross_tenant_rows() {
 
     // Sparse leg: tenant_A.code_symbols is empty, so results must be empty.
     assert_eq!(
-        body["results"].as_array().map(Vec::len).unwrap_or(0),
+        body["results"].as_array().map_or(0, Vec::len),
         0,
         "AC5 sparse leg (search site): must return zero results — \
          tainted symbol lives in tenant_B's schema only"
@@ -389,8 +390,9 @@ async fn ac5_search_site_two_tenants_zero_cross_tenant_rows() {
         .ok();
 }
 
-/// AC5b — MCP `search_items` (dispatch.rs): same two-tenant isolation proof via MCP JWT + tools/call.
+/// `AC5b` — MCP `search_items` (dispatch.rs): same two-tenant isolation proof via MCP JWT + tools/call.
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
     let Some(pool) = connect_pool().await else {
         return;
@@ -510,7 +512,7 @@ async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
         serde_json::from_str(tool_text).unwrap_or(serde_json::json!([]));
 
     assert_eq!(
-        citations.as_array().map(Vec::len).unwrap_or(0),
+        citations.as_array().map_or(0, Vec::len),
         0,
         "AC5 sparse leg (dispatch site): MCP search_items must return zero citations — \
          tainted symbol lives in tenant_B's schema only"
@@ -527,7 +529,7 @@ async fn ac5_dispatch_site_two_tenants_zero_cross_tenant_rows() {
         .ok();
 }
 
-/// AC5c — direct crate API proof: `hybrid_search` itself is isolated (complements HTTP-layer tests above).
+/// `AC5c` — direct crate API proof: `hybrid_search` itself is isolated (complements HTTP-layer tests above).
 #[tokio::test]
 async fn ac5_direct_hybrid_search_sparse_leg_isolation() {
     let Some(pool) = connect_pool().await else {

@@ -6,8 +6,8 @@
 
 use rb_mcp::ToolCallResult;
 use rb_query::{
-    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search,
-    items, semantic_search,
+    DEFAULT_SEARCH_LIMIT, HybridSearchOptions, MAX_SEARCH_LIMIT, SearchOptions, expand_query,
+    hybrid_search_multi, items, semantic_search,
 };
 use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use rb_tenant::TenantCtx;
@@ -15,7 +15,10 @@ use sqlx::Row as _;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::{embed::normalize_query, error::AppError, state::AppState};
+use crate::{
+    embed::normalize_query, error::AppError, routes::query::search::fetch_tenant_query_settings,
+    state::AppState,
+};
 
 #[allow(clippy::too_many_lines)]
 pub(super) async fn dispatch_search_items(
@@ -78,12 +81,40 @@ pub(super) async fn dispatch_search_items(
 
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
-        let hits = hybrid_search(
+        // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
+        let mq_config =
+            fetch_tenant_query_settings(&state.pool, tenant_id, state.config.multi_query_n).await?;
+
+        let query_texts = expand_query(
+            &mq_config,
+            &state.http_client,
+            ollama_url,
+            &state.config.embedding_model,
+            query,
+        )
+        .await;
+
+        let mut query_variants: Vec<(Vec<f32>, String)> = Vec::with_capacity(query_texts.len());
+        for qt in &query_texts {
+            let v = if qt == query {
+                vector.clone()
+            } else {
+                embed_query(
+                    &state.http_client,
+                    ollama_url,
+                    &state.config.embedding_model,
+                    qt,
+                )
+                .await?
+            };
+            query_variants.push((v, qt.clone()));
+        }
+
+        let hits = hybrid_search_multi(
             &state.pool,
             qdrant,
             &tenant,
-            &vector,
-            query,
+            &query_variants,
             HybridSearchOptions {
                 limit,
                 repo_id: repo_id_filter,
@@ -91,7 +122,7 @@ pub(super) async fn dispatch_search_items(
         )
         .await
         .map_err(|e| {
-            tracing::warn!("hybrid_search (mcp) failed: {e}");
+            tracing::warn!("hybrid_search_multi (mcp) failed: {e}");
             AppError::ServiceUnavailable
         })?;
 

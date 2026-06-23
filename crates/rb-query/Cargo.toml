@@ -20,6 +20,7 @@ serde.workspace = true
 moka = { workspace = true, features = ["future"] }
 tracing.workspace = true
 base64.workspace = true
+metrics.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

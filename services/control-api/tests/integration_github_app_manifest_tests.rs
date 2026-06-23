@@ -125,6 +125,7 @@ fn build_test_config_with_api_base(
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
         hybrid_search_enabled: false,
+        multi_query_n: 1,
     }
 }
 
