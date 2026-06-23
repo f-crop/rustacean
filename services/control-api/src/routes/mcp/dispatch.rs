@@ -200,7 +200,7 @@ pub(super) async fn dispatch_search_items(
                     },
                     commit_sha,
                     score: h.score,
-                    source_kind: citation_source_kind.clone(),
+                    source_kind: citation_source_kind,
                 }
             })
             .collect();

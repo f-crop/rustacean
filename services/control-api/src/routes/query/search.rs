@@ -437,7 +437,7 @@ pub async fn search(
                     },
                     commit_sha,
                     score: h.score,
-                    source_kind: citation_source_kind.clone(),
+                    source_kind: citation_source_kind,
                 }
             })
             .collect();
