@@ -96,6 +96,7 @@ async fn real_db_state() -> Option<(AppState, sqlx::PgPool)> {
         mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
+        hybrid_search_enabled: false,
     };
     let state = AppState {
         pool: pool.clone(),

@@ -1011,6 +1011,9 @@ export interface paths {
          *     the Qdrant `rb_embeddings` collection filtered by `tenant_id`, and returns
          *     ranked results with their fully-qualified names and crate context.
          *
+         *     When `RB_HYBRID_SEARCH_ENABLED=true`, also runs Postgres FTS and fuses
+         *     results via RRF k=60, returning `CitationV1` envelopes in `citations`.
+         *
          *     Returns 503 when either Qdrant (`RB_QDRANT_URL`) or Ollama (`RB_OLLAMA_URL`)
          *     are not configured on this instance.
          */
@@ -1330,6 +1333,39 @@ export interface components {
             /** Format: uuid */
             readonly user_id?: string | null;
         };
+        /**
+         * @description Versioned citation envelope returned by `/v1/search` and `search_items` MCP tool
+         *     when `RB_HYBRID_SEARCH_ENABLED=true` (ADR-014 §5, Wave 10 S2).
+         *
+         *     S4 (chat UI citation rendering) builds against this exact shape. Field additions
+         *     within the same `version` value are additive; breaking changes must bump `version`.
+         *
+         *     `commit_sha` is always non-empty: Wave 10 sources the repo-level head SHA at
+         *     ingest time when per-symbol SHAs are unavailable. Consumers should treat it as
+         *     a best-effort "ingested at this commit" rather than a per-line provenance.
+         */
+        readonly CitationV1: {
+            /** @description Commit SHA at which this symbol was ingested. Non-empty; see type-level docs. */
+            readonly commit_sha: string;
+            /** @description Relative path within the repository (from `code_symbols.source_path`). */
+            readonly file_path: string;
+            /** @description Source line range (from `code_symbols.line_start`/`line_end`). */
+            readonly line_range: components["schemas"]["LineRange"];
+            /**
+             * Format: uuid
+             * @description Repository that contains this symbol.
+             */
+            readonly repo_id: string;
+            /**
+             * Format: float
+             * @description Fused score normalized to `[0, 1]`.
+             */
+            readonly score: number;
+            /** @description Which retrieval path(s) produced this result. */
+            readonly source_kind: components["schemas"]["SourceKind"];
+            /** @description Schema version tag. Always `"v1"` for this type. */
+            readonly version: string;
+        };
         readonly ConnectRepoRequest: {
             /** @description Default branch override. If omitted, the value is fetched from GitHub. */
             readonly default_branch?: string | null;
@@ -1556,6 +1592,13 @@ export interface components {
              */
             readonly source_preview?: string | null;
         };
+        /** @description Line range (inclusive on both ends) within a source file. */
+        readonly LineRange: {
+            /** Format: int32 */
+            readonly end: number;
+            /** Format: int32 */
+            readonly start: number;
+        };
         readonly ListApiKeysResponse: {
             readonly keys: readonly components["schemas"]["ApiKeyItem"][];
         };
@@ -1735,8 +1778,15 @@ export interface components {
             /** @description Natural-language query to embed and search. */
             readonly q: string;
         };
-        /** @description Response body for `POST /v1/search`. */
+        /**
+         * @description Response body for `POST /v1/search`.
+         *
+         *     `results` is always present (backward compat).
+         *     `citations` is populated only when `RB_HYBRID_SEARCH_ENABLED=true`; absent otherwise
+         *     (skipped in serialization when empty) so flag-off response is byte-identical to pre-S2.
+         */
         readonly SearchResponse: {
+            readonly citations?: readonly components["schemas"]["CitationV1"][];
             readonly results: readonly components["schemas"]["SearchResult"][];
         };
         /** @description A single ranked result returned by `/v1/search`. */
@@ -1810,6 +1860,11 @@ export interface components {
             /** Format: uuid */
             readonly user_id: string;
         };
+        /**
+         * @description Which retrieval leg(s) produced this hit.
+         * @enum {string}
+         */
+        readonly SourceKind: "dense" | "sparse" | "hybrid" | "rerank";
         readonly StageRunItem: {
             readonly error_message?: string | null;
             /** Format: date-time */

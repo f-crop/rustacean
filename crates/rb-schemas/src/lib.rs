@@ -1,5 +1,8 @@
 use uuid::Uuid;
 
+mod citation;
+pub use citation::{CitationV1, LineRange, SourceKind};
+
 mod stream_json;
 pub use stream_json::RuntimeEvent;
 

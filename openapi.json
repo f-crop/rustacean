@@ -2217,7 +2217,7 @@
           "search"
         ],
         "summary": "Semantic search across embedded code symbols within the caller's tenant.",
-        "description": "Embeds `q` via Ollama, performs approximate nearest-neighbour search in\nthe Qdrant `rb_embeddings` collection filtered by `tenant_id`, and returns\nranked results with their fully-qualified names and crate context.\n\nReturns 503 when either Qdrant (`RB_QDRANT_URL`) or Ollama (`RB_OLLAMA_URL`)\nare not configured on this instance.",
+        "description": "Embeds `q` via Ollama, performs approximate nearest-neighbour search in\nthe Qdrant `rb_embeddings` collection filtered by `tenant_id`, and returns\nranked results with their fully-qualified names and crate context.\n\nWhen `RB_HYBRID_SEARCH_ENABLED=true`, also runs Postgres FTS and fuses\nresults via RRF k=60, returning `CitationV1` envelopes in `citations`.\n\nReturns 503 when either Qdrant (`RB_QDRANT_URL`) or Ollama (`RB_OLLAMA_URL`)\nare not configured on this instance.",
         "operationId": "search",
         "requestBody": {
           "content": {
@@ -3048,6 +3048,51 @@
           }
         }
       },
+      "CitationV1": {
+        "type": "object",
+        "description": "Versioned citation envelope returned by `/v1/search` and `search_items` MCP tool\nwhen `RB_HYBRID_SEARCH_ENABLED=true` (ADR-014 §5, Wave 10 S2).\n\nS4 (chat UI citation rendering) builds against this exact shape. Field additions\nwithin the same `version` value are additive; breaking changes must bump `version`.\n\n`commit_sha` is always non-empty: Wave 10 sources the repo-level head SHA at\ningest time when per-symbol SHAs are unavailable. Consumers should treat it as\na best-effort \"ingested at this commit\" rather than a per-line provenance.",
+        "required": [
+          "version",
+          "repo_id",
+          "file_path",
+          "line_range",
+          "commit_sha",
+          "score",
+          "source_kind"
+        ],
+        "properties": {
+          "commit_sha": {
+            "type": "string",
+            "description": "Commit SHA at which this symbol was ingested. Non-empty; see type-level docs."
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Relative path within the repository (from `code_symbols.source_path`)."
+          },
+          "line_range": {
+            "$ref": "#/components/schemas/LineRange",
+            "description": "Source line range (from `code_symbols.line_start`/`line_end`)."
+          },
+          "repo_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Repository that contains this symbol."
+          },
+          "score": {
+            "type": "number",
+            "format": "float",
+            "description": "Fused score normalized to `[0, 1]`."
+          },
+          "source_kind": {
+            "$ref": "#/components/schemas/SourceKind",
+            "description": "Which retrieval path(s) produced this result."
+          },
+          "version": {
+            "type": "string",
+            "description": "Schema version tag. Always `\"v1\"` for this type."
+          }
+        }
+      },
       "ConnectRepoRequest": {
         "type": "object",
         "required": [
@@ -3626,6 +3671,24 @@
           }
         }
       },
+      "LineRange": {
+        "type": "object",
+        "description": "Line range (inclusive on both ends) within a source file.",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "end": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "start": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "ListApiKeysResponse": {
         "type": "object",
         "required": [
@@ -4178,11 +4241,17 @@
       },
       "SearchResponse": {
         "type": "object",
-        "description": "Response body for `POST /v1/search`.",
+        "description": "Response body for `POST /v1/search`.\n\n`results` is always present (backward compat).\n`citations` is populated only when `RB_HYBRID_SEARCH_ENABLED=true`; absent otherwise\n(skipped in serialization when empty) so flag-off response is byte-identical to pre-S2.",
         "required": [
           "results"
         ],
         "properties": {
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CitationV1"
+            }
+          },
           "results": {
             "type": "array",
             "items": {
@@ -4399,6 +4468,16 @@
             "format": "uuid"
           }
         }
+      },
+      "SourceKind": {
+        "type": "string",
+        "description": "Which retrieval leg(s) produced this hit.",
+        "enum": [
+          "dense",
+          "sparse",
+          "hybrid",
+          "rerank"
+        ]
       },
       "StageRunItem": {
         "type": "object",

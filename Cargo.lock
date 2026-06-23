@@ -4143,6 +4143,7 @@ dependencies = [
  "protox",
  "serde",
  "serde_json",
+ "utoipa",
  "uuid",
 ]
 

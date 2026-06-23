@@ -91,6 +91,7 @@ async fn build_state(chat_panel_enabled: bool) -> Option<(AppState, PgPool)> {
         mcp_jwt_secret: Some("test-mcp-jwt-secret-chat".to_owned()),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
+        hybrid_search_enabled: false,
     };
     let state = AppState {
         pool: pool.clone(),

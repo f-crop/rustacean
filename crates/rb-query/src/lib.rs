@@ -7,9 +7,11 @@
 //! [`rb_storage_neo4j::TenantGraph`] for tenant isolation (ADR-007 §3.4).
 //! The `vector` module provides semantic search via [`rb_storage_qdrant::TenantVectorStore`]
 //! with mandatory per-tenant isolation (ADR-007 §13.2).
+//! The `hybrid` module fuses dense + sparse legs via RRF (ADR-014 §3).
 
 mod error;
 mod graph;
+mod hybrid;
 mod pg;
 mod semantic;
 mod vector;
@@ -21,6 +23,7 @@ pub use graph::traversal::{
     TraversalNode, TraversalOptions, TraversalResult, fetch_callees, fetch_callers,
 };
 pub use graph::usages::{UsageEntry, fetch_type_usages};
+pub use hybrid::{HybridHit, HybridSearchOptions, hybrid_search};
 pub use pg::items;
 pub use pg::modules::{ModuleNode, ModuleTreeCache, fetch_module_tree, new_module_tree_cache};
 pub use semantic::{SemanticSearchError, search_by_vector};
