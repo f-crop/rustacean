@@ -124,6 +124,7 @@ fn build_test_config_with_api_base(
         mcp_jwt_secret: Some("test-mcp-jwt-secret-for-unit-tests-only".to_owned()),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
+        hybrid_search_enabled: false,
     }
 }
 

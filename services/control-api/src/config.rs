@@ -6,6 +6,7 @@ use base64::Engine as _;
 
 /// Service configuration loaded from environment variables.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
     pub listen_addr: String,
     pub database_url: String,
@@ -105,6 +106,12 @@ pub struct Config {
     /// Loaded via `rb-secrets::from_env("RB")` at the call site.
     /// This field stores the resolved value; it is never logged (`SecretValue`).
     pub llm_api_key: Option<String>,
+
+    // --- Hybrid search (ADR-014 §5, Wave 10 S2) ---
+    /// `RB_HYBRID_SEARCH_ENABLED` — enables hybrid (FTS + RRF) retrieval at
+    /// `POST /v1/search` and the `search_items` MCP tool. Default **off**.
+    /// Set to `true` only after migration 007 has been applied and S6 eval clears.
+    pub hybrid_search_enabled: bool,
 
     // --- Admin bootstrap (REQ-AD-01, ADR-012 §S1) ---
     /// `RB_ADMIN_TOKEN` — shared bearer secret that gates all `/api/admin/v1/*`
@@ -213,6 +220,8 @@ impl Config {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(900),
             llm_api_key: env::var("RB_LLM_API_KEY").ok().filter(|s| !s.is_empty()),
+            hybrid_search_enabled: env::var("RB_HYBRID_SEARCH_ENABLED")
+                .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
         })
     }
 
@@ -372,6 +381,7 @@ impl Config {
             mcp_jwt_secret: Some("test-mcp-jwt-secret-for-unit-tests-only".to_owned()),
             mcp_jwt_ttl_secs: 900,
             llm_api_key: None,
+            hybrid_search_enabled: false,
         }
     }
 }

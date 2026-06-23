@@ -75,6 +75,7 @@ fn lazy_config_with_token(db_url: &str) -> Config {
         mcp_jwt_secret: Some("test-mcp-jwt-secret".to_owned()),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: None,
+        hybrid_search_enabled: false,
     }
 }
 

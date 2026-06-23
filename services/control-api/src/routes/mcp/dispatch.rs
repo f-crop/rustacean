@@ -5,13 +5,19 @@
 //! only; it has no dependency on `rb-query`.
 
 use rb_mcp::ToolCallResult;
-use rb_query::{DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, SearchOptions, items, semantic_search};
-use rb_schemas::TenantId;
+use rb_query::hybrid::HybridSearchOptions;
+use rb_query::{
+    DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search, items, semantic_search,
+};
+use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use rb_tenant::TenantCtx;
+use sqlx::Row as _;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::{embed::normalize_query, error::AppError, state::AppState};
 
+#[allow(clippy::too_many_lines)]
 pub(super) async fn dispatch_search_items(
     state: &AppState,
     tenant_id: Uuid,
@@ -69,27 +75,85 @@ pub(super) async fn dispatch_search_items(
     .await?;
 
     let tenant = TenantId::from(tenant_id);
-    let opts = SearchOptions {
-        limit,
-        repo_id: repo_id_filter,
-    };
-    let hits = semantic_search(qdrant, &tenant, &vector, opts).await?;
 
-    let results: Vec<serde_json::Value> = hits
-        .into_iter()
-        .map(|h| {
-            let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
-            serde_json::json!({
-                "fqn": h.fqn,
-                "crate_name": crate_name,
-                "repo_id": h.repo_id,
-                "score": h.score
+    if state.config.hybrid_search_enabled {
+        // --- Hybrid path (flag on) ---
+        let hits = hybrid_search(
+            &state.pool,
+            qdrant,
+            &tenant,
+            &vector,
+            query,
+            HybridSearchOptions {
+                limit,
+                repo_id: repo_id_filter,
+            },
+        )
+        .await
+        .map_err(|e| {
+            tracing::warn!("hybrid_search (mcp) failed: {e}");
+            AppError::ServiceUnavailable
+        })?;
+
+        // Collect distinct repo_ids for commit_sha lookup.
+        let repo_ids: Vec<Uuid> = {
+            let mut seen = std::collections::HashSet::new();
+            hits.iter()
+                .filter_map(|h| h.repo_id.parse::<Uuid>().ok())
+                .filter(|id| seen.insert(*id))
+                .collect()
+        };
+        let commit_shas = fetch_commit_shas(&state.pool, &repo_ids).await?;
+
+        let citations: Vec<CitationV1> = hits
+            .into_iter()
+            .map(|h| {
+                let repo_uuid = h.repo_id.parse::<Uuid>().unwrap_or(Uuid::nil());
+                let commit_sha = commit_shas
+                    .get(&repo_uuid)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_owned());
+                CitationV1 {
+                    version: CitationV1::VERSION.to_owned(),
+                    repo_id: repo_uuid,
+                    file_path: h.source_path.unwrap_or_default(),
+                    line_range: LineRange {
+                        start: h.line_start.unwrap_or(0),
+                        end: h.line_end.unwrap_or(0),
+                    },
+                    commit_sha,
+                    score: h.score,
+                    source_kind: SourceKind::Hybrid,
+                }
             })
-        })
-        .collect();
+            .collect();
 
-    let text = serde_json::to_string_pretty(&results).unwrap_or_default();
-    Ok(ToolCallResult::success(text))
+        let text = serde_json::to_string_pretty(&citations).unwrap_or_default();
+        Ok(ToolCallResult::success(text))
+    } else {
+        // --- Dense-only path (flag off) — behavior identical to pre-S2 ---
+        let opts = SearchOptions {
+            limit,
+            repo_id: repo_id_filter,
+        };
+        let hits = semantic_search(qdrant, &tenant, &vector, opts).await?;
+
+        let results: Vec<serde_json::Value> = hits
+            .into_iter()
+            .map(|h| {
+                let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
+                serde_json::json!({
+                    "fqn": h.fqn,
+                    "crate_name": crate_name,
+                    "repo_id": h.repo_id,
+                    "score": h.score
+                })
+            })
+            .collect();
+
+        let text = serde_json::to_string_pretty(&results).unwrap_or_default();
+        Ok(ToolCallResult::success(text))
+    }
 }
 
 pub(super) async fn dispatch_get_item(
@@ -187,6 +251,36 @@ async fn embed_query(
                 .ok_or(AppError::ServiceUnavailable)
         })
         .collect()
+}
+
+/// Fetch the latest non-null `commit_sha` from `control.ingestion_runs` per repo.
+/// Repos with no run default to `"unknown"` per ADR-014 §5.
+async fn fetch_commit_shas(
+    pool: &sqlx::PgPool,
+    repo_ids: &[Uuid],
+) -> Result<HashMap<Uuid, String>, AppError> {
+    if repo_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (repo_id) repo_id, commit_sha \
+         FROM control.ingestion_runs \
+         WHERE repo_id = ANY($1) \
+           AND commit_sha IS NOT NULL \
+         ORDER BY repo_id, started_at DESC NULLS LAST",
+    )
+    .bind(repo_ids)
+    .fetch_all(pool)
+    .await?;
+
+    let mut map: HashMap<Uuid, String> = rows
+        .into_iter()
+        .map(|r| (r.get("repo_id"), r.get("commit_sha")))
+        .collect();
+    for rid in repo_ids {
+        map.entry(*rid).or_insert_with(|| "unknown".to_owned());
+    }
+    Ok(map)
 }
 
 #[cfg(test)]

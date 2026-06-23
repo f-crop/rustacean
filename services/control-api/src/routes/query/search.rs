@@ -1,7 +1,12 @@
 //! `POST /v1/search` — semantic code search (REQ-DP-01).
 //!
-//! Embeds the caller's query via Ollama, searches the `rb_embeddings` Qdrant
-//! collection within the caller's tenant scope, and returns ranked code symbols.
+//! When `RB_HYBRID_SEARCH_ENABLED=false` (default): embeds the query via Ollama,
+//! searches Qdrant with a `tenant_id` must-filter, and returns ranked code symbols.
+//! Response shape: `{"results":[...]}` — byte-identical to the pre-Wave-10 path.
+//!
+//! When `RB_HYBRID_SEARCH_ENABLED=true`: runs dense + sparse legs via
+//! `rb_query::hybrid_search`, fuses via RRF k=60, sources `commit_sha` from
+//! `control.ingestion_runs`, and populates `citations` (`CitationV1` envelope).
 //!
 //! Multi-tenancy is enforced at two layers:
 //!   1. [`TenantVectorStore::search`] injects a `must` `tenant_id` filter so
@@ -10,9 +15,14 @@
 //!      must belong to the caller's tenant (validated against Postgres).
 
 use axum::{Json, extract::State, response::IntoResponse};
-use rb_query::{DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, SearchOptions, semantic_search};
-use rb_schemas::TenantId;
+use rb_query::hybrid::HybridSearchOptions;
+use rb_query::{
+    DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, SearchOptions, hybrid_search, semantic_search,
+};
+use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use serde::{Deserialize, Serialize};
+use sqlx::Row as _;
+use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -59,9 +69,15 @@ pub struct SearchResult {
 }
 
 /// Response body for `POST /v1/search`.
+///
+/// `results` is always present (backward compat).
+/// `citations` is populated only when `RB_HYBRID_SEARCH_ENABLED=true`; absent otherwise
+/// (skipped in serialization when empty) so flag-off response is byte-identical to pre-S2.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SearchResponse {
     pub results: Vec<SearchResult>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub citations: Vec<CitationV1>,
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +146,52 @@ async fn embed_query(
 }
 
 // ---------------------------------------------------------------------------
+// Commit-SHA sourcing (hybrid path only)
+// ---------------------------------------------------------------------------
+
+/// Fetch the latest non-null `commit_sha` from `control.ingestion_runs` for each
+/// distinct `repo_id` in `repo_ids`. Returns a map `repo_id → commit_sha`.
+///
+/// Repos with no succeeded run (or all runs have NULL `commit_sha`) are mapped to
+/// `"unknown"` per ADR-014 §5 ("`commit_sha` must not be `Option` or empty").
+async fn fetch_commit_shas(
+    pool: &sqlx::PgPool,
+    repo_ids: &[Uuid],
+) -> Result<HashMap<Uuid, String>, AppError> {
+    if repo_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // Latest non-null commit_sha per repo (most recent started run first).
+    let rows = sqlx::query(
+        "SELECT DISTINCT ON (repo_id) repo_id, commit_sha \
+         FROM control.ingestion_runs \
+         WHERE repo_id = ANY($1) \
+           AND commit_sha IS NOT NULL \
+         ORDER BY repo_id, started_at DESC NULLS LAST",
+    )
+    .bind(repo_ids)
+    .fetch_all(pool)
+    .await?;
+
+    let mut map: HashMap<Uuid, String> = rows
+        .into_iter()
+        .map(|r| {
+            let repo_id: Uuid = r.get("repo_id");
+            let sha: String = r.get("commit_sha");
+            (repo_id, sha)
+        })
+        .collect();
+
+    // Fill "unknown" for repos with no ingestion run yet.
+    for rid in repo_ids {
+        map.entry(*rid).or_insert_with(|| "unknown".to_owned());
+    }
+
+    Ok(map)
+}
+
+// ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
@@ -138,6 +200,9 @@ async fn embed_query(
 /// Embeds `q` via Ollama, performs approximate nearest-neighbour search in
 /// the Qdrant `rb_embeddings` collection filtered by `tenant_id`, and returns
 /// ranked results with their fully-qualified names and crate context.
+///
+/// When `RB_HYBRID_SEARCH_ENABLED=true`, also runs Postgres FTS and fuses
+/// results via RRF k=60, returning `CitationV1` envelopes in `citations`.
 ///
 /// Returns 503 when either Qdrant (`RB_QDRANT_URL`) or Ollama (`RB_OLLAMA_URL`)
 /// are not configured on this instance.
@@ -154,6 +219,7 @@ async fn embed_query(
     ),
     tag = "search"
 )]
+#[allow(clippy::too_many_lines)]
 pub async fn search(
     State(state): State<AppState>,
     auth: AuthContext,
@@ -199,33 +265,113 @@ pub async fn search(
     let vector = embed_query(&http, ollama_url, &state.config.embedding_model, &req.q).await?;
 
     let tenant_id = TenantId::from(tenant_id_uuid);
-    let opts = SearchOptions {
-        limit,
-        repo_id: repo_id_filter,
-    };
-    let hits = semantic_search(qdrant, &tenant_id, &vector, opts).await?;
 
-    let results: Vec<SearchResult> = hits
-        .into_iter()
-        .map(|h| {
-            let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
-            SearchResult {
-                fqn: h.fqn,
-                crate_name,
-                repo_id: h.repo_id,
-                score: h.score,
-            }
-        })
-        .collect();
+    if state.config.hybrid_search_enabled {
+        // --- Hybrid path (flag on) ---
+        let hits = hybrid_search(
+            &state.pool,
+            qdrant,
+            &tenant_id,
+            &vector,
+            &req.q,
+            HybridSearchOptions {
+                limit,
+                repo_id: repo_id_filter,
+            },
+        )
+        .await
+        .map_err(|e| {
+            tracing::warn!("hybrid_search failed: {e}");
+            AppError::ServiceUnavailable
+        })?;
 
-    tracing::debug!(
-        tenant_id = %tenant_id_uuid,
-        query = %req.q,
-        result_count = results.len(),
-        "semantic search completed"
-    );
+        // Collect distinct repo_ids for commit_sha lookup.
+        let repo_ids: Vec<Uuid> = {
+            let mut seen = std::collections::HashSet::new();
+            hits.iter()
+                .filter_map(|h| h.repo_id.parse::<Uuid>().ok())
+                .filter(|id| seen.insert(*id))
+                .collect()
+        };
+        let commit_shas = fetch_commit_shas(&state.pool, &repo_ids).await?;
 
-    Ok(Json(SearchResponse { results }))
+        let results: Vec<SearchResult> = hits
+            .iter()
+            .map(|h| {
+                let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
+                SearchResult {
+                    fqn: h.fqn.clone(),
+                    crate_name,
+                    repo_id: h.repo_id.clone(),
+                    score: h.score,
+                }
+            })
+            .collect();
+
+        let citations: Vec<CitationV1> = hits
+            .into_iter()
+            .map(|h| {
+                let repo_uuid = h.repo_id.parse::<Uuid>().unwrap_or(Uuid::nil());
+                let commit_sha = commit_shas
+                    .get(&repo_uuid)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_owned());
+                CitationV1 {
+                    version: CitationV1::VERSION.to_owned(),
+                    repo_id: repo_uuid,
+                    file_path: h.source_path.unwrap_or_default(),
+                    line_range: LineRange {
+                        start: h.line_start.unwrap_or(0),
+                        end: h.line_end.unwrap_or(0),
+                    },
+                    commit_sha,
+                    score: h.score,
+                    source_kind: SourceKind::Hybrid,
+                }
+            })
+            .collect();
+
+        tracing::debug!(
+            tenant_id = %tenant_id_uuid,
+            query = %req.q,
+            result_count = results.len(),
+            "hybrid search completed"
+        );
+
+        Ok(Json(SearchResponse { results, citations }))
+    } else {
+        // --- Dense-only path (flag off) — byte-identical to pre-S2 ---
+        let opts = SearchOptions {
+            limit,
+            repo_id: repo_id_filter,
+        };
+        let hits = semantic_search(qdrant, &tenant_id, &vector, opts).await?;
+
+        let results: Vec<SearchResult> = hits
+            .into_iter()
+            .map(|h| {
+                let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
+                SearchResult {
+                    fqn: h.fqn,
+                    crate_name,
+                    repo_id: h.repo_id,
+                    score: h.score,
+                }
+            })
+            .collect();
+
+        tracing::debug!(
+            tenant_id = %tenant_id_uuid,
+            query = %req.q,
+            result_count = results.len(),
+            "semantic search completed"
+        );
+
+        Ok(Json(SearchResponse {
+            results,
+            citations: vec![],
+        }))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -335,5 +481,42 @@ mod tests {
 
         let over = 200_u32.clamp(1, MAX_SEARCH_LIMIT);
         assert_eq!(over, MAX_SEARCH_LIMIT);
+    }
+
+    // AC6: flag-off response serializes WITHOUT `citations` field — byte-identical to pre-S2.
+    #[test]
+    fn flag_off_response_omits_citations_field() {
+        let resp = SearchResponse {
+            results: vec![SearchResult {
+                fqn: "a::Fn".to_owned(),
+                crate_name: "a".to_owned(),
+                repo_id: "r1".to_owned(),
+                score: 0.9,
+            }],
+            citations: vec![],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(!json.as_object().unwrap().contains_key("citations"));
+        assert!(json.as_object().unwrap().contains_key("results"));
+    }
+
+    // AC6: flag-on response includes `citations` field.
+    #[test]
+    fn flag_on_response_includes_citations_field() {
+        let resp = SearchResponse {
+            results: vec![],
+            citations: vec![CitationV1 {
+                version: CitationV1::VERSION.to_owned(),
+                repo_id: Uuid::nil(),
+                file_path: "src/lib.rs".to_owned(),
+                line_range: LineRange { start: 1, end: 10 },
+                commit_sha: "abc123".to_owned(),
+                score: 0.85,
+                source_kind: SourceKind::Hybrid,
+            }],
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert!(json.as_object().unwrap().contains_key("citations"));
+        assert_eq!(json["citations"][0]["version"], "v1");
     }
 }
