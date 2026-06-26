@@ -19,7 +19,9 @@ use uuid::Uuid;
 use crate::{
     embed::normalize_query,
     error::AppError,
-    routes::query::search::{clamp_rerank_candidates, fetch_tenant_query_settings, llm_budget_allows},
+    routes::query::search::{
+        clamp_rerank_candidates, fetch_tenant_query_settings, llm_budget_allows,
+    },
     state::AppState,
 };
 
