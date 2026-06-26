@@ -11,6 +11,7 @@ use rb_email::EmailSender;
 use rb_github::GhAppLoader;
 use rb_kafka::Producer;
 use rb_query::ModuleTreeCache;
+use rb_rerank::Reranker;
 use rb_schemas::{AgentSessionCommand, IngestRequest, Tombstone};
 use rb_sse::EventBus;
 use rb_storage_neo4j::TenantGraph;
@@ -416,6 +417,8 @@ pub struct AppState {
     /// Company-level LLM provider API key (`RB_LLM_API_KEY`, ADR-013 §2).
     /// Empty string means key is not configured; chat routes return 503.
     pub llm_api_key: String,
+    /// Flag-gated cross-encoder reranker; `None` when `RB_RERANK_ENABLED=false`.
+    pub reranker: Option<std::sync::Arc<dyn Reranker>>,
 }
 
 #[cfg(test)]

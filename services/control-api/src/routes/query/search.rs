@@ -23,6 +23,7 @@ use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use serde::{Deserialize, Serialize};
 use sqlx::Row as _;
 use std::collections::HashMap;
+use std::time::Instant;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -79,6 +80,8 @@ pub struct SearchResponse {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<CitationV1>,
 }
+
+pub(crate) use super::cost_ceilings::{clamp_rerank_candidates, llm_budget_allows};
 
 // ---------------------------------------------------------------------------
 // Auth helper
@@ -296,6 +299,11 @@ pub async fn search(
 
     let tenant_id = TenantId::from(tenant_id_uuid);
 
+    // AC5: guard LLM calls before they reach any rewriter/reranker.
+    // ceiling=0 (default) → zero outbound LLM cost for all tenants.
+    let _llm_allowed =
+        llm_budget_allows(state.config.llm_token_ceiling_per_tenant, 0, tenant_id_uuid);
+
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
         // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
@@ -324,6 +332,7 @@ pub async fn search(
             query_variants.push((v, qt.clone()));
         }
 
+        let t0 = Instant::now();
         let hits = hybrid_search_multi(
             &state.pool,
             qdrant,
@@ -339,6 +348,53 @@ pub async fn search(
             tracing::warn!("hybrid_search_multi failed: {e}");
             AppError::ServiceUnavailable
         })?;
+        #[allow(clippy::cast_precision_loss)]
+        let elapsed_ms = t0.elapsed().as_micros() as f64 / 1000.0;
+
+        // AC1: emit duration histogram and candidate counter for the hybrid leg.
+        metrics::histogram!("retrieval_request_duration_ms", "mode" => "hybrid").record(elapsed_ms);
+        metrics::counter!("retrieval_candidates_total", "mode" => "hybrid")
+            .increment(hits.len() as u64);
+
+        // AC3: clamp rerank candidate set before any future cross-encoder call.
+        let hits = clamp_rerank_candidates(hits, state.config.rerank_candidate_cap, tenant_id_uuid);
+
+        // AC3 / AC4: optional cross-encoder rerank stage (flag-gated, S3).
+        let (hits, citation_source_kind) = if let Some(reranker) = state.reranker.as_deref() {
+            let candidates: Vec<rb_rerank::RerankCandidate> = hits
+                .iter()
+                .enumerate()
+                .map(|(i, h)| rb_rerank::RerankCandidate {
+                    original_idx: i,
+                    text: h.fqn.clone(),
+                    original_score: h.score,
+                })
+                .collect();
+            match reranker.rerank(&req.q, candidates).await {
+                Ok(ranked) => {
+                    let reranked: Vec<rb_query::HybridHit> = ranked
+                        .iter()
+                        .map(|r| hits[r.original_idx].clone())
+                        .collect();
+                    metrics::counter!("retrieval_rerank_applied_total").increment(1);
+                    (reranked, SourceKind::Rerank)
+                }
+                Err(e) => {
+                    tracing::warn!(tenant_id = %tenant_id_uuid, "reranker error, using RRF order: {e}");
+                    (hits, SourceKind::Hybrid)
+                }
+            }
+        } else {
+            (hits, SourceKind::Hybrid)
+        };
+
+        tracing::debug!(
+            tenant_id = %tenant_id_uuid,
+            query = %req.q,
+            result_count = hits.len(),
+            elapsed_ms,
+            "hybrid search completed"
+        );
 
         // Collect distinct repo_ids for commit_sha lookup.
         let repo_ids: Vec<Uuid> = {
@@ -381,26 +437,35 @@ pub async fn search(
                     },
                     commit_sha,
                     score: h.score,
-                    source_kind: SourceKind::Hybrid,
+                    source_kind: citation_source_kind,
                 }
             })
             .collect();
 
-        tracing::debug!(
-            tenant_id = %tenant_id_uuid,
-            query = %req.q,
-            result_count = results.len(),
-            "hybrid search completed"
-        );
-
         Ok(Json(SearchResponse { results, citations }))
     } else {
         // --- Dense-only path (flag off) — byte-identical to pre-S2 ---
+        let t0 = Instant::now();
         let opts = SearchOptions {
             limit,
             repo_id: repo_id_filter,
         };
         let hits = semantic_search(qdrant, &tenant_id, &vector, opts).await?;
+        #[allow(clippy::cast_precision_loss)]
+        let elapsed_ms = t0.elapsed().as_micros() as f64 / 1000.0;
+
+        // AC1: emit duration histogram and candidate counter for the dense leg.
+        metrics::histogram!("retrieval_request_duration_ms", "mode" => "dense").record(elapsed_ms);
+        metrics::counter!("retrieval_candidates_total", "mode" => "dense")
+            .increment(hits.len() as u64);
+
+        tracing::debug!(
+            tenant_id = %tenant_id_uuid,
+            query = %req.q,
+            result_count = hits.len(),
+            elapsed_ms,
+            "semantic search completed"
+        );
 
         let results: Vec<SearchResult> = hits
             .into_iter()
@@ -415,13 +480,6 @@ pub async fn search(
             })
             .collect();
 
-        tracing::debug!(
-            tenant_id = %tenant_id_uuid,
-            query = %req.q,
-            result_count = results.len(),
-            "semantic search completed"
-        );
-
         Ok(Json(SearchResponse {
             results,
             citations: vec![],
@@ -429,149 +487,6 @@ pub async fn search(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        embed::normalize_query,
-        middleware::auth::{ApiKeyInfo, SessionInfo},
-    };
-
-    fn verified_session(tenant_id: Uuid) -> SessionInfo {
-        SessionInfo {
-            session_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            tenant_id,
-            email_verified: true,
-        }
-    }
-
-    #[test]
-    fn normalize_query_hello_world() {
-        // AC-3: identical assertion required in both the MCP and REST route modules.
-        assert_eq!(normalize_query("HelloWorld"), "search_query: hello world");
-    }
-
-    #[test]
-    fn anonymous_rejected() {
-        assert!(matches!(
-            require_read_access(AuthContext::Anonymous),
-            Err(AppError::Unauthorized)
-        ));
-    }
-
-    #[test]
-    fn expired_session_rejected() {
-        assert!(matches!(
-            require_read_access(AuthContext::ExpiredSession),
-            Err(AppError::SessionExpired)
-        ));
-    }
-
-    #[test]
-    fn unverified_session_rejected() {
-        let mut info = verified_session(Uuid::new_v4());
-        info.email_verified = false;
-        assert!(matches!(
-            require_read_access(AuthContext::Session(info)),
-            Err(AppError::EmailNotVerified)
-        ));
-    }
-
-    #[test]
-    fn verified_session_accepted() {
-        let tid = Uuid::new_v4();
-        let result = require_read_access(AuthContext::Session(verified_session(tid)));
-        assert_eq!(result.unwrap(), tid);
-    }
-
-    #[test]
-    fn api_key_with_read_scope_accepted() {
-        let tid = Uuid::new_v4();
-        let key = ApiKeyInfo {
-            key_id: Uuid::new_v4(),
-            tenant_id: tid,
-            user_id: Uuid::new_v4(),
-            scopes: vec![Scope::Read],
-        };
-        assert_eq!(require_read_access(AuthContext::ApiKey(key)).unwrap(), tid);
-    }
-
-    #[test]
-    fn api_key_without_read_scope_rejected() {
-        let key = ApiKeyInfo {
-            key_id: Uuid::new_v4(),
-            tenant_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            scopes: vec![Scope::Write],
-        };
-        assert!(matches!(
-            require_read_access(AuthContext::ApiKey(key)),
-            Err(AppError::InsufficientScope)
-        ));
-    }
-
-    #[test]
-    fn crate_name_extracted_from_fqn() {
-        let fqn = "my_crate::module::MyStruct";
-        let crate_name = fqn.split("::").next().unwrap_or(fqn).to_owned();
-        assert_eq!(crate_name, "my_crate");
-    }
-
-    #[test]
-    fn crate_name_for_bare_fqn() {
-        let fqn = "bare_crate";
-        let crate_name = fqn.split("::").next().unwrap_or(fqn).to_owned();
-        assert_eq!(crate_name, "bare_crate");
-    }
-
-    #[test]
-    fn limit_defaults_and_cap() {
-        let applied = DEFAULT_SEARCH_LIMIT.clamp(1, MAX_SEARCH_LIMIT);
-        assert_eq!(applied, DEFAULT_SEARCH_LIMIT);
-
-        let over = 200_u32.clamp(1, MAX_SEARCH_LIMIT);
-        assert_eq!(over, MAX_SEARCH_LIMIT);
-    }
-
-    // AC6: flag-off response serializes WITHOUT `citations` field — byte-identical to pre-S2.
-    #[test]
-    fn flag_off_response_omits_citations_field() {
-        let resp = SearchResponse {
-            results: vec![SearchResult {
-                fqn: "a::Fn".to_owned(),
-                crate_name: "a".to_owned(),
-                repo_id: "r1".to_owned(),
-                score: 0.9,
-            }],
-            citations: vec![],
-        };
-        let json = serde_json::to_value(&resp).unwrap();
-        assert!(!json.as_object().unwrap().contains_key("citations"));
-        assert!(json.as_object().unwrap().contains_key("results"));
-    }
-
-    // AC6: flag-on response includes `citations` field.
-    #[test]
-    fn flag_on_response_includes_citations_field() {
-        let resp = SearchResponse {
-            results: vec![],
-            citations: vec![CitationV1 {
-                version: CitationV1::VERSION.to_owned(),
-                repo_id: Uuid::nil(),
-                file_path: "src/lib.rs".to_owned(),
-                line_range: LineRange { start: 1, end: 10 },
-                commit_sha: "abc123".to_owned(),
-                score: 0.85,
-                source_kind: SourceKind::Hybrid,
-            }],
-        };
-        let json = serde_json::to_value(&resp).unwrap();
-        assert!(json.as_object().unwrap().contains_key("citations"));
-        assert_eq!(json["citations"][0]["version"], "v1");
-    }
-}
+#[path = "search_tests.rs"]
+mod tests;

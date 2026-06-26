@@ -14,6 +14,10 @@ allow = [
     "CDLA-Permissive-2.0",
     # quoted_printable (dep of lettre email transport) uses zero-clause BSD
     "0BSD",
+    # option-ext (transitive via dirs → hf-hub → fastembed) uses Mozilla Public License
+    "MPL-2.0",
+    # libfuzzer-sys (transitive via ort-sys → fastembed) uses NCSA permissive license
+    "NCSA",
 ]
 confidence-threshold = 0.8
 
@@ -30,6 +34,8 @@ ignore = [
     { id = "RUSTSEC-2024-0436" },
     # lettre: RUSTSEC-2026-0141 affects boring-tls backend only; project uses rustls
     { id = "RUSTSEC-2026-0141" },
+    # number_prefix: unmaintained, transitive via fastembed → hf-hub → indicatif; no known exploit
+    { id = "RUSTSEC-2025-0119" },
 ]
 
 [bans]

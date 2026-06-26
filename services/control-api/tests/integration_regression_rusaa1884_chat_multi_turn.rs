@@ -81,6 +81,10 @@ async fn real_db_state_chat_enabled() -> Option<(AppState, PgPool)> {
         llm_api_key: None,
         hybrid_search_enabled: false,
         multi_query_n: 1,
+        rerank_enabled: false,
+        rerank_model_dir: std::path::PathBuf::from("/models/rerank"),
+        rerank_candidate_cap: 50,
+        llm_token_ceiling_per_tenant: 0,
     };
     let state = AppState {
         pool: pool.clone(),
@@ -107,6 +111,7 @@ async fn real_db_state_chat_enabled() -> Option<(AppState, PgPool)> {
         mcp_jwt_secret: "test-1884-mcp-jwt-secret".to_owned(),
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
+        reranker: None,
     };
     Some((state, pool))
 }

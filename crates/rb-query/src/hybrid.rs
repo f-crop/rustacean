@@ -218,18 +218,19 @@ pub async fn hybrid_search(
     let n_fetch = opts.limit.max(MIN_FETCH);
     let ctx = TenantCtx::new(*tenant_id);
 
-    // Run both legs sequentially (tracer slice; S7 adds parallelism + budget guard).
-    let dense_hits = semantic_search(
-        store,
-        tenant_id,
-        vector,
-        SearchOptions {
-            limit: n_fetch,
-            repo_id: opts.repo_id,
-        },
-    )
-    .await?;
-    let sparse_hits = sparse_search(pool, &ctx, query_text, n_fetch, opts.repo_id).await?;
+    // Run both legs concurrently — neither leg depends on the other's result.
+    let (dense_hits, sparse_hits) = tokio::try_join!(
+        semantic_search(
+            store,
+            tenant_id,
+            vector,
+            SearchOptions {
+                limit: n_fetch,
+                repo_id: opts.repo_id,
+            },
+        ),
+        sparse_search(pool, &ctx, query_text, n_fetch, opts.repo_id)
+    )?;
 
     // Fuse via RRF, then normalize scores to [0, 1].
     #[allow(clippy::cast_possible_truncation)]

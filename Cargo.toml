@@ -37,6 +37,7 @@ members = [
     "crates/rb-build-info",
     "crates/rb-metrics",
     "services/synthetic-load",
+    "crates/rb-rerank",
 ]
 
 [workspace.package]
@@ -100,6 +101,7 @@ dashmap = "6"
 minijinja = "2"
 lettre = { version = "0.11", features = ["smtp-transport", "tokio1-rustls-tls", "builder"], default-features = false }
 async-trait = "0.1"
+fastembed = "4.9.1"
 # Byte buffer (rb-blob)
 bytes = "1"
 # GitHub App integration (REQ-GH-01 / rb-github)

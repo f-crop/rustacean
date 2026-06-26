@@ -1,0 +1,67 @@
+name: Retrieval Latency Budget Check
+
+# Runs when retrieval-surface files change.
+# Asserts ADR-014 §9 FTS latency sub-budget via the integration_retrieval_perf_tests fixture.
+# NOT a required check — advisory only.  Fails loudly on regressions.
+
+on:
+  pull_request:
+    paths:
+      - 'crates/rb-query/**'
+      - 'services/control-api/src/routes/query/**'
+      - 'services/control-api/src/routes/mcp/dispatch.rs'
+      - 'services/control-api/tests/integration_retrieval_perf_tests.rs'
+      - 'migrations/tenant/**'
+      - '.github/workflows/retrieval-perf.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/rb-query/**'
+      - 'services/control-api/src/routes/query/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  retrieval-perf:
+    name: retrieval-perf
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rustbrain
+          POSTGRES_PASSWORD: rustbrain
+          POSTGRES_DB: rustbrain_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      RB_DATABASE_URL: postgres://rustbrain:rustbrain@localhost:5432/rustbrain_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: ./.github/actions/setup-rdkafka
+
+      - name: Run retrieval latency budget tests
+        run: |
+          cargo test -p control-api \
+            --test integration_retrieval_perf_tests \
+            -- --nocapture
+        env:
+          RB_DATABASE_URL: ${{ env.RB_DATABASE_URL }}

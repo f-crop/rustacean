@@ -13,10 +13,15 @@ use rb_schemas::{CitationV1, LineRange, SourceKind, TenantId};
 use rb_tenant::TenantCtx;
 use sqlx::Row as _;
 use std::collections::HashMap;
+use std::time::Instant;
 use uuid::Uuid;
 
 use crate::{
-    embed::normalize_query, error::AppError, routes::query::search::fetch_tenant_query_settings,
+    embed::normalize_query,
+    error::AppError,
+    routes::query::search::{
+        clamp_rerank_candidates, fetch_tenant_query_settings, llm_budget_allows,
+    },
     state::AppState,
 };
 
@@ -79,6 +84,9 @@ pub(super) async fn dispatch_search_items(
 
     let tenant = TenantId::from(tenant_id);
 
+    // AC5: guard LLM calls before they reach any rewriter/reranker.
+    let _llm_allowed = llm_budget_allows(state.config.llm_token_ceiling_per_tenant, 0, tenant_id);
+
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
         // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
@@ -110,6 +118,7 @@ pub(super) async fn dispatch_search_items(
             query_variants.push((v, qt.clone()));
         }
 
+        let t0 = Instant::now();
         let hits = hybrid_search_multi(
             &state.pool,
             qdrant,
@@ -125,6 +134,45 @@ pub(super) async fn dispatch_search_items(
             tracing::warn!("hybrid_search_multi (mcp) failed: {e}");
             AppError::ServiceUnavailable
         })?;
+        #[allow(clippy::cast_precision_loss)]
+        let elapsed_ms = t0.elapsed().as_micros() as f64 / 1000.0;
+
+        // AC1: emit duration histogram and candidate counter.
+        metrics::histogram!("retrieval_request_duration_ms", "mode" => "hybrid").record(elapsed_ms);
+        metrics::counter!("retrieval_candidates_total", "mode" => "hybrid")
+            .increment(hits.len() as u64);
+
+        // AC3: clamp rerank candidate set before any future cross-encoder call.
+        let hits = clamp_rerank_candidates(hits, state.config.rerank_candidate_cap, tenant_id);
+
+        // AC3 / AC4: optional cross-encoder rerank stage (flag-gated, S3).
+        let (hits, citation_source_kind) = if let Some(reranker) = state.reranker.as_deref() {
+            let candidates: Vec<rb_rerank::RerankCandidate> = hits
+                .iter()
+                .enumerate()
+                .map(|(i, h)| rb_rerank::RerankCandidate {
+                    original_idx: i,
+                    text: h.fqn.clone(),
+                    original_score: h.score,
+                })
+                .collect();
+            match reranker.rerank(query, candidates).await {
+                Ok(ranked) => {
+                    let reranked: Vec<rb_query::HybridHit> = ranked
+                        .iter()
+                        .map(|r| hits[r.original_idx].clone())
+                        .collect();
+                    metrics::counter!("retrieval_rerank_applied_total").increment(1);
+                    (reranked, SourceKind::Rerank)
+                }
+                Err(e) => {
+                    tracing::warn!(tenant_id = %tenant_id, "reranker error (mcp), using RRF order: {e}");
+                    (hits, SourceKind::Hybrid)
+                }
+            }
+        } else {
+            (hits, SourceKind::Hybrid)
+        };
 
         // Collect distinct repo_ids for commit_sha lookup.
         let repo_ids: Vec<Uuid> = {
@@ -154,7 +202,7 @@ pub(super) async fn dispatch_search_items(
                     },
                     commit_sha,
                     score: h.score,
-                    source_kind: SourceKind::Hybrid,
+                    source_kind: citation_source_kind,
                 }
             })
             .collect();
@@ -163,11 +211,19 @@ pub(super) async fn dispatch_search_items(
         Ok(ToolCallResult::success(text))
     } else {
         // --- Dense-only path (flag off) — behavior identical to pre-S2 ---
+        let t0 = Instant::now();
         let opts = SearchOptions {
             limit,
             repo_id: repo_id_filter,
         };
         let hits = semantic_search(qdrant, &tenant, &vector, opts).await?;
+        #[allow(clippy::cast_precision_loss)]
+        let elapsed_ms = t0.elapsed().as_micros() as f64 / 1000.0;
+
+        // AC1: emit duration histogram and candidate counter.
+        metrics::histogram!("retrieval_request_duration_ms", "mode" => "dense").record(elapsed_ms);
+        metrics::counter!("retrieval_candidates_total", "mode" => "dense")
+            .increment(hits.len() as u64);
 
         let results: Vec<serde_json::Value> = hits
             .into_iter()
