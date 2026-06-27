@@ -81,6 +81,7 @@ fn test_state() -> AppState {
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
         reranker: None,
+        llm_tenant_tokens: std::sync::Arc::new(control_api::TenantLlmTokenCounter::new()),
     }
 }
 

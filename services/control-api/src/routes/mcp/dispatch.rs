@@ -84,8 +84,12 @@ pub(super) async fn dispatch_search_items(
 
     let tenant = TenantId::from(tenant_id);
 
-    // AC5: guard LLM calls before they reach any rewriter/reranker.
-    let _llm_allowed = llm_budget_allows(state.config.llm_token_ceiling_per_tenant, 0, tenant_id);
+    // AC5: check per-tenant LLM budget before issuing any rewrite call.
+    let llm_allowed = llm_budget_allows(
+        state.config.llm_token_ceiling_per_tenant,
+        state.llm_tenant_tokens.tokens_used(tenant_id),
+        tenant_id,
+    );
 
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
@@ -93,14 +97,25 @@ pub(super) async fn dispatch_search_items(
         let mq_config =
             fetch_tenant_query_settings(&state.pool, tenant_id, state.config.multi_query_n).await?;
 
-        let query_texts = expand_query(
-            &mq_config,
-            &state.http_client,
-            ollama_url,
-            &state.config.embedding_model,
-            query,
-        )
-        .await;
+        // Short-circuit to [original] when LLM budget is exhausted (AC5).
+        let query_texts = if llm_allowed {
+            let (texts, tokens_consumed) = expand_query(
+                &mq_config,
+                &state.http_client,
+                ollama_url,
+                &state.config.embedding_model,
+                query,
+            )
+            .await;
+            if tokens_consumed > 0 {
+                state
+                    .llm_tenant_tokens
+                    .add_tokens(tenant_id, tokens_consumed);
+            }
+            texts
+        } else {
+            vec![query.to_owned()]
+        };
 
         let mut query_variants: Vec<(Vec<f32>, String)> = Vec::with_capacity(query_texts.len());
         for qt in &query_texts {

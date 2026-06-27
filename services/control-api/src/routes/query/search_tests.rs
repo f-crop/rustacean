@@ -157,6 +157,56 @@ fn non_zero_ceiling_allows_under_budget_denies_at_or_over() {
     assert!(!llm_budget_allows(1000, 1001, tid));
 }
 
+// AC5: TenantLlmTokenCounter accumulates per-tenant and enforces ceiling when read back.
+#[test]
+fn llm_token_counter_accumulates_per_tenant() {
+    use crate::state::TenantLlmTokenCounter;
+
+    let counter = TenantLlmTokenCounter::new();
+    let t1 = Uuid::new_v4();
+    let t2 = Uuid::new_v4();
+
+    assert_eq!(counter.tokens_used(t1), 0);
+    assert_eq!(counter.tokens_used(t2), 0);
+
+    counter.add_tokens(t1, 500);
+    counter.add_tokens(t1, 300);
+    counter.add_tokens(t2, 100);
+
+    assert_eq!(counter.tokens_used(t1), 800);
+    assert_eq!(counter.tokens_used(t2), 100);
+}
+
+#[test]
+fn llm_token_counter_saturates_at_u32_max() {
+    use crate::state::TenantLlmTokenCounter;
+
+    let counter = TenantLlmTokenCounter::new();
+    let t = Uuid::new_v4();
+    counter.add_tokens(t, u32::MAX);
+    counter.add_tokens(t, 1); // must not overflow
+    assert_eq!(counter.tokens_used(t), u32::MAX);
+}
+
+// AC5: budget gates the LLM path — ceiling exhausted → llm_budget_allows returns false.
+#[test]
+fn budget_gates_after_accumulation() {
+    use crate::state::TenantLlmTokenCounter;
+
+    let counter = TenantLlmTokenCounter::new();
+    let tid = Uuid::new_v4();
+    let ceiling: u32 = 1_000;
+
+    // Under budget: allowed.
+    assert!(llm_budget_allows(ceiling, counter.tokens_used(tid), tid));
+
+    // Accumulate up to the ceiling.
+    counter.add_tokens(tid, 1_000);
+
+    // At ceiling: denied + emits counter.
+    assert!(!llm_budget_allows(ceiling, counter.tokens_used(tid), tid));
+}
+
 // AC3: clamp_rerank_candidates truncates over-cap sets.
 #[test]
 fn rerank_cap_truncates_oversized_set() {

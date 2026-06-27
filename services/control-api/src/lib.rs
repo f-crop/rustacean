@@ -21,5 +21,5 @@ pub use routes::{build_internal, build_public};
 pub use server::run;
 pub use state::{
     AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore, SessionCreateRateLimiter,
-    TenantSessionCount,
+    TenantLlmTokenCounter, TenantSessionCount,
 };
