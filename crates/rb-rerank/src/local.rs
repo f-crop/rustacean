@@ -112,6 +112,8 @@ mod bench {
     #[test]
     #[ignore = "requires ONNX model at RB_RERANK_MODEL_DIR; run --ignored on dev hardware"]
     fn bench_local_cross_encoder_n50() {
+        const ITERS: u32 = 10;
+
         let model_dir =
             std::env::var("RB_RERANK_MODEL_DIR").unwrap_or_else(|_| "/models/rerank".to_owned());
 
@@ -133,8 +135,6 @@ mod bench {
         // Warm-up: first inference may trigger JIT / ONNX graph optimisation.
         rt.block_on(encoder.rerank(query, make_candidates()))
             .expect("warm-up rerank must succeed");
-
-        const ITERS: u32 = 10;
         let start = std::time::Instant::now();
         for _ in 0..ITERS {
             rt.block_on(encoder.rerank(query, make_candidates()))
