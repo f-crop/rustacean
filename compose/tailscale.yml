@@ -43,6 +43,10 @@ services:
 
   control-api:
     restart: unless-stopped
+    # Mount a host-side model cache so fastembed downloads BGE-reranker-base once
+    # and re-uses it across container recreations (ADR-014 §12 — self-hosted, no CDN).
+    volumes:
+      - /home/jarnura/models/rerank:/models/rerank
 
   caddy:
     restart: unless-stopped
