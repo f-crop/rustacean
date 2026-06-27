@@ -55,7 +55,7 @@ export function parseCitationResult(raw: unknown): ParsedCitationItem[] {
       continue;
     }
 
-    if (typeof file_path !== "string" || typeof repo_id !== "string") continue;
+    if (typeof file_path !== "string" || file_path.trim() === "" || typeof repo_id !== "string") continue;
 
     const lr = isPlainObject(line_range) ? line_range : {};
     const start = typeof lr["start"] === "number" ? lr["start"] : 0;
