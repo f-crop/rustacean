@@ -271,6 +271,11 @@ services:
       RB_TEMPO_BASE_URL: "${RB_TEMPO_BASE_URL:-http://localhost:3000}"
       RB_CHAT_PANEL_ENABLED: "${RB_CHAT_PANEL_ENABLED:-true}"
       RB_MCP_JWT_SECRET: "${RB_MCP_JWT_SECRET:-dev-mcp-jwt-secret-change-me-in-prod-32b}"
+      # Wave 10 retrieval flags (ADR-014). Default off for local dev; enabled via tailscale.env on mars.
+      RB_HYBRID_SEARCH_ENABLED: "${RB_HYBRID_SEARCH_ENABLED:-false}"
+      RB_RERANK_ENABLED: "${RB_RERANK_ENABLED:-false}"
+      RB_MULTI_QUERY_N: "${RB_MULTI_QUERY_N:-1}"
+      RB_LLM_TOKEN_CEILING_PER_TENANT: "${RB_LLM_TOKEN_CEILING_PER_TENANT:-0}"
     volumes:
       - ../migrations:/migrations:ro
     ports:
