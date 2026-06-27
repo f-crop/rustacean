@@ -223,6 +223,8 @@ fn build_hybrid_state(pool: sqlx::PgPool, qdrant_url: &str, ollama_url: &str) ->
         llm_token_ceiling_per_tenant: 0,
         hybrid_search_enabled: true,
         multi_query_n: 1,
+        rewrite_model: String::new(),
+        multi_query_token_budget: 0,
         rerank_enabled: false,
         rerank_model_dir: std::path::PathBuf::from("/models/rerank"),
     };

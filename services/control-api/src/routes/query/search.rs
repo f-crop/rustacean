@@ -203,6 +203,7 @@ pub(crate) async fn fetch_tenant_query_settings(
     pool: &sqlx::PgPool,
     tenant_id: Uuid,
     global_n: u32,
+    global_budget: u32,
 ) -> Result<MultiQueryConfig, AppError> {
     let row: Option<(i16, bool, i32)> = sqlx::query_as(
         "SELECT multi_query_n, multi_query_force_off, llm_token_budget \
@@ -213,9 +214,10 @@ pub(crate) async fn fetch_tenant_query_settings(
     .fetch_optional(pool)
     .await?;
 
-    let (tenant_n, force_off, budget) = row.map_or((global_n, false, 0u32), |(n, fo, b)| {
-        (n.unsigned_abs().into(), fo, b.unsigned_abs())
-    });
+    let (tenant_n, force_off, budget) = row
+        .map_or((global_n, false, global_budget), |(n, fo, b)| {
+            (n.unsigned_abs().into(), fo, b.unsigned_abs())
+        });
 
     Ok(MultiQueryConfig {
         n: resolve_n(tenant_n, force_off),
@@ -310,9 +312,13 @@ pub async fn search(
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
         // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
-        let mq_config =
-            fetch_tenant_query_settings(&state.pool, tenant_id_uuid, state.config.multi_query_n)
-                .await?;
+        let mq_config = fetch_tenant_query_settings(
+            &state.pool,
+            tenant_id_uuid,
+            state.config.multi_query_n,
+            state.config.multi_query_token_budget,
+        )
+        .await?;
 
         // Expand the query into variants; short-circuit to [original] when LLM budget
         // is exhausted so we never issue outbound Ollama calls over-ceiling (AC5).
@@ -321,7 +327,7 @@ pub async fn search(
                 &mq_config,
                 &http,
                 ollama_url,
-                &state.config.embedding_model,
+                &state.config.rewrite_model,
                 &req.q,
             )
             .await;

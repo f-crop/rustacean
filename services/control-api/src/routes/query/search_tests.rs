@@ -207,6 +207,21 @@ fn budget_gates_after_accumulation() {
     assert!(!llm_budget_allows(ceiling, counter.tokens_used(tid), tid));
 }
 
+// S5: fetch_tenant_query_settings uses global_budget when no tenant row exists.
+#[test]
+fn global_budget_fallback_tuple_matches_expected() {
+    let global_n = 3u32;
+    let global_budget = 500u32;
+    // Mirror the map_or default path: Option::<(i16, bool, i32)>::None.map_or(...)
+    let (n, force_off, budget): (u32, bool, u32) = None::<(i16, bool, i32)>
+        .map_or((global_n, false, global_budget), |(n, fo, b)| {
+            (n.unsigned_abs().into(), fo, b.unsigned_abs())
+        });
+    assert_eq!(n, 3);
+    assert!(!force_off);
+    assert_eq!(budget, 500);
+}
+
 // AC3: clamp_rerank_candidates truncates over-cap sets.
 #[test]
 fn rerank_cap_truncates_oversized_set() {

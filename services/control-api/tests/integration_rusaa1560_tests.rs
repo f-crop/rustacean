@@ -78,6 +78,8 @@ async fn real_db_state() -> Option<(AppState, PgPool)> {
         rerank_model_dir: std::path::PathBuf::from("/models/rerank"),
         rerank_candidate_cap: 50,
         multi_query_n: 1,
+        rewrite_model: String::new(),
+        multi_query_token_budget: 0,
         llm_token_ceiling_per_tenant: 0,
     };
     let state = AppState {

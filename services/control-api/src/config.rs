@@ -118,6 +118,15 @@ pub struct Config {
     /// Per-tenant `multi_query_n` in `tenant_query_settings` overrides this value;
     /// `multi_query_force_off` always wins over both. Default **1** (disabled in v1).
     pub multi_query_n: u32,
+    /// `RB_REWRITE_MODEL` — Ollama model used for LLM query rewriting (calls `/api/generate`).
+    /// Must be a **generative** model (e.g. `llama3.2:3b`); distinct from `RB_EMBEDDING_MODEL`
+    /// which only supports `/api/embeddings`. When empty, `expand_query` falls back to
+    /// `[original]` even with a non-zero token budget.
+    pub rewrite_model: String,
+    /// `RB_MULTI_QUERY_TOKEN_BUDGET` — global default token budget for LLM rewriting when
+    /// no `tenant_query_settings` row exists. `0` disables (default). Per-tenant DB rows
+    /// override this value; `multi_query_force_off` always wins.
+    pub multi_query_token_budget: u32,
 
     // --- Retrieval cost ceilings (ADR-014 §9, Wave 10 S7) ---
     /// `RB_RERANK_ENABLED` — enables the local cross-encoder reranker after hybrid
@@ -251,6 +260,11 @@ impl Config {
                 .and_then(|s| s.parse::<u32>().ok())
                 .unwrap_or(1)
                 .min(rb_query::MAX_MULTI_QUERY_N),
+            rewrite_model: env::var("RB_REWRITE_MODEL").unwrap_or_default(),
+            multi_query_token_budget: env::var("RB_MULTI_QUERY_TOKEN_BUDGET")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0),
             rerank_enabled: env::var("RB_RERANK_ENABLED")
                 .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true")),
             rerank_model_dir: env::var("RB_RERANK_MODEL_DIR").map_or_else(
@@ -426,6 +440,8 @@ impl Config {
             llm_api_key: None,
             hybrid_search_enabled: false,
             multi_query_n: 1,
+            rewrite_model: String::new(),
+            multi_query_token_budget: 0,
             rerank_enabled: false,
             rerank_model_dir: std::path::PathBuf::from("/models/rerank"),
             rerank_candidate_cap: 50,
