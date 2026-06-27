@@ -203,6 +203,13 @@ async fn build_annotated_hits(
                 score: normalized,
             }
         })
+        // Drop orphan embeddings whose fqn has no row in code_symbols: an empty
+        // source_path means the LLM would reference a citation the user cannot open.
+        .filter(|h| {
+            h.source_path
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty())
+        })
         .collect())
 }
 
@@ -559,6 +566,57 @@ mod tests {
         assert!(missing.contains(&"dense_b".to_owned()));
         assert!(!missing.contains(&"shared".to_owned()));
         assert!(!missing.contains(&"sparse_x".to_owned()));
+    }
+
+    // Orphan-drop: hits that still have no resolved source_path after backfill are dropped
+    // so the LLM never references citations the user cannot open.
+    #[test]
+    fn orphan_hits_with_unresolved_source_path_are_dropped() {
+        let resolved = HybridHit {
+            fqn: "good::Fn".to_owned(),
+            repo_id: "r1".to_owned(),
+            source_path: Some("src/lib.rs".to_owned()),
+            line_start: Some(10),
+            line_end: Some(20),
+            score: 0.9,
+        };
+        let orphan_none = HybridHit {
+            fqn: "orphan_none::Fn".to_owned(),
+            repo_id: "r1".to_owned(),
+            source_path: None,
+            line_start: None,
+            line_end: None,
+            score: 0.8,
+        };
+        let orphan_empty = HybridHit {
+            fqn: "orphan_empty::Fn".to_owned(),
+            repo_id: "r1".to_owned(),
+            source_path: Some(String::new()),
+            line_start: Some(0),
+            line_end: Some(0),
+            score: 0.7,
+        };
+        let orphan_whitespace = HybridHit {
+            fqn: "orphan_ws::Fn".to_owned(),
+            repo_id: "r1".to_owned(),
+            source_path: Some("   ".to_owned()),
+            line_start: Some(0),
+            line_end: Some(0),
+            score: 0.6,
+        };
+
+        let hits = vec![resolved, orphan_none, orphan_empty, orphan_whitespace];
+        let kept: Vec<HybridHit> = hits
+            .into_iter()
+            .filter(|h| {
+                h.source_path
+                    .as_deref()
+                    .is_some_and(|s| !s.trim().is_empty())
+            })
+            .collect();
+
+        assert_eq!(kept.len(), 1, "only the resolvable hit should survive");
+        assert_eq!(kept[0].fqn, "good::Fn");
     }
 
     // AC8: multi-variant fusion with n=3 must complete within a reasonable time bound
