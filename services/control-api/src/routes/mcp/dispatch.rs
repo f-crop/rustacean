@@ -94,8 +94,13 @@ pub(super) async fn dispatch_search_items(
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
         // Resolve per-tenant multi-query config (S5). Default n=1 means no rewrite.
-        let mq_config =
-            fetch_tenant_query_settings(&state.pool, tenant_id, state.config.multi_query_n).await?;
+        let mq_config = fetch_tenant_query_settings(
+            &state.pool,
+            tenant_id,
+            state.config.multi_query_n,
+            state.config.multi_query_token_budget,
+        )
+        .await?;
 
         // Short-circuit to [original] when LLM budget is exhausted (AC5).
         let query_texts = if llm_allowed {
@@ -103,7 +108,7 @@ pub(super) async fn dispatch_search_items(
                 &mq_config,
                 &state.http_client,
                 ollama_url,
-                &state.config.embedding_model,
+                &state.config.rewrite_model,
                 query,
             )
             .await;
