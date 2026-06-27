@@ -222,6 +222,18 @@ fn global_budget_fallback_tuple_matches_expected() {
     assert_eq!(budget, 500);
 }
 
+// S5: rewrite_model and embedding_model are distinct config fields sourced from separate env vars.
+// Regression guard: passing embedding_model to expand_query causes Ollama 400 (nomic-embed-text
+// does not support /api/generate). This test pins that the two fields start with different values.
+#[test]
+fn rewrite_model_distinct_from_embedding_model() {
+    use crate::config::Config;
+    let cfg = Config::for_test();
+    assert_eq!(cfg.embedding_model, "nomic-embed-text");
+    assert_eq!(cfg.rewrite_model, "");
+    assert_ne!(cfg.rewrite_model, cfg.embedding_model);
+}
+
 // AC3: clamp_rerank_candidates truncates over-cap sets.
 #[test]
 fn rerank_cap_truncates_oversized_set() {
