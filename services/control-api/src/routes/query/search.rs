@@ -299,10 +299,13 @@ pub async fn search(
 
     let tenant_id = TenantId::from(tenant_id_uuid);
 
-    // AC5: guard LLM calls before they reach any rewriter/reranker.
+    // AC5: check per-tenant LLM budget before issuing any rewrite call.
     // ceiling=0 (default) → zero outbound LLM cost for all tenants.
-    let _llm_allowed =
-        llm_budget_allows(state.config.llm_token_ceiling_per_tenant, 0, tenant_id_uuid);
+    let llm_allowed = llm_budget_allows(
+        state.config.llm_token_ceiling_per_tenant,
+        state.llm_tenant_tokens.tokens_used(tenant_id_uuid),
+        tenant_id_uuid,
+    );
 
     if state.config.hybrid_search_enabled {
         // --- Hybrid path (flag on) ---
@@ -311,15 +314,27 @@ pub async fn search(
             fetch_tenant_query_settings(&state.pool, tenant_id_uuid, state.config.multi_query_n)
                 .await?;
 
-        // Expand the query into variants (returns [original] when n=1 or disabled).
-        let query_texts = expand_query(
-            &mq_config,
-            &http,
-            ollama_url,
-            &state.config.embedding_model,
-            &req.q,
-        )
-        .await;
+        // Expand the query into variants; short-circuit to [original] when LLM budget
+        // is exhausted so we never issue outbound Ollama calls over-ceiling (AC5).
+        let query_texts = if llm_allowed {
+            let (texts, tokens_consumed) = expand_query(
+                &mq_config,
+                &http,
+                ollama_url,
+                &state.config.embedding_model,
+                &req.q,
+            )
+            .await;
+            // Accumulate real token spend for this tenant.
+            if tokens_consumed > 0 {
+                state
+                    .llm_tenant_tokens
+                    .add_tokens(tenant_id_uuid, tokens_consumed);
+            }
+            texts
+        } else {
+            vec![req.q.clone()]
+        };
 
         // Embed each query variant (reuse already-computed vector for the original).
         let mut query_variants: Vec<(Vec<f32>, String)> = Vec::with_capacity(query_texts.len());

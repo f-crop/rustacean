@@ -11,7 +11,7 @@ use uuid::Uuid;
 use super::*;
 use crate::{
     AppState, Config, KafkaConsistencyState, McpSessionStore, SessionCreateRateLimiter,
-    TenantSessionCount, state::AgentRegistry,
+    TenantLlmTokenCounter, TenantSessionCount, state::AgentRegistry,
 };
 
 /// Connect to the real Postgres instance.
@@ -234,6 +234,7 @@ fn make_state(pool: PgPool) -> AppState {
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
         reranker: None,
+        llm_tenant_tokens: Arc::new(TenantLlmTokenCounter::new()),
     }
 }
 

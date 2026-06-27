@@ -47,7 +47,7 @@ mod tests {
 
     use crate::{
         AgentRegistry, AppState, Config, KafkaConsistencyState, McpSessionStore,
-        SessionCreateRateLimiter, TenantSessionCount,
+        SessionCreateRateLimiter, TenantLlmTokenCounter, TenantSessionCount,
     };
 
     fn test_state() -> AppState {
@@ -91,6 +91,7 @@ mod tests {
             mcp_jwt_ttl_secs: 900,
             llm_api_key: String::new(),
             reranker: None,
+            llm_tenant_tokens: Arc::new(TenantLlmTokenCounter::new()),
         }
     }
 

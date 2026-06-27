@@ -159,6 +159,7 @@ fn build_state_with_gh(pool: PgPool, gh_loader: Arc<GhAppLoader>) -> AppState {
         mcp_jwt_ttl_secs: 900,
         llm_api_key: String::new(),
         reranker: None,
+        llm_tenant_tokens: std::sync::Arc::new(control_api::TenantLlmTokenCounter::new()),
     }
 }
 

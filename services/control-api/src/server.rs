@@ -25,7 +25,7 @@ use crate::{
     ingest_consumer, jobs, middleware, routes,
     state::{
         AgentRegistry, AppState, KafkaConsistencyState, McpSessionStore, SessionCreateRateLimiter,
-        TenantSessionCount,
+        TenantLlmTokenCounter, TenantSessionCount,
     },
 };
 
@@ -178,6 +178,7 @@ pub async fn run(config: Config) -> Result<()> {
         mcp_jwt_ttl_secs: config.mcp_jwt_ttl_secs,
         llm_api_key: config.llm_api_key.clone().unwrap_or_default(),
         reranker,
+        llm_tenant_tokens: Arc::new(TenantLlmTokenCounter::new()),
     };
 
     // Spawn the periodic reconciler that heals ingestion runs left in `queued`

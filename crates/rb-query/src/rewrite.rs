@@ -98,11 +98,16 @@ pub fn resolve_n(tenant_n: u32, force_off: bool) -> u32 {
 ///
 /// # Returns
 ///
-/// - `[original]` when `config.n == 1`, `config.force_off == true`, or
-///   `config.token_budget == 0` (AC4 — disabled by default in v1).
-/// - `[original, paraphrase_1, …]` otherwise, with the original always first.
+/// A tuple `(variants, tokens_used)` where:
+/// - `variants` is `[original]` on all short-circuit paths, or
+///   `[original, paraphrase_1, …]` on a successful LLM call.
+/// - `tokens_used` is the `eval_count` reported by Ollama (0 on all
+///   short-circuit / error paths, so callers can accumulate accurately).
 ///
-/// # Failure modes (all short-circuit to `[original]`)
+/// Short-circuit conditions (no LLM call, `tokens_used` = 0):
+/// - `config.n == 1`, `config.force_off == true`, or `config.token_budget == 0`.
+///
+/// # Failure modes (all short-circuit to `([original], 0)`)
 ///
 /// - Ollama is unreachable or returns non-2xx.
 /// - Response missing the expected text field.
@@ -113,12 +118,12 @@ pub async fn expand_query(
     ollama_url: &str,
     model: &str,
     query: &str,
-) -> Vec<String> {
+) -> (Vec<String>, u32) {
     let effective_n = resolve_n(config.n, config.force_off);
 
     // Short-circuit: n=1, force-off, or token budget disabled.
     if effective_n <= 1 || config.token_budget == 0 {
-        return vec![query.to_owned()];
+        return (vec![query.to_owned()], 0);
     }
 
     let want_paraphrases = (effective_n - 1) as usize;
@@ -138,11 +143,11 @@ pub async fn expand_query(
         Ok(r) if r.status().is_success() => r,
         Ok(r) => {
             tracing::warn!(status = %r.status(), "Ollama rewrite returned non-2xx; falling back to original");
-            return vec![query.to_owned()];
+            return (vec![query.to_owned()], 0);
         }
         Err(e) => {
             tracing::warn!(error = %e, "Ollama rewrite request failed; falling back to original");
-            return vec![query.to_owned()];
+            return (vec![query.to_owned()], 0);
         }
     };
 
@@ -150,39 +155,41 @@ pub async fn expand_query(
         Ok(v) => v,
         Err(e) => {
             tracing::warn!(error = %e, "Ollama rewrite response parse error; falling back to original");
-            return vec![query.to_owned()];
+            return (vec![query.to_owned()], 0);
         }
     };
 
+    // Capture the token count before any early-return so callers always see it.
+    #[allow(clippy::cast_possible_truncation)]
+    let tokens_consumed = parsed.eval_count.unwrap_or(0).min(u64::from(u32::MAX)) as u32;
+
     // Check token usage against per-tenant budget.
-    if let Some(used) = parsed.eval_count {
-        if used > u64::from(config.token_budget) {
-            metrics::counter!("rb_query_rewrite_over_budget_total").increment(1);
-            tracing::warn!(
-                used,
-                budget = config.token_budget,
-                "rewrite over token budget; falling back to original"
-            );
-            return vec![query.to_owned()];
-        }
+    if tokens_consumed > config.token_budget {
+        metrics::counter!("rb_query_rewrite_over_budget_total").increment(1);
+        tracing::warn!(
+            tokens_consumed,
+            budget = config.token_budget,
+            "rewrite over token budget; falling back to original"
+        );
+        return (vec![query.to_owned()], tokens_consumed);
     }
 
     let Some(raw) = parsed.response else {
         tracing::warn!(
             "Ollama rewrite response missing 'response' field; falling back to original"
         );
-        return vec![query.to_owned()];
+        return (vec![query.to_owned()], tokens_consumed);
     };
 
     let paraphrases = parse_paraphrases(&raw, want_paraphrases);
     if paraphrases.is_empty() {
-        return vec![query.to_owned()];
+        return (vec![query.to_owned()], tokens_consumed);
     }
 
     let mut variants = Vec::with_capacity(1 + paraphrases.len());
     variants.push(query.to_owned());
     variants.extend(paraphrases);
-    variants
+    (variants, tokens_consumed)
 }
 
 // ---------------------------------------------------------------------------

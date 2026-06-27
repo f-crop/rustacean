@@ -219,6 +219,44 @@ impl TenantSessionCount {
 }
 
 // ---------------------------------------------------------------------------
+// TenantLlmTokenCounter — ADR-014 §9 AC5
+// ---------------------------------------------------------------------------
+
+/// Per-tenant in-process accumulator for LLM token spend (ADR-014 §9, AC5).
+///
+/// Tracks cumulative `eval_count` from Ollama across all rewrite calls for a
+/// tenant in the lifetime of this process.  When `llm_budget_allows` returns
+/// `false`, the calling handler short-circuits the LLM rewrite instead of
+/// issuing the outbound call, then emits `llm_budget_exceeded_total{tenant}`.
+///
+/// This counter is intentionally process-scoped (resets on restart), matching
+/// the "configurable per-tenant ceiling" design in ADR-014 which is a
+/// cost-cap guard, not a durable billing counter.
+#[derive(Clone, Default)]
+pub struct TenantLlmTokenCounter {
+    usage: Arc<DashMap<Uuid, u32>>,
+}
+
+impl TenantLlmTokenCounter {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return cumulative tokens consumed by `tenant_id` so far this process lifetime.
+    #[must_use]
+    pub fn tokens_used(&self, tenant_id: Uuid) -> u32 {
+        self.usage.get(&tenant_id).map_or(0, |v| *v)
+    }
+
+    /// Saturating-add `n` tokens to `tenant_id`'s running total.
+    pub fn add_tokens(&self, tenant_id: Uuid, n: u32) {
+        let mut entry = self.usage.entry(tenant_id).or_insert(0);
+        *entry = entry.saturating_add(n);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AgentRegistry — ADR-009 Phase 1
 // ---------------------------------------------------------------------------
 
@@ -419,6 +457,8 @@ pub struct AppState {
     pub llm_api_key: String,
     /// Flag-gated cross-encoder reranker; `None` when `RB_RERANK_ENABLED=false`.
     pub reranker: Option<std::sync::Arc<dyn Reranker>>,
+    /// Per-tenant LLM token spend accumulator (ADR-014 §9, AC5).
+    pub llm_tenant_tokens: Arc<TenantLlmTokenCounter>,
 }
 
 #[cfg(test)]
