@@ -74,6 +74,16 @@ describe("parseCitationResult — input variety", () => {
     expect(parseCitationResult(raw)).toEqual([]);
   });
 
+  it("skips items with empty-string file_path", () => {
+    const raw = JSON.stringify([{ ...BASE, file_path: "" }]);
+    expect(parseCitationResult(raw)).toEqual([]);
+  });
+
+  it("skips items with whitespace-only file_path", () => {
+    const raw = JSON.stringify([{ ...BASE, file_path: "   " }]);
+    expect(parseCitationResult(raw)).toEqual([]);
+  });
+
   it("skips items with missing repo_id", () => {
     const raw = JSON.stringify([{ ...BASE, repo_id: undefined }]);
     expect(parseCitationResult(raw)).toEqual([]);
