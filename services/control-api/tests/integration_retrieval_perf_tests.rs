@@ -30,7 +30,8 @@ fn db_url() -> Option<String> {
 /// Compute the p-th percentile of a sorted slice (0..=100).
 fn percentile(sorted: &[Duration], p: u8) -> Duration {
     assert!(!sorted.is_empty());
-    let idx = ((p as f64 / 100.0) * (sorted.len() - 1) as f64).round() as usize;
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let idx = ((f64::from(p) / 100.0) * (sorted.len() - 1) as f64).round() as usize;
     sorted[idx.min(sorted.len() - 1)]
 }
 
@@ -67,16 +68,16 @@ async fn seed_symbols(
 /// percentiles are within the conservative per-leg budget.
 #[tokio::test]
 async fn fts_leg_meets_hybrid_budget() {
-    let Some(db_url) = db_url() else {
-        eprintln!("RB_DATABASE_URL not set — skipping FTS latency test");
-        return;
-    };
-
     const SYMBOLS: usize = 500;
     const ITERATIONS: usize = 60;
     const P50_LIMIT: Duration = Duration::from_millis(80);
     const P95_LIMIT: Duration = Duration::from_millis(200);
     const P99_LIMIT: Duration = Duration::from_millis(350);
+
+    let Some(db_url) = db_url() else {
+        eprintln!("RB_DATABASE_URL not set — skipping FTS latency test");
+        return;
+    };
 
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(4)
@@ -184,9 +185,8 @@ async fn fts_leg_meets_hybrid_budget() {
     );
 }
 
-/// AC6 — Multi-query N config default is 1 (disabled; S5 controls the ceiling via rb_query::MAX_MULTI_QUERY_N).
-///
-/// Exercises the Config::for_test() default.
+/// AC6 — Multi-query N config default is 1 (disabled; S5 controls the ceiling via
+/// `rb_query::MAX_MULTI_QUERY_N`). Exercises the `Config::for_test()` default.
 #[test]
 fn multi_query_n_default_is_one() {
     let cfg = control_api::Config::for_test();

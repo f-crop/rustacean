@@ -25,19 +25,11 @@ use crate::{
     vector::search::{SearchOptions, SemanticHit, semantic_search},
 };
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 /// RRF smoothing constant (ADR-014 §3.3). Fixed for v1; k=60 is the standard baseline.
 pub const RRF_K: f32 = 60.0;
 
 /// Minimum fetch depth per leg: `N_fetch = max(limit, MIN_FETCH)`.
 const MIN_FETCH: u32 = 50;
-
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
 
 /// Options for [`hybrid_search`].
 pub struct HybridSearchOptions {
@@ -63,10 +55,6 @@ pub struct HybridHit {
     /// RRF-fused score normalized to `[0, 1]`. Higher is more relevant.
     pub score: f32,
 }
-
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
 
 type SparseRow = (String, String, Option<String>, Option<i32>, Option<i32>);
 
@@ -94,10 +82,6 @@ impl From<SparseRow> for SparseHit {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Sparse leg
-// ---------------------------------------------------------------------------
 
 async fn sparse_search(
     pool: &PgPool,
@@ -145,16 +129,8 @@ async fn sparse_search(
 // ---------------------------------------------------------------------------
 // Dense-metadata backfill
 // ---------------------------------------------------------------------------
-
-/// Fetch `source_path`/`line_start`/`line_end` from `code_symbols` for fqns that
-/// were not matched by the sparse (FTS) leg.
-///
-/// NL/semantic queries are dense-dominated, so many fused hits have no sparse
-/// counterpart. Without this backfill those hits surface as `file_path:""` in
-/// `CitationV1`, breaking "click chip → open file" (RUSAA-2127).
-///
-/// Uses `fqn = ANY($1)` against the tenant-qualified table — the same isolation
-/// guarantees as `sparse_search`.
+/// Fetch `source_path`/`line_start`/`line_end` from `code_symbols` for dense-only hits
+/// absent from the sparse leg. Uses `fqn = ANY($1)` in the tenant-qualified schema.
 async fn backfill_metadata(
     pool: &PgPool,
     ctx: &TenantCtx,
@@ -179,6 +155,54 @@ async fn backfill_metadata(
     Ok(rows
         .into_iter()
         .map(|(fqn, sp, ls, le)| (fqn, (sp, ls, le)))
+        .collect())
+}
+
+/// Normalize scores, backfill dense-only metadata from `code_symbols`, and assemble hits.
+/// Shared post-fusion step for [`hybrid_search`] and [`hybrid_search_multi`].
+async fn build_annotated_hits(
+    pool: &PgPool,
+    ctx: &TenantCtx,
+    fused: Vec<(String, String, f32)>,
+    sparse_hits: &[SparseHit],
+) -> Result<Vec<HybridHit>, QueryError> {
+    let max_score = fused.iter().map(|(_, _, s)| *s).fold(0.0f32, f32::max);
+    let sparse_meta: HashMap<&str, &SparseHit> =
+        sparse_hits.iter().map(|h| (h.fqn.as_str(), h)).collect();
+    let missing: Vec<String> = fused
+        .iter()
+        .filter(|(fqn, _, _)| !sparse_meta.contains_key(fqn.as_str()))
+        .map(|(fqn, _, _)| fqn.clone())
+        .collect();
+    let dense_meta = backfill_metadata(pool, ctx, &missing).await?;
+    Ok(fused
+        .into_iter()
+        .map(|(fqn, repo_id, raw_score)| {
+            let normalized = if max_score > 0.0 {
+                raw_score / max_score
+            } else {
+                0.0
+            };
+            let (source_path, line_start, line_end) =
+                if let Some(m) = sparse_meta.get(fqn.as_str()).copied() {
+                    (m.source_path.clone(), m.line_start, m.line_end)
+                } else {
+                    let m = dense_meta.get(&fqn);
+                    (
+                        m.and_then(|(sp, _, _)| sp.clone()),
+                        m.and_then(|(_, ls, _)| *ls),
+                        m.and_then(|(_, _, le)| *le),
+                    )
+                };
+            HybridHit {
+                source_path,
+                line_start,
+                line_end,
+                fqn,
+                repo_id,
+                score: normalized,
+            }
+        })
         .collect())
 }
 
@@ -275,54 +299,10 @@ pub async fn hybrid_search(
         sparse_search(pool, &ctx, query_text, n_fetch, opts.repo_id)
     )?;
 
-    // Fuse via RRF, then normalize scores to [0, 1].
+    // Fuse via RRF, then normalize scores, backfill dense metadata, and build hits.
     #[allow(clippy::cast_possible_truncation)]
     let fused = rrf_fuse(&dense_hits, &sparse_hits, RRF_K, opts.limit as usize);
-    let max_score = fused.iter().map(|(_, _, s)| *s).fold(0.0f32, f32::max);
-
-    // Build metadata lookup from sparse hits (carries source_path, line_start/end).
-    let sparse_meta: HashMap<&str, &SparseHit> =
-        sparse_hits.iter().map(|h| (h.fqn.as_str(), h)).collect();
-
-    // Dense-only hits have no sparse metadata; backfill from code_symbols by fqn.
-    let missing_fqns: Vec<String> = fused
-        .iter()
-        .filter(|(fqn, _, _)| !sparse_meta.contains_key(fqn.as_str()))
-        .map(|(fqn, _, _)| fqn.clone())
-        .collect();
-    let dense_meta = backfill_metadata(pool, &ctx, &missing_fqns).await?;
-
-    let results = fused
-        .into_iter()
-        .map(|(fqn, repo_id, raw_score)| {
-            let normalized = if max_score > 0.0 {
-                raw_score / max_score
-            } else {
-                0.0
-            };
-            let (source_path, line_start, line_end) =
-                if let Some(m) = sparse_meta.get(fqn.as_str()).copied() {
-                    (m.source_path.clone(), m.line_start, m.line_end)
-                } else {
-                    let m = dense_meta.get(&fqn);
-                    (
-                        m.and_then(|(sp, _, _)| sp.clone()),
-                        m.and_then(|(_, ls, _)| *ls),
-                        m.and_then(|(_, _, le)| *le),
-                    )
-                };
-            HybridHit {
-                source_path,
-                line_start,
-                line_end,
-                fqn,
-                repo_id,
-                score: normalized,
-            }
-        })
-        .collect();
-
-    Ok(results)
+    build_annotated_hits(pool, &ctx, fused, &sparse_hits).await
 }
 
 // ---------------------------------------------------------------------------
@@ -380,50 +360,7 @@ pub async fn hybrid_search_multi(
     // Single flat RRF fusion across all variant hits (not nested).
     #[allow(clippy::cast_possible_truncation)]
     let fused = rrf_fuse(&all_dense, &all_sparse, RRF_K, opts.limit as usize);
-    let max_score = fused.iter().map(|(_, _, s)| *s).fold(0.0f32, f32::max);
-
-    let sparse_meta: HashMap<&str, &SparseHit> =
-        all_sparse.iter().map(|h| (h.fqn.as_str(), h)).collect();
-
-    // Backfill metadata for dense-only hits (same fix as hybrid_search).
-    let missing_fqns: Vec<String> = fused
-        .iter()
-        .filter(|(fqn, _, _)| !sparse_meta.contains_key(fqn.as_str()))
-        .map(|(fqn, _, _)| fqn.clone())
-        .collect();
-    let dense_meta = backfill_metadata(pool, &ctx, &missing_fqns).await?;
-
-    let results = fused
-        .into_iter()
-        .map(|(fqn, repo_id, raw_score)| {
-            let normalized = if max_score > 0.0 {
-                raw_score / max_score
-            } else {
-                0.0
-            };
-            let (source_path, line_start, line_end) =
-                if let Some(m) = sparse_meta.get(fqn.as_str()).copied() {
-                    (m.source_path.clone(), m.line_start, m.line_end)
-                } else {
-                    let m = dense_meta.get(&fqn);
-                    (
-                        m.and_then(|(sp, _, _)| sp.clone()),
-                        m.and_then(|(_, ls, _)| *ls),
-                        m.and_then(|(_, _, le)| *le),
-                    )
-                };
-            HybridHit {
-                source_path,
-                line_start,
-                line_end,
-                fqn,
-                repo_id,
-                score: normalized,
-            }
-        })
-        .collect();
-
-    Ok(results)
+    build_annotated_hits(pool, &ctx, fused, &all_sparse).await
 }
 
 // ---------------------------------------------------------------------------
