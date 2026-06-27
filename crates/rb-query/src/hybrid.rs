@@ -70,6 +70,9 @@ pub struct HybridHit {
 
 type SparseRow = (String, String, Option<String>, Option<i32>, Option<i32>);
 
+/// Row type for `backfill_metadata` — `(fqn, source_path, line_start, line_end)`.
+type BackfillRow = (String, Option<String>, Option<i32>, Option<i32>);
+
 /// Raw row returned by the sparse FTS query.
 #[derive(Debug, Clone)]
 struct SparseHit {
@@ -137,6 +140,46 @@ async fn sparse_search(
     };
 
     Ok(rows.into_iter().map(SparseHit::from).collect())
+}
+
+// ---------------------------------------------------------------------------
+// Dense-metadata backfill
+// ---------------------------------------------------------------------------
+
+/// Fetch `source_path`/`line_start`/`line_end` from `code_symbols` for fqns that
+/// were not matched by the sparse (FTS) leg.
+///
+/// NL/semantic queries are dense-dominated, so many fused hits have no sparse
+/// counterpart. Without this backfill those hits surface as `file_path:""` in
+/// `CitationV1`, breaking "click chip → open file" (RUSAA-2127).
+///
+/// Uses `fqn = ANY($1)` against the tenant-qualified table — the same isolation
+/// guarantees as `sparse_search`.
+async fn backfill_metadata(
+    pool: &PgPool,
+    ctx: &TenantCtx,
+    fqns: &[String],
+) -> Result<HashMap<String, (Option<String>, Option<i32>, Option<i32>)>, QueryError> {
+    if fqns.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let table = ctx.qualify("code_symbols");
+    // Collect as &str so sqlx encodes as a Postgres text[] parameter.
+    let fqn_strs: Vec<&str> = fqns.iter().map(String::as_str).collect();
+    let rows: Vec<BackfillRow> = sqlx::query_as(&format!(
+        "SELECT fqn, source_path, line_start, line_end \
+         FROM {table} \
+         WHERE fqn = ANY($1)",
+    ))
+    .bind(&fqn_strs as &[&str])
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(fqn, sp, ls, le)| (fqn, (sp, ls, le)))
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +284,14 @@ pub async fn hybrid_search(
     let sparse_meta: HashMap<&str, &SparseHit> =
         sparse_hits.iter().map(|h| (h.fqn.as_str(), h)).collect();
 
+    // Dense-only hits have no sparse metadata; backfill from code_symbols by fqn.
+    let missing_fqns: Vec<String> = fused
+        .iter()
+        .filter(|(fqn, _, _)| !sparse_meta.contains_key(fqn.as_str()))
+        .map(|(fqn, _, _)| fqn.clone())
+        .collect();
+    let dense_meta = backfill_metadata(pool, &ctx, &missing_fqns).await?;
+
     let results = fused
         .into_iter()
         .map(|(fqn, repo_id, raw_score)| {
@@ -249,11 +300,21 @@ pub async fn hybrid_search(
             } else {
                 0.0
             };
-            let meta = sparse_meta.get(fqn.as_str()).copied();
+            let (source_path, line_start, line_end) =
+                if let Some(m) = sparse_meta.get(fqn.as_str()).copied() {
+                    (m.source_path.clone(), m.line_start, m.line_end)
+                } else {
+                    let m = dense_meta.get(&fqn);
+                    (
+                        m.and_then(|(sp, _, _)| sp.clone()),
+                        m.and_then(|(_, ls, _)| *ls),
+                        m.and_then(|(_, _, le)| *le),
+                    )
+                };
             HybridHit {
-                source_path: meta.and_then(|m| m.source_path.clone()),
-                line_start: meta.and_then(|m| m.line_start),
-                line_end: meta.and_then(|m| m.line_end),
+                source_path,
+                line_start,
+                line_end,
                 fqn,
                 repo_id,
                 score: normalized,
@@ -324,6 +385,14 @@ pub async fn hybrid_search_multi(
     let sparse_meta: HashMap<&str, &SparseHit> =
         all_sparse.iter().map(|h| (h.fqn.as_str(), h)).collect();
 
+    // Backfill metadata for dense-only hits (same fix as hybrid_search).
+    let missing_fqns: Vec<String> = fused
+        .iter()
+        .filter(|(fqn, _, _)| !sparse_meta.contains_key(fqn.as_str()))
+        .map(|(fqn, _, _)| fqn.clone())
+        .collect();
+    let dense_meta = backfill_metadata(pool, &ctx, &missing_fqns).await?;
+
     let results = fused
         .into_iter()
         .map(|(fqn, repo_id, raw_score)| {
@@ -332,11 +401,21 @@ pub async fn hybrid_search_multi(
             } else {
                 0.0
             };
-            let meta = sparse_meta.get(fqn.as_str()).copied();
+            let (source_path, line_start, line_end) =
+                if let Some(m) = sparse_meta.get(fqn.as_str()).copied() {
+                    (m.source_path.clone(), m.line_start, m.line_end)
+                } else {
+                    let m = dense_meta.get(&fqn);
+                    (
+                        m.and_then(|(sp, _, _)| sp.clone()),
+                        m.and_then(|(_, ls, _)| *ls),
+                        m.and_then(|(_, _, le)| *le),
+                    )
+                };
             HybridHit {
-                source_path: meta.and_then(|m| m.source_path.clone()),
-                line_start: meta.and_then(|m| m.line_start),
-                line_end: meta.and_then(|m| m.line_end),
+                source_path,
+                line_start,
+                line_end,
                 fqn,
                 repo_id,
                 score: normalized,
@@ -519,6 +598,30 @@ mod tests {
             assert_eq!(repo_s, repo_m, "repo mismatch");
             assert!((score_s - score_m).abs() < 1e-6, "score mismatch");
         }
+    }
+
+    // RUSAA-2127: dense-only hits must be identified for backfill; fqns in the fused
+    // list that have no sparse counterpart are dense-only and need metadata backfill.
+    #[test]
+    fn missing_fqns_identified_for_backfill() {
+        let d = dense(&[("dense_a", "r1"), ("shared", "r1"), ("dense_b", "r1")]);
+        let s = sparse(&[("shared", "r1"), ("sparse_x", "r1")]);
+        let fused = rrf_fuse(&d, &s, RRF_K, 10);
+
+        let sparse_meta: HashMap<&str, &SparseHit> =
+            s.iter().map(|h| (h.fqn.as_str(), h)).collect();
+
+        let missing: Vec<String> = fused
+            .iter()
+            .filter(|(fqn, _, _)| !sparse_meta.contains_key(fqn.as_str()))
+            .map(|(fqn, _, _)| fqn.clone())
+            .collect();
+
+        // "shared" and "sparse_x" have sparse metadata; dense_a + dense_b do not.
+        assert!(missing.contains(&"dense_a".to_owned()));
+        assert!(missing.contains(&"dense_b".to_owned()));
+        assert!(!missing.contains(&"shared".to_owned()));
+        assert!(!missing.contains(&"sparse_x".to_owned()));
     }
 
     // AC8: multi-variant fusion with n=3 must complete within a reasonable time bound
