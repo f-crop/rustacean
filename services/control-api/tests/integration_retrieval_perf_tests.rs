@@ -30,7 +30,11 @@ fn db_url() -> Option<String> {
 /// Compute the p-th percentile of a sorted slice (0..=100).
 fn percentile(sorted: &[Duration], p: u8) -> Duration {
     assert!(!sorted.is_empty());
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     let idx = ((f64::from(p) / 100.0) * (sorted.len() - 1) as f64).round() as usize;
     sorted[idx.min(sorted.len() - 1)]
 }
