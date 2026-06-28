@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient, toApiError, type ApiError } from "../client";
 import type { components } from "../generated/schema";
-import { meQueryKey } from "./useMe";
 
 type SwitchTenantRequest = components["schemas"]["SwitchTenantRequest"];
 type SwitchTenantResponse = components["schemas"]["SwitchTenantResponse"];
@@ -20,7 +19,7 @@ export function useSwitchTenant() {
       return data;
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: meQueryKey });
+      void qc.invalidateQueries();
     },
   });
 }
