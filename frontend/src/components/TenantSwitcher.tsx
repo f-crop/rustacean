@@ -56,7 +56,7 @@ export function TenantSwitcher(): JSX.Element | null {
     return (
       <span
         className="max-w-[120px] truncate rounded-md border border-border px-2 py-1 text-sm text-muted-foreground"
-        data-testid="current-tenant-name"
+        data-testid="tenant-current-name"
       >
         {current_tenant.name}
       </span>
