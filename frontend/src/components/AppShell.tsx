@@ -1,5 +1,6 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { TenantSwitcher } from "@/components/TenantSwitcher";
 import { routes } from "@/lib/routes";
 import { useChatFeatureEnabled } from "@/hooks/useChatFeatureEnabled";
 import type { ReactNode } from "react";
@@ -73,6 +74,7 @@ export function AppShell({ children }: AppShellProps): JSX.Element {
             )}
           </nav>
           <div className="flex items-center gap-2">
+            <TenantSwitcher />
             <ThemeToggle />
           </div>
         </div>
