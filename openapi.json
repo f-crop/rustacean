@@ -3050,7 +3050,7 @@
       },
       "CitationV1": {
         "type": "object",
-        "description": "Versioned citation envelope returned by `/v1/search` and `search_items` MCP tool\nwhen `RB_HYBRID_SEARCH_ENABLED=true` (ADR-014 §5, Wave 10 S2).\n\nS4 (chat UI citation rendering) builds against this exact shape. Field additions\nwithin the same `version` value are additive; breaking changes must bump `version`.\n\n`commit_sha` is always non-empty: Wave 10 sources the repo-level head SHA at\ningest time when per-symbol SHAs are unavailable. Consumers should treat it as\na best-effort \"ingested at this commit\" rather than a per-line provenance.",
+        "description": "Versioned citation envelope returned by `/v1/search` and `search_items` MCP tool\nwhen `RB_HYBRID_SEARCH_ENABLED=true` (ADR-014 §5, Wave 10 S2).\n\nS4 (chat UI citation rendering) builds against this exact shape. Field additions\nwithin the same `version` value are additive; breaking changes must bump `version`.\n\n`commit_sha` is always non-empty: Wave 10 sources the repo-level head SHA at\ningest time when per-symbol SHAs are unavailable. Consumers should treat it as\na best-effort \"ingested at this commit\" rather than a per-line provenance.\n\n`fqn` and `crate_name` are populated when the source is a code symbol; `None`\nfor non-code sources (docs, markdown). Added additively (RUSAA-2177, Wave 10\nrealign) to restore the `search_items → get_item` chain for LLM callers.",
         "required": [
           "version",
           "repo_id",
@@ -3065,9 +3065,23 @@
             "type": "string",
             "description": "Commit SHA at which this symbol was ingested. Non-empty; see type-level docs."
           },
+          "crate_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Crate name derived from the leading `::` segment of `fqn`.\nPopulated for code-symbol sources; `None` for non-code sources (docs, markdown)."
+          },
           "file_path": {
             "type": "string",
             "description": "Relative path within the repository (from `code_symbols.source_path`)."
+          },
+          "fqn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fully-qualified name of the code symbol (e.g. `my_crate::MyStruct::method`).\nPopulated for code-symbol sources; `None` for non-code sources (docs, markdown)."
           },
           "line_range": {
             "$ref": "#/components/schemas/LineRange",

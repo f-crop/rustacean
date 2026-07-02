@@ -132,6 +132,28 @@ Stable, versioned envelope. S4 renders against `version`; new fields are additiv
 
 **Data sourcing note (binding on S2):** `file_path` requires a `code_files` join on `repo_id`; `commit_sha` is **not** on `code_symbols` today. S2 must source it from the repo's ingested snapshot (the commit that produced the projection). If a per-symbol commit SHA is impractical in Wave 10, S2 records the **repo head SHA at ingest time** and documents the granularity in the response; the envelope field is mandatory and non-null. The envelope is defined in `rb-schemas` so every consumer (S4 UI, MCP) shares one type.
 
+### §5.1 Addendum — `fqn`/`crate_name` additive fields (RUSAA-2177, Wave 10 realign)
+
+After S2 shipped, UAT revealed that the Phase 1 MCP flow `search_items → get_item` was broken: `get_item` requires `fqn` as an input but `CitationV1` omitted it, leaving the LLM to guess. This addendum adds two optional fields, additive within `version: "v1"` per the contract above:
+
+```jsonc
+// CitationV1 (updated)
+{
+  "version": "v1",
+  "repo_id": "uuid",
+  "file_path": "src/foo/bar.rs",
+  "line_range": { "start": 12, "end": 48 },
+  "commit_sha": "abc123…",
+  "score": 0.0,
+  "source_kind": "hybrid",
+  // New additive fields (omitted for non-code sources):
+  "fqn": "my_crate::sub::MyStruct",       // fully-qualified symbol name
+  "crate_name": "my_crate"                // leading :: segment of fqn
+}
+```
+
+Both fields carry `#[serde(default, skip_serializing_if = "Option::is_none")]`: absent in non-code citations (docs, markdown) and in any legacy-serialized payload. Both call sites (`dispatch_search_items` in `dispatch.rs` and the hybrid arm in `search.rs`) populate them from `HybridHit.fqn`.
+
 ---
 
 ## 6. Query understanding (decision 4 — consumed by S5)

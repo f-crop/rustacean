@@ -448,6 +448,7 @@ pub async fn search(
                     .get(&repo_uuid)
                     .cloned()
                     .unwrap_or_else(|| "unknown".to_owned());
+                let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
                 CitationV1 {
                     version: CitationV1::VERSION.to_owned(),
                     repo_id: repo_uuid,
@@ -459,6 +460,8 @@ pub async fn search(
                     commit_sha,
                     score: h.score,
                     source_kind: citation_source_kind,
+                    fqn: Some(h.fqn),
+                    crate_name: Some(crate_name),
                 }
             })
             .collect();

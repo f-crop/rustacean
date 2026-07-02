@@ -131,6 +131,8 @@ fn flag_on_response_includes_citations_field() {
             commit_sha: "abc123".to_owned(),
             score: 0.85,
             source_kind: SourceKind::Hybrid,
+            fqn: None,
+            crate_name: None,
         }],
     };
     let json = serde_json::to_value(&resp).unwrap();
