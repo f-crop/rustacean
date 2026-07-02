@@ -1,14 +1,22 @@
 import { useEffect, useRef } from "react";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { MarkdownContent } from "./MarkdownContent";
+import { CitationChip, extractCitationsFromItems } from "./citations";
 import type { TranscriptItem, AssistantItem } from "./transcript";
+import type { CitationV1 } from "@/types/citations";
 
 interface MessageThreadProps {
   readonly items: ReadonlyArray<TranscriptItem>;
   readonly isStreaming: boolean;
+  /**
+   * Map from repo UUID to GitHub `owner/repo` slug (e.g. "f-crop/rustacean").
+   * When present, citation chips render as GitHub anchor links.
+   * When absent or a repo_id isn't found, chips render as non-interactive spans.
+   */
+  readonly repoFullNameMap?: ReadonlyMap<string, string>;
 }
 
-export function MessageThread({ items, isStreaming }: MessageThreadProps): JSX.Element {
+export function MessageThread({ items, isStreaming, repoFullNameMap }: MessageThreadProps): JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,7 +38,13 @@ export function MessageThread({ items, isStreaming }: MessageThreadProps): JSX.E
           return <UserBubble key={item.id} text={item.text} />;
         }
         if (item.kind === "assistant") {
-          return <AssistantBubble key={item.id} items={item.items} />;
+          return (
+            <AssistantBubble
+              key={item.id}
+              items={item.items}
+              {...(repoFullNameMap != null && { repoFullNameMap })}
+            />
+          );
         }
         if (item.kind === "error") {
           return item.code !== undefined
@@ -85,8 +99,16 @@ function TimestampLabel({ ts }: { readonly ts: number }): JSX.Element {
   );
 }
 
-function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantItem> }): JSX.Element {
+interface AssistantBubbleProps {
+  readonly items: ReadonlyArray<AssistantItem>;
+  readonly repoFullNameMap?: ReadonlyMap<string, string>;
+}
+
+function AssistantBubble({ items, repoFullNameMap }: AssistantBubbleProps): JSX.Element {
   if (items.length === 0) return <></>;
+
+  const citations: readonly CitationV1[] = extractCitationsFromItems(items);
+  const sortedCitations: CitationV1[] = citations.slice().sort((a: CitationV1, b: CitationV1) => b.score - a.score);
 
   return (
     <div className="flex justify-start">
@@ -127,6 +149,30 @@ function AssistantBubble({ items }: { readonly items: ReadonlyArray<AssistantIte
 
           return null;
         })}
+
+        {sortedCitations.length > 0 && (
+          <div
+            aria-label="Citations"
+            className="flex flex-wrap gap-1.5 pt-1"
+            data-testid="citation-chips"
+          >
+            {sortedCitations.map((citation: CitationV1, idx: number) => {
+              const repoFullName = repoFullNameMap?.get(citation.repo_id);
+              return repoFullName != null ? (
+                <CitationChip
+                  key={`${citation.repo_id}:${citation.file_path}:${citation.line_range.start}:${idx}`}
+                  citation={citation}
+                  repoFullName={repoFullName}
+                />
+              ) : (
+                <CitationChip
+                  key={`${citation.repo_id}:${citation.file_path}:${citation.line_range.start}:${idx}`}
+                  citation={citation}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
