@@ -212,6 +212,7 @@ pub(super) async fn dispatch_search_items(
                     .get(&repo_uuid)
                     .cloned()
                     .unwrap_or_else(|| "unknown".to_owned());
+                let crate_name = h.fqn.split("::").next().unwrap_or(&h.fqn).to_owned();
                 CitationV1 {
                     version: CitationV1::VERSION.to_owned(),
                     repo_id: repo_uuid,
@@ -223,6 +224,8 @@ pub(super) async fn dispatch_search_items(
                     commit_sha,
                     score: h.score,
                     source_kind: citation_source_kind,
+                    fqn: Some(h.fqn),
+                    crate_name: Some(crate_name),
                 }
             })
             .collect();
@@ -432,5 +435,36 @@ mod tests {
         assert_eq!(over, MAX_SEARCH_LIMIT);
         let zero = 0_u32.clamp(1, MAX_SEARCH_LIMIT);
         assert_eq!(zero, 1);
+    }
+
+    #[test]
+    fn search_items_returns_fqn_in_hybrid_mode() {
+        // Verify that the CitationV1 built in the hybrid arm carries fqn/crate_name
+        // and serializes them into the JSON that the MCP caller receives.
+        let fqn = "my_crate::sub::MyStruct";
+        let crate_name = fqn.split("::").next().unwrap_or(fqn).to_owned();
+        assert_eq!(crate_name, "my_crate");
+
+        let citation = CitationV1 {
+            version: CitationV1::VERSION.to_owned(),
+            repo_id: Uuid::nil(),
+            file_path: "src/sub.rs".to_owned(),
+            line_range: LineRange { start: 10, end: 20 },
+            commit_sha: "deadbeef".to_owned(),
+            score: 0.9,
+            source_kind: SourceKind::Hybrid,
+            fqn: Some(fqn.to_owned()),
+            crate_name: Some(crate_name),
+        };
+
+        let json = serde_json::to_value(&citation).unwrap();
+        assert_eq!(json["fqn"], fqn, "fqn must appear in serialized citation");
+        assert_eq!(
+            json["crate_name"], "my_crate",
+            "crate_name must be the leading :: segment"
+        );
+        // get_item chain: LLM can extract fqn from the citation and pass it back
+        let extracted_fqn = json["fqn"].as_str().unwrap();
+        assert_eq!(extracted_fqn, fqn);
     }
 }

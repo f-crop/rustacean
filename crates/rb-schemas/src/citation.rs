@@ -28,6 +28,10 @@ pub enum SourceKind {
 /// `commit_sha` is always non-empty: Wave 10 sources the repo-level head SHA at
 /// ingest time when per-symbol SHAs are unavailable. Consumers should treat it as
 /// a best-effort "ingested at this commit" rather than a per-line provenance.
+///
+/// `fqn` and `crate_name` are populated when the source is a code symbol; `None`
+/// for non-code sources (docs, markdown). Added additively (RUSAA-2177, Wave 10
+/// realign) to restore the `search_items → get_item` chain for LLM callers.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CitationV1 {
     /// Schema version tag. Always `"v1"` for this type.
@@ -44,6 +48,14 @@ pub struct CitationV1 {
     pub score: f32,
     /// Which retrieval path(s) produced this result.
     pub source_kind: SourceKind,
+    /// Fully-qualified name of the code symbol (e.g. `my_crate::MyStruct::method`).
+    /// Populated for code-symbol sources; `None` for non-code sources (docs, markdown).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fqn: Option<String>,
+    /// Crate name derived from the leading `::` segment of `fqn`.
+    /// Populated for code-symbol sources; `None` for non-code sources (docs, markdown).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crate_name: Option<String>,
 }
 
 impl CitationV1 {
@@ -64,12 +76,40 @@ mod tests {
             commit_sha: "abc123".to_owned(),
             score: 0.85,
             source_kind: SourceKind::Hybrid,
+            fqn: Some("my_crate::MyStruct".to_owned()),
+            crate_name: Some("my_crate".to_owned()),
         };
         let json = serde_json::to_value(&c).unwrap();
         assert_eq!(json["version"], "v1");
         assert_eq!(json["source_kind"], "hybrid");
         assert_eq!(json["line_range"]["start"], 1);
         assert_eq!(json["line_range"]["end"], 10);
+        assert_eq!(json["fqn"], "my_crate::MyStruct");
+        assert_eq!(json["crate_name"], "my_crate");
+    }
+
+    #[test]
+    fn citation_v1_fqn_omitted_when_none() {
+        let c = CitationV1 {
+            version: CitationV1::VERSION.to_owned(),
+            repo_id: Uuid::nil(),
+            file_path: "README.md".to_owned(),
+            line_range: LineRange { start: 1, end: 1 },
+            commit_sha: "abc123".to_owned(),
+            score: 0.5,
+            source_kind: SourceKind::Dense,
+            fqn: None,
+            crate_name: None,
+        };
+        let json = serde_json::to_value(&c).unwrap();
+        assert!(
+            json.get("fqn").is_none(),
+            "fqn must be omitted from JSON when None"
+        );
+        assert!(
+            json.get("crate_name").is_none(),
+            "crate_name must be omitted from JSON when None"
+        );
     }
 
     #[test]
@@ -82,6 +122,8 @@ mod tests {
             commit_sha: "deadbeef12345678".to_owned(),
             score: 0.73,
             source_kind: SourceKind::Dense,
+            fqn: Some("rb_query::hybrid_search".to_owned()),
+            crate_name: Some("rb_query".to_owned()),
         };
         let json = serde_json::to_string(&c).unwrap();
         let back: CitationV1 = serde_json::from_str(&json).unwrap();
@@ -89,6 +131,25 @@ mod tests {
         assert_eq!(back.line_range.start, c.line_range.start);
         assert_eq!(back.commit_sha, c.commit_sha);
         assert_eq!(back.source_kind, SourceKind::Dense);
+        assert_eq!(back.fqn.as_deref(), Some("rb_query::hybrid_search"));
+        assert_eq!(back.crate_name.as_deref(), Some("rb_query"));
+    }
+
+    #[test]
+    fn citation_v1_roundtrip_no_fqn_deserializes_as_none() {
+        // Old serialized payloads without fqn/crate_name must still deserialize.
+        let legacy = r#"{
+            "version": "v1",
+            "repo_id": "00000000-0000-0000-0000-000000000000",
+            "file_path": "src/lib.rs",
+            "line_range": {"start": 1, "end": 5},
+            "commit_sha": "abc",
+            "score": 0.8,
+            "source_kind": "hybrid"
+        }"#;
+        let c: CitationV1 = serde_json::from_str(legacy).unwrap();
+        assert!(c.fqn.is_none());
+        assert!(c.crate_name.is_none());
     }
 
     #[test]
