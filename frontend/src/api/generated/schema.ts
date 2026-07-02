@@ -1343,6 +1343,10 @@ export interface components {
          *     `commit_sha` is always non-empty: Wave 10 sources the repo-level head SHA at
          *     ingest time when per-symbol SHAs are unavailable. Consumers should treat it as
          *     a best-effort "ingested at this commit" rather than a per-line provenance.
+         *
+         *     `fqn` and `crate_name` are populated when the source is a code symbol; `None`
+         *     for non-code sources (docs, markdown). Added additively (RUSAA-2177, Wave 10
+         *     realign) to restore the `search_items → get_item` chain for LLM callers.
          */
         readonly CitationV1: {
             /** @description Commit SHA at which this symbol was ingested. Non-empty; see type-level docs. */
