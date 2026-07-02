@@ -3065,9 +3065,23 @@
             "type": "string",
             "description": "Commit SHA at which this symbol was ingested. Non-empty; see type-level docs."
           },
+          "crate_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Crate name derived from the leading `::` segment of `fqn`.\nPopulated for code-symbol sources; `None` for non-code sources (docs, markdown)."
+          },
           "file_path": {
             "type": "string",
             "description": "Relative path within the repository (from `code_symbols.source_path`)."
+          },
+          "fqn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fully-qualified name of the code symbol (e.g. `my_crate::MyStruct::method`).\nPopulated for code-symbol sources; `None` for non-code sources (docs, markdown)."
           },
           "line_range": {
             "$ref": "#/components/schemas/LineRange",

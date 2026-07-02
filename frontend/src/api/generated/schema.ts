@@ -1347,8 +1347,18 @@ export interface components {
         readonly CitationV1: {
             /** @description Commit SHA at which this symbol was ingested. Non-empty; see type-level docs. */
             readonly commit_sha: string;
+            /**
+             * @description Crate name derived from the leading `::` segment of `fqn`.
+             *     Populated for code-symbol sources; `None` for non-code sources (docs, markdown).
+             */
+            readonly crate_name?: string | null;
             /** @description Relative path within the repository (from `code_symbols.source_path`). */
             readonly file_path: string;
+            /**
+             * @description Fully-qualified name of the code symbol (e.g. `my_crate::MyStruct::method`).
+             *     Populated for code-symbol sources; `None` for non-code sources (docs, markdown).
+             */
+            readonly fqn?: string | null;
             /** @description Source line range (from `code_symbols.line_start`/`line_end`). */
             readonly line_range: components["schemas"]["LineRange"];
             /**
