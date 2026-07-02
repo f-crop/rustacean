@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "generated_at": "2026-06-23T09:00:00Z",
+  "commit_sha": "1ae4331",
+  "seed": 42,
+  "n_queries": 12,
+  "n_evaluated": 12,
+  "n_missing": 0,
+  "metrics": {
+    "recall_at_5": 0.916667,
+    "recall_at_10": 1.0,
+    "mrr": 0.833333,
+    "ndcg_at_10": 0.873928,
+    "citation_precision": 0.158333
+  },
+  "thresholds": {
+    "ndcg_at_10_max_drop": 0.02,
+    "recall_at_10_max_drop": 0.0
+  }
+}

@@ -1,0 +1,49 @@
+name: Regenerate Eval Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "Base URL of the hybrid search API (flag-on path)"
+        required: true
+        default: "https://api.rustbrain.example.com"
+      commit_sha:
+        description: "Git SHA to embed in regenerated snapshot and baseline"
+        required: false
+        default: ""
+
+jobs:
+  regenerate:
+    name: regenerate eval baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Regenerate snapshot and baseline
+        env:
+          RB_EVAL_API_KEY: ${{ secrets.RB_EVAL_API_KEY }}
+        run: |
+          python3 scripts/eval-retrieval.py \
+            --mode regenerate \
+            --api-url "${{ inputs.api_url }}" \
+            --api-key "$RB_EVAL_API_KEY" \
+            --commit-sha "${{ inputs.commit_sha || github.sha }}" \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Upload regenerated files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-baseline-${{ github.run_id }}
+          path: |
+            docs/retrieval-eval/results-snapshot.json
+            docs/retrieval-eval/baseline.json
+          retention-days: 30
+
+      - name: Print updated metrics
+        run: |
+          echo "Updated baseline.json:"
+          cat docs/retrieval-eval/baseline.json

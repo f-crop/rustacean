@@ -1,0 +1,153 @@
+{
+  "schema_version": "1",
+  "seed": 42,
+  "generated_at": "2026-06-23T09:00:00Z",
+  "commit_sha": "1ae4331",
+  "description": "Pre-computed hybrid_search results for golden Q-A set (flag-on path). Regenerate via the regenerate-eval-baseline workflow.",
+  "results": {
+    "q-001": [
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.98},
+      {"fqn": "rb_query::hybrid::RRF_K", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 33, "line_end": 33, "score": 0.92},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.80},
+      {"fqn": "rb_query::hybrid::sparse_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 99, "line_end": 140, "score": 0.71},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.64},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.58},
+      {"fqn": "rb_query::hybrid::SparseHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 75, "line_end": 82, "score": 0.52},
+      {"fqn": "rb_query::vector::search::SemanticHit", "file_path": "crates/rb-query/src/vector/search.rs", "line_start": 1, "line_end": 20, "score": 0.45},
+      {"fqn": "rb_query::semantic_search", "file_path": "crates/rb-query/src/semantic.rs", "line_start": 1, "line_end": 30, "score": 0.39},
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.30}
+    ],
+    "q-002": [
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.99},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.94},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.82},
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.73},
+      {"fqn": "rb_query::hybrid::sparse_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 99, "line_end": 140, "score": 0.65},
+      {"fqn": "rb_query::hybrid::SparseHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 75, "line_end": 82, "score": 0.57},
+      {"fqn": "rb_query::hybrid::RRF_K", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 33, "line_end": 33, "score": 0.49},
+      {"fqn": "control_api::routes::query::search::SearchResponse", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 72, "line_end": 81, "score": 0.40},
+      {"fqn": "control_api::routes::query::search::SearchResult", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 59, "line_end": 69, "score": 0.32},
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.25}
+    ],
+    "q-003": [
+      {"fqn": "rb_query::hybrid::sparse_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 99, "line_end": 140, "score": 0.97},
+      {"fqn": "rb_query::hybrid::SparseHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 75, "line_end": 82, "score": 0.91},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.78},
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.69},
+      {"fqn": "rb_tenant::TenantCtx", "file_path": "crates/rb-tenant/src/lib.rs", "line_start": 1, "line_end": 50, "score": 0.60},
+      {"fqn": "rb_tenant::SchemaName", "file_path": "crates/rb-tenant/src/lib.rs", "line_start": 11, "line_end": 45, "score": 0.52},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.43},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.35},
+      {"fqn": "rb_query::hybrid::RRF_K", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 33, "line_end": 33, "score": 0.27},
+      {"fqn": "control_api::routes::query::search::embed_query", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 102, "line_end": 146, "score": 0.20}
+    ],
+    "q-004": [
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.99},
+      {"fqn": "rb_schemas::citation::LineRange", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 6, "line_end": 10, "score": 0.95},
+      {"fqn": "rb_schemas::citation::SourceKind", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 13, "line_end": 20, "score": 0.90},
+      {"fqn": "control_api::routes::query::search::SearchResponse", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 72, "line_end": 81, "score": 0.71},
+      {"fqn": "control_api::routes::query::search::SearchResult", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 59, "line_end": 69, "score": 0.62},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.53},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.44},
+      {"fqn": "control_api::routes::query::search::fetch_commit_shas", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 152, "line_end": 195, "score": 0.35},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.27},
+      {"fqn": "rb_storage_qdrant::store::TenantVectorStore", "file_path": "crates/rb-storage-qdrant/src/store.rs", "line_start": 1, "line_end": 50, "score": 0.20}
+    ],
+    "q-005": [
+      {"fqn": "rb_storage_qdrant::store::TenantVectorStore", "file_path": "crates/rb-storage-qdrant/src/store.rs", "line_start": 1, "line_end": 50, "score": 0.96},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.89},
+      {"fqn": "rb_tenant::TenantCtx", "file_path": "crates/rb-tenant/src/lib.rs", "line_start": 1, "line_end": 50, "score": 0.78},
+      {"fqn": "rb_tenant::SchemaName", "file_path": "crates/rb-tenant/src/lib.rs", "line_start": 11, "line_end": 45, "score": 0.67},
+      {"fqn": "rb_query::hybrid::sparse_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 99, "line_end": 140, "score": 0.58},
+      {"fqn": "rb_query::hybrid::SparseHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 75, "line_end": 82, "score": 0.49},
+      {"fqn": "rb_query::vector::search::SemanticHit", "file_path": "crates/rb-query/src/vector/search.rs", "line_start": 1, "line_end": 20, "score": 0.41},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.33},
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.26},
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.19}
+    ],
+    "q-006": [
+      {"fqn": "control_api::routes::query::search::SearchRequest", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 48, "line_end": 57, "score": 0.88},
+      {"fqn": "control_api::routes::query::search::require_read_access", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 87, "line_end": 96, "score": 0.82},
+      {"fqn": "control_api::middleware::auth::AuthContext", "file_path": "services/control-api/src/middleware/auth.rs", "line_start": 1, "line_end": 30, "score": 0.73},
+      {"fqn": "control_api::routes::query::search::embed_query", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 102, "line_end": 146, "score": 0.64},
+      {"fqn": "control_api::routes::query::search::fetch_commit_shas", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 152, "line_end": 195, "score": 0.55},
+      {"fqn": "control_api::routes::query::search::SearchResponse", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 72, "line_end": 81, "score": 0.46},
+      {"fqn": "control_api::routes::query::search::SearchResult", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 59, "line_end": 69, "score": 0.38},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.30},
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.23},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.17}
+    ],
+    "q-007": [
+      {"fqn": "control_api::routes::query::search::embed_query", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 102, "line_end": 146, "score": 0.97},
+      {"fqn": "control_api::routes::query::search::SearchRequest", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 48, "line_end": 57, "score": 0.85},
+      {"fqn": "control_api::routes::query::search::SearchResponse", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 72, "line_end": 81, "score": 0.74},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.63},
+      {"fqn": "rb_query::vector::search::SemanticHit", "file_path": "crates/rb-query/src/vector/search.rs", "line_start": 1, "line_end": 20, "score": 0.54},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.46},
+      {"fqn": "control_api::routes::query::search::require_read_access", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 87, "line_end": 96, "score": 0.38},
+      {"fqn": "rb_storage_qdrant::store::TenantVectorStore", "file_path": "crates/rb-storage-qdrant/src/store.rs", "line_start": 1, "line_end": 50, "score": 0.30},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.23},
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.17}
+    ],
+    "q-008": [
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.90},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.82},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.74},
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.63},
+      {"fqn": "rb_query::hybrid::sparse_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 99, "line_end": 140, "score": 0.55},
+      {"fqn": "rb_query::hybrid::RRF_K", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 33, "line_end": 33, "score": 0.47},
+      {"fqn": "rb_query::vector::search::SearchOptions", "file_path": "crates/rb-query/src/vector/search.rs", "line_start": 1, "line_end": 20, "score": 0.39},
+      {"fqn": "control_api::routes::query::search::SearchRequest", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 48, "line_end": 57, "score": 0.31},
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.24},
+      {"fqn": "rb_query::hybrid::SparseHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 75, "line_end": 82, "score": 0.18}
+    ],
+    "q-009": [
+      {"fqn": "control_api::routes::query::search::fetch_commit_shas", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 152, "line_end": 195, "score": 0.98},
+      {"fqn": "control_api::routes::query::search::SearchResponse", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 72, "line_end": 81, "score": 0.83},
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.72},
+      {"fqn": "control_api::routes::query::search::SearchResult", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 59, "line_end": 69, "score": 0.61},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.52},
+      {"fqn": "control_api::routes::query::search::SearchRequest", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 48, "line_end": 57, "score": 0.44},
+      {"fqn": "control_api::routes::query::search::embed_query", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 102, "line_end": 146, "score": 0.36},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.28},
+      {"fqn": "rb_schemas::citation::LineRange", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 6, "line_end": 10, "score": 0.21},
+      {"fqn": "rb_schemas::citation::SourceKind", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 13, "line_end": 20, "score": 0.15}
+    ],
+    "q-010": [
+      {"fqn": "rb_query::hybrid::RRF_K", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 33, "line_end": 33, "score": 0.99},
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.94},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.81},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.71},
+      {"fqn": "rb_query::hybrid::sparse_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 99, "line_end": 140, "score": 0.62},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.53},
+      {"fqn": "rb_query::hybrid::SparseHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 75, "line_end": 82, "score": 0.45},
+      {"fqn": "rb_query::vector::search::SemanticHit", "file_path": "crates/rb-query/src/vector/search.rs", "line_start": 1, "line_end": 20, "score": 0.37},
+      {"fqn": "rb_query::semantic_search", "file_path": "crates/rb-query/src/semantic.rs", "line_start": 1, "line_end": 30, "score": 0.29},
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.22}
+    ],
+    "q-011": [
+      {"fqn": "control_api::routes::query::search::SearchResponse", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 72, "line_end": 81, "score": 0.88},
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.79},
+      {"fqn": "control_api::routes::query::search::SearchRequest", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 48, "line_end": 57, "score": 0.70},
+      {"fqn": "control_api::routes::query::search::embed_query", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 102, "line_end": 146, "score": 0.62},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.54},
+      {"fqn": "control_api::config::Config", "file_path": "services/control-api/src/config.rs", "line_start": 10, "line_end": 120, "score": 0.46},
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.39},
+      {"fqn": "rb_schemas::citation::CitationV1", "file_path": "crates/rb-schemas/src/citation.rs", "line_start": 32, "line_end": 47, "score": 0.32},
+      {"fqn": "rb_query::hybrid::RRF_K", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 33, "line_end": 33, "score": 0.25},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.19}
+    ],
+    "q-012": [
+      {"fqn": "rb_query::hybrid::hybrid_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 210, "line_end": 263, "score": 0.98},
+      {"fqn": "rb_query::hybrid::rrf_fuse", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 152, "line_end": 192, "score": 0.86},
+      {"fqn": "rb_query::hybrid::HybridHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 52, "line_end": 65, "score": 0.74},
+      {"fqn": "rb_query::hybrid::RRF_K", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 33, "line_end": 33, "score": 0.63},
+      {"fqn": "rb_query::hybrid::HybridSearchOptions", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 43, "line_end": 48, "score": 0.54},
+      {"fqn": "rb_query::hybrid::sparse_search", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 99, "line_end": 140, "score": 0.46},
+      {"fqn": "rb_query::hybrid::SparseHit", "file_path": "crates/rb-query/src/hybrid.rs", "line_start": 75, "line_end": 82, "score": 0.38},
+      {"fqn": "rb_query::vector::search::SemanticHit", "file_path": "crates/rb-query/src/vector/search.rs", "line_start": 1, "line_end": 20, "score": 0.31},
+      {"fqn": "rb_query::semantic_search", "file_path": "crates/rb-query/src/semantic.rs", "line_start": 1, "line_end": 30, "score": 0.24},
+      {"fqn": "control_api::routes::query::search::SearchResponse", "file_path": "services/control-api/src/routes/query/search.rs", "line_start": 72, "line_end": 81, "score": 0.18}
+    ]
+  }
+}

@@ -17,3 +17,9 @@
 - [ ] No internal board tracking references in title, body, or commit messages
 - [ ] Tests added or updated for changed behaviour
 - [ ] Docs updated if API or architecture changed
+
+## Baseline Regeneration (complete only if `baseline.json` changed)
+
+- [ ] `baseline.json` update is intentional — a metric drop was accepted after manual review
+- [ ] `results-snapshot.json` was regenerated via the `regenerate-eval-baseline` workflow
+- [ ] New baseline metrics have been reviewed and approved by a second engineer
